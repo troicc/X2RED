@@ -14,6 +14,7 @@ jobs:
       X2RED_RAW_DIR: ./ci-data/raw
       X2RED_EXPORT_DIR: ./ci-data/exports
       X2RED_BROWSER_PROFILE_DIR: ./ci-data/profile
+      X2RED_SCHEDULER_ENABLED: "false"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -24,6 +25,7 @@ jobs:
       - run: python -m compileall -q apps/api/app
       - run: x2red migrate
       - run: node --check apps/api/app/static/app.js
+      - run: node --check apps/api/app/static/studio-v07.js
       - run: pytest -q
       # FastAPI requires Depends(...) defaults. E701/E702 only enforce line
       # layout; compileall and tests remain the semantic gate for these services.
