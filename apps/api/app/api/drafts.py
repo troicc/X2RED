@@ -15,7 +15,6 @@ from app.domain.schemas import (
 )
 from app.services.editorial import EditorialService
 
-
 router = APIRouter(prefix="/api", tags=["drafts"])
 
 
