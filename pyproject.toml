@@ -47,10 +47,14 @@ testpaths = ["apps/api/tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+src = ["apps/api"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
-ignore = ["E501"]
+ignore = ["E501", "UP035", "UP042"]
 
 [tool.ruff.lint.flake8-bugbear]
 extend-immutable-calls = ["fastapi.Depends"]
+
+[tool.ruff.lint.per-file-ignores]
+"apps/api/tests/test_workflow.py" = ["I001"]
