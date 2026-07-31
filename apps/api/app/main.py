@@ -286,6 +286,7 @@ def index() -> HTMLResponse:
     scripts = (
         '<script src="/static/studio-v07.js"></script>'
         '<script src="/static/style-v07.js"></script>'
+        '<script src="/static/studio-navigation-v071.js"></script>'
     )
     html = html.replace("</body>", f"{scripts}</body>")
     return HTMLResponse(html)
