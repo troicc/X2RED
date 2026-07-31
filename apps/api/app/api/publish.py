@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_publish_service
 from app.db.session import get_db
 from app.domain.models import DraftRevision, PublishTask
-from app.domain.schemas import PublishResultRequest, PublishTaskOut
+from app.domain.schemas import PublishPrepareRequest, PublishResultRequest, PublishTaskOut
 from app.services.publisher import PublishError, PublishService
 
 router = APIRouter(prefix="/api/publish", tags=["publish"])
@@ -16,6 +16,7 @@ router = APIRouter(prefix="/api/publish", tags=["publish"])
 @router.post("/drafts/{draft_id}/prepare", response_model=PublishTaskOut)
 def prepare_publish(
     draft_id: str,
+    body: PublishPrepareRequest,
     db: Session = Depends(get_db),
     service: PublishService = Depends(get_publish_service),
 ) -> PublishTask:
@@ -23,7 +24,12 @@ def prepare_publish(
     if draft is None:
         raise HTTPException(status_code=404, detail="草稿不存在")
     try:
-        return service.prepare(db, draft)
+        return service.prepare(
+            db,
+            draft,
+            include_cards=body.include_cards,
+            include_source_assets=body.include_source_assets,
+        )
     except PublishError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
