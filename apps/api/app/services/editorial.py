@@ -26,11 +26,31 @@ _STYLE_GUIDES = {
     ),
     "explain": (
         "写成容易读懂的解释型笔记。正文依次包含：先说结论、值得关注的3个点、"
-        "这意味着什么、阅读提醒。每个要点必须具体，避免重复原文。"
+        "这对读者有什么用、阅读提醒。每个要点必须具体，避免重复原文。"
     ),
     "opinion": (
         "写成有依据的编辑观察。正文依次包含：我的判断、判断依据、需要警惕的地方、"
-        "给读者的一个问题。明确区分原作者观点与编辑判断。"
+        "给读者的判断框架。明确区分原作者观点与编辑判断。"
+    ),
+}
+
+_TRANSFORM_GUIDES = {
+    "de_translate": (
+        "只改中文表达，不改事实、数字、来源和判断边界。彻底去掉英译中腔：打散英文语序，"
+        "减少‘如果你正在…那么…’‘这意味着’‘值得关注的是’‘对于…而言’等模板句；"
+        "使用自然、克制、有节奏的中文短句，让文章像中文内容主编重新组织，而不是翻译。"
+    ),
+    "stronger_insight": (
+        "保留事实边界，但增强编辑判断。删掉泛泛而谈的意义段，明确指出最值得关注的变化、"
+        "它影响谁、为什么现在值得讨论，以及哪些结论仍不能下。观点必须由已有事实支撑。"
+    ),
+    "concise": (
+        "把正文压缩约三分之一。删除重复信息、空泛过渡和同义反复；保留结论、关键证据、"
+        "读者价值和核查边界。短段落，不牺牲准确性。"
+    ),
+    "rewrite_title": (
+        "只重写标题。给出一个12到22个汉字、具体、有信息增量、不过度承诺的标题。"
+        "不要使用‘震惊’‘炸裂’‘必看’‘终于来了’等标题党表达。"
     ),
 }
 
@@ -54,6 +74,10 @@ _KEYWORD_TAGS = {
     "design": "设计思考",
     "creator": "内容创作",
     "content": "内容创作",
+    "interface": "界面设计",
+    "navigation": "交互设计",
+    "ux": "UX设计",
+    "ui": "UI设计",
 }
 
 _ANALYSIS_FIELDS = (
@@ -79,22 +103,20 @@ class EditorialService:
         context = self._context(db, source)
         model_result = await self._model_generate(context, style)
         analysis: dict = {}
+        quality_passes: list[str] = []
         if model_result is None:
             generated = self._fallback(context, style)
             generator = "structured-fallback"
         else:
             generated = model_result["draft"]
             analysis = self._compact_analysis(model_result["analysis"])
-            generator = "model-two-pass"
+            quality_passes = list(model_result.get("quality_passes") or [])
+            generator = "model-three-pass"
         generated = self._sanitize_generated(generated, context, style)
 
-        version = int(
-            db.scalar(select(func.max(DraftRevision.version)).where(DraftRevision.source_id == source.id))
-            or 0
-        ) + 1
         draft = DraftRevision(
             source_id=source.id,
-            version=version,
+            version=self._next_version(db, source.id),
             style=style,
             title=generated["title"][:80],
             body=generated["body"][:4000],
@@ -105,12 +127,13 @@ class EditorialService:
                     "source_ids": [item.id for item in context],
                     "source_urls": [item.canonical_url for item in context],
                     "generator": generator,
-                    "model": self.settings.model_name if generator == "model-two-pass" else "",
+                    "model": self.settings.model_name if generator == "model-three-pass" else "",
+                    "quality_passes": quality_passes,
                     "editorial_analysis": analysis,
                 },
                 ensure_ascii=False,
             ),
-            created_by="model" if generator == "model-two-pass" else "system",
+            created_by="model" if generator == "model-three-pass" else "system",
         )
         db.add(draft)
         db.flush()
@@ -125,17 +148,9 @@ class EditorialService:
         body: str,
         tags: str,
     ) -> DraftRevision:
-        version = int(
-            db.scalar(
-                select(func.max(DraftRevision.version)).where(
-                    DraftRevision.source_id == current.source_id
-                )
-            )
-            or current.version
-        ) + 1
         revised = DraftRevision(
             source_id=current.source_id,
-            version=version,
+            version=self._next_version(db, current.source_id, current.version),
             style=current.style,
             title=title.strip(),
             body=body.strip(),
@@ -148,13 +163,116 @@ class EditorialService:
         db.flush()
         return revised
 
+    async def transform(
+        self,
+        db: Session,
+        current: DraftRevision,
+        *,
+        action: str,
+        instruction: str = "",
+    ) -> DraftRevision:
+        if action not in _TRANSFORM_GUIDES:
+            raise ValueError("未知的 AI 编辑动作")
+        if not (self.settings.model_base_url and self.settings.model_name):
+            raise ValueError("尚未配置 AI 模型，无法执行智能改写")
+
+        context = self._context(db, current.source)
+        source_json = json.dumps(self._source_blocks(context), ensure_ascii=False)[:16000]
+        provenance = self._parse_object(current.provenance_json)
+        analysis = provenance.get("editorial_analysis") if isinstance(provenance, dict) else {}
+        claims = self._parse_list(current.claims_json)
+        action_guide = _TRANSFORM_GUIDES[action]
+        extra = instruction.strip()
+
+        prompt = f"""
+请对下面这篇中文小红书草稿执行一次受约束的编辑改写。
+
+编辑动作：{action}
+动作要求：{action_guide}
+用户补充要求：{extra or "无"}
+
+编辑分析：
+{json.dumps(analysis or {}, ensure_ascii=False)[:9000]}
+
+原始来源：
+{source_json}
+
+当前草稿：
+标题：{current.title}
+标签：{current.tags}
+正文：
+{current.body}
+
+严格要求：
+1. 不得新增来源没有支持的人名、数字、日期、效果、因果关系或行业结论。
+2. 不得把原作者主张改写成已验证事实。
+3. 不确定内容必须继续保留边界措辞。
+4. 不要解释改了什么，只输出合法 JSON。
+5. 若动作是 rewrite_title，只改变 title，body 和 tags 原样返回。
+
+输出：
+{{"title":"标题","body":"正文","tags":["标签1","标签2"]}}
+""".strip()
+
+        parsed = await self._chat_json(
+            system_prompt=(
+                "你是中文内容主编，擅长去翻译腔、压缩信息和增强有证据的判断。"
+                "你只能在现有来源和编辑分析允许的范围内修改。"
+            ),
+            user_prompt=prompt,
+            temperature=0.35 if action != "rewrite_title" else 0.6,
+            reasoning_effort="medium",
+        )
+
+        title = str(parsed.get("title") or current.title)
+        body = str(parsed.get("body") or current.body)
+        tags = self._tags_value(parsed.get("tags")) or current.tags
+        if action == "rewrite_title":
+            body = current.body
+            tags = current.tags
+
+        generated = self._sanitize_generated(
+            {"title": title, "body": body, "tags": tags, "claims": claims},
+            context,
+            current.style,
+        )
+        quality_passes = list(provenance.get("quality_passes") or []) if isinstance(provenance, dict) else []
+        quality_passes.append(action)
+        next_provenance = {
+            **(provenance if isinstance(provenance, dict) else {}),
+            "generator": "model-transform",
+            "model": self.settings.model_name,
+            "parent_draft_id": current.id,
+            "transform_action": action,
+            "quality_passes": quality_passes[-12:],
+        }
+        revised = DraftRevision(
+            source_id=current.source_id,
+            version=self._next_version(db, current.source_id, current.version),
+            style=current.style,
+            title=generated["title"][:80],
+            body=generated["body"][:4000],
+            tags=generated["tags"][:500],
+            claims_json=json.dumps(generated["claims"], ensure_ascii=False),
+            provenance_json=json.dumps(next_provenance, ensure_ascii=False),
+            created_by="model-polish",
+        )
+        db.add(revised)
+        db.flush()
+        return revised
+
     def _context(self, db: Session, source: SourceItem) -> list[SourceItem]:
         connected = connected_sources(db, source.id)
         return [source, *(item for item in connected if item.id != source.id)]
 
+    @staticmethod
+    def _next_version(db: Session, source_id: str, fallback: int = 0) -> int:
+        current = db.scalar(
+            select(func.max(DraftRevision.version)).where(DraftRevision.source_id == source_id)
+        )
+        return int(current or fallback) + 1
+
     async def _model_generate(self, context: list[SourceItem], style: str) -> dict | None:
-        # API keys are optional so local OpenAI-compatible servers such as Ollama
-        # and LM Studio work without fake credentials.
         if not (self.settings.model_base_url and self.settings.model_name):
             return None
 
@@ -168,13 +286,13 @@ class EditorialService:
 写作类型：{style_label}
 
 分析任务：
-1. 用一句话说明真正发生了什么，不要逐句翻译。
+1. 用一句自然中文说明真正发生了什么，不要逐句翻译。
 2. 区分“来源直接陈述的事实”“原作者自己的判断/宣传”“目前无法确认的内容”。
-3. 找出这条信息对中文读者真正有用的地方，避免泛泛而谈。
+3. 找出这条信息对中文读者真正有用的地方，拒绝‘值得关注’式空话。
 4. 提出 3 个明显不同的选题角度，并推荐其中一个，说明推荐理由。
 5. 给出 5 个不标题党、但有信息增量的中文标题候选。
 6. 设计正文结构：每一节写什么、依据来自哪些 source_index。
-7. 列出写作时必须避免的误读、夸大和事实跳跃。
+7. 列出写作时必须避免的误读、夸大、英译中腔和事实跳跃。
 
 只输出合法 JSON：
 {{
@@ -202,8 +320,8 @@ class EditorialService:
         try:
             analysis = await self._chat_json(
                 system_prompt=(
-                    "你是一名资深中文内容主编和事实核查编辑。先分析证据、价值和叙事角度，"
-                    "再决定怎么写；不把原作者的宣传自动视为事实。"
+                    "你是一名资深中文内容主编和事实核查编辑。先分析证据、读者价值和叙事角度，"
+                    "再决定怎么写；不把原作者宣传自动视为事实。"
                 ),
                 user_prompt=analysis_prompt,
                 temperature=0.2,
@@ -223,16 +341,17 @@ class EditorialService:
 {source_json}
 
 必须遵守：
-1. 采用编辑分析中的 recommended_angle，不要把所有角度混成一篇流水账。
+1. 采用 recommended_angle，不把所有角度混成流水账。
 2. 标题 12-22 个汉字，优先从 title_candidates 中择优改写；具体、有信息量，拒绝标题党。
-3. 开头两行直接交代“发生了什么”和“为什么值得读”。
-4. 正文 500-1000 个汉字，短段落，每节都要推进信息，不复述同一句话。
-5. 必须把来源事实、作者观点和编辑判断清楚区分。
+3. 开头两行直接交代发生了什么，以及读者为什么值得继续看。
+4. 正文 500-1000 个汉字；短段落；每节必须推进信息，不逐句翻译和复述。
+5. 明确区分来源事实、作者观点和编辑判断。
 6. 不得添加来源和分析中没有的人名、数字、日期、效果、因果关系或行业结论。
-7. uncertainties 中的内容必须用保守措辞呈现，不得写成确定事实。
+7. uncertainties 中的内容必须用保守措辞，不得写成确定事实。
 8. 结尾给读者一个具体判断框架或行动建议，不写空洞互动话术。
 9. 标签给出 4-7 个，不带 #，避免“热门”“干货”等空泛词。
-10. claims 中每一项包含 statement、source_index、verification；verification 只能是 source_only 或 needs_external_check。
+10. 避免反复使用“这条更新”“这意味着”“值得关注的是”“对于…而言”等模板表达。
+11. claims 中每项包含 statement、source_index、verification；verification 只能是 source_only 或 needs_external_check。
 
 只输出合法 JSON：
 {{
@@ -245,7 +364,7 @@ class EditorialService:
 }}
 """.strip()
 
-            parsed = await self._chat_json(
+            initial = await self._chat_json(
                 system_prompt=(
                     "你是一名严谨、有判断力、熟悉小红书阅读节奏的中文主编。"
                     "你根据已经完成的编辑分析写作，而不是机械翻译或堆砌原文。"
@@ -254,23 +373,56 @@ class EditorialService:
                 temperature=0.5,
                 reasoning_effort="medium",
             )
-            tags = parsed.get("tags")
-            if isinstance(tags, list):
-                tags_value = ",".join(str(tag) for tag in tags)
-            else:
-                tags_value = str(tags or "")
-            claims = self._map_model_claims(parsed.get("claims"), context)
+            final = await self._polish_draft(initial, analysis, source_json)
+            tags_value = self._tags_value(final.get("tags")) or self._tags_value(initial.get("tags"))
+            claims = self._map_model_claims(initial.get("claims"), context)
             return {
                 "analysis": analysis,
+                "quality_passes": ["analysis", "draft", "de_translation"],
                 "draft": {
-                    "title": str(parsed.get("title") or ""),
-                    "body": str(parsed.get("body") or ""),
+                    "title": str(final.get("title") or initial.get("title") or ""),
+                    "body": str(final.get("body") or initial.get("body") or ""),
                     "tags": tags_value,
                     "claims": claims,
                 },
             }
         except (httpx.HTTPError, KeyError, TypeError, ValueError, json.JSONDecodeError):
             return None
+
+    async def _polish_draft(self, initial: dict, analysis: dict, source_json: str) -> dict:
+        prompt = f"""
+请把下面的初稿做最后一轮中文编辑。目标不是润色得更华丽，而是去掉 AI 翻译味，提升判断密度和中文节奏。
+
+编辑分析：
+{json.dumps(analysis, ensure_ascii=False)[:9000]}
+
+原始来源：
+{source_json}
+
+初稿：
+{json.dumps(initial, ensure_ascii=False)[:12000]}
+
+要求：
+1. 所有事实、数字、来源归属和不确定性边界保持不变。
+2. 打散英文语序；删除机械过渡、同义反复和‘这条更新/这意味着/值得关注的是’式模板句。
+3. 不使用‘如果你正在…那么…’‘对于…而言’等典型翻译腔。
+4. 用自然中文重新组织句子，长短句交替；每段只承担一个意思。
+5. 不增加行业背景，不伪造个人体验，不使用廉价情绪和互动话术。
+6. 标题必须具体，正文必须像中文内容编辑写成，而不是英文原文的影子。
+7. 只输出合法 JSON：{{"title":"标题","body":"正文","tags":["标签"]}}。
+""".strip()
+        try:
+            return await self._chat_json(
+                system_prompt=(
+                    "你是中文母语内容总编，专门消除机器翻译痕迹。"
+                    "你重组表达但绝不改变事实和判断边界。"
+                ),
+                user_prompt=prompt,
+                temperature=0.35,
+                reasoning_effort="low",
+            )
+        except (httpx.HTTPError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+            return initial
 
     async def _chat_json(
         self,
@@ -362,6 +514,9 @@ class EditorialService:
             "topic": str(analysis.get("topic") or "")[:300],
             "one_sentence_summary": str(analysis.get("one_sentence_summary") or "")[:600],
             "recommended_angle": analysis.get("recommended_angle") or {},
+            "verified_facts": (analysis.get("verified_facts") or [])[:6],
+            "author_claims": (analysis.get("author_claims") or [])[:6],
+            "audience_value": (analysis.get("audience_value") or [])[:6],
             "uncertainties": (analysis.get("uncertainties") or [])[:8],
             "title_candidates": (analysis.get("title_candidates") or [])[:5],
         }
@@ -380,6 +535,28 @@ class EditorialService:
         if not isinstance(parsed, dict):
             raise ValueError("model response is not a JSON object")
         return parsed
+
+    @staticmethod
+    def _parse_object(value: str) -> dict:
+        try:
+            parsed = json.loads(value or "{}")
+        except (TypeError, json.JSONDecodeError):
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    @staticmethod
+    def _parse_list(value: str) -> list:
+        try:
+            parsed = json.loads(value or "[]")
+        except (TypeError, json.JSONDecodeError):
+            return []
+        return parsed if isinstance(parsed, list) else []
+
+    @staticmethod
+    def _tags_value(value: object) -> str:
+        if isinstance(value, list):
+            return ",".join(str(tag) for tag in value)
+        return str(value or "")
 
     @staticmethod
     def _map_model_claims(value: object, context: list[SourceItem]) -> list[dict]:
@@ -437,38 +614,38 @@ class EditorialService:
                 "核心信息",
                 *[f"• {text}" for text in supporting[:3]],
                 "为什么值得关注",
-                "这条信息的价值在于，它给出了来自原作者的一手描述；但目前材料仍主要来自单一 X 来源。",
+                "这是一条来自原作者的一手线索；目前材料仍主要来自单一 X 来源。",
                 "仍需确认",
-                "涉及具体数字、时间、效果或因果判断时，应回到原帖，并结合公开资料做二次核查。",
+                "涉及数字、时间、效果或因果判断时，应回到原帖，并结合公开资料做二次核查。",
             ]
         elif style == "opinion":
             body_parts = [
                 "我的判断",
-                f"这条内容值得关注，但更适合作为一个观察信号，而不是可以直接下结论的完整证据。{summary}",
+                f"这更像一个值得跟进的观察信号，而不是可以直接下结论的完整证据。{summary}",
                 "判断依据",
                 *[f"• {text}" for text in ([summary, *supporting][:3])],
                 "需要警惕的地方",
-                "当前信息主要来自原作者自己的表述。没有外部材料支撑的效果、数字和趋势判断，都应保持保留。",
-                "留给读者的问题",
-                "这条更新真正改变的是产品能力、使用体验，还是只是表达方式？",
+                "当前信息主要来自原作者自己的表述。没有外部材料支撑的效果、数字和趋势判断，都应保留。",
+                "给读者的判断框架",
+                "先确认它改变了什么具体行为，再判断这是不是可复制的趋势。",
             ]
         else:
             body_parts = [
                 "先说结论",
-                f"@{handle} 的这条更新，核心信息是：{summary}",
+                f"@{handle} 的核心信息是：{summary}",
                 "值得关注的 3 个点",
             ]
             points = [summary, *supporting]
             for index, point in enumerate(points[:3], start=1):
                 body_parts.append(f"{index}️⃣ {point}")
             if len(points) < 3:
-                body_parts.append("3️⃣ 目前来源信息有限，关键细节仍需要结合原帖上下文确认。")
+                body_parts.append("3️⃣ 目前来源信息有限，关键细节仍需结合原帖上下文确认。")
             body_parts.extend(
                 [
-                    "这意味着什么",
-                    "它至少提供了一个来自原作者的一手信号。真正的影响范围、适用条件和实际效果，还需要更多公开材料验证。",
+                    "这对读者有什么用",
+                    "它提供了一条来自原作者的一手线索。真正的适用条件和实际效果，还需要更多公开材料验证。",
                     "阅读提醒",
-                    "本文是基于 X 原帖的结构化整理，不把作者观点自动当作已验证事实。",
+                    "本文基于 X 原帖进行结构化整理，不把作者观点自动当作已验证事实。",
                 ]
             )
 
@@ -508,7 +685,7 @@ class EditorialService:
         if not body:
             body = self._fallback(context, style)["body"]
 
-        raw_tags = str(generated.get("tags") or "")
+        raw_tags = self._tags_value(generated.get("tags"))
         tags = []
         for value in re.split(r"[,，#\n]+", raw_tags):
             tag = re.sub(r"\s+", "", value).strip()
@@ -541,7 +718,7 @@ class EditorialService:
             if first_sentence:
                 return first_sentence[:22].rstrip("，。！？；：")
         handle_text = re.sub(r"[^A-Za-z0-9_\u4e00-\u9fff]", "", handle)[:14]
-        return f"来自@{handle_text}的关键信息" if handle_text else "这条X更新讲了什么"
+        return f"来自@{handle_text}的关键信息" if handle_text else "这条X内容讲了什么"
 
     def _fallback_tags(self, focal: SourceItem, style: str, text: str) -> list[str]:
         normalized = f" {text.lower()} "
