@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Iterable
+from collections.abc import Iterable
 
 import httpx
 from sqlalchemy import func, select
@@ -11,7 +11,6 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.domain.models import DraftRevision, SourceItem
 from app.services.source_graph import connected_sources
-
 
 _STYLE_LABELS = {
     "news": "资讯速览",
@@ -89,7 +88,8 @@ class EditorialService:
         return revised
 
     def _context(self, db: Session, source: SourceItem) -> list[SourceItem]:
-        return connected_sources(db, source.id)
+        connected = connected_sources(db, source.id)
+        return [source, *(item for item in connected if item.id != source.id)]
 
     async def _model_generate(self, context: list[SourceItem], style: str) -> dict | None:
         if not (
@@ -142,7 +142,12 @@ class EditorialService:
     def _fallback(self, context: Iterable[SourceItem], style: str) -> dict:
         items = list(context)
         focal = items[0]
-        cleaned = [self._clean(item.text_original) for item in items if item.text_original.strip()]
+        cleaned_pairs = [
+            (item, self._clean(item.text_original))
+            for item in items
+            if item.text_original.strip()
+        ]
+        cleaned = [text for _, text in cleaned_pairs]
         first = cleaned[0] if cleaned else "这条 X 内容暂无可用正文。"
         title_seed = re.sub(r"https?://\S+", "", first).strip()
         title = title_seed[:18].rstrip("，。！？；：") or "一条值得关注的 X 更新"
@@ -171,8 +176,7 @@ class EditorialService:
                 "source_url": item.canonical_url,
                 "verification": "source_only",
             }
-            for item, text in zip(items, cleaned, strict=False)
-            if text
+            for item, text in cleaned_pairs
         ]
         handle_tag = focal.author_handle.replace("_", "") if focal.author_handle else "X观察"
         return {
