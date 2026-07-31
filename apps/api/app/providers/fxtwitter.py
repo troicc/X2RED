@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -20,7 +21,7 @@ class FxTwitterProvider:
             follow_redirects=False,
             headers={
                 "Accept": "application/json",
-                "User-Agent": "X2RED/0.1 local editorial client",
+                "User-Agent": "X2RED/0.3 local editorial client",
             },
         )
 
@@ -31,9 +32,12 @@ class FxTwitterProvider:
         last_error: Exception | None = None
         for attempt in range(3):
             try:
-                response = await self.client.get(f"{self.base_url}{path}", params=params)
+                response = await self.client.get(
+                    f"{self.base_url}{path}",
+                    params={key: value for key, value in (params or {}).items() if value not in (None, "")},
+                )
                 if response.status_code == 204:
-                    return {"code": 204, "status": None, "thread": []}
+                    return {"code": 204, "results": [], "cursor": {"top": None, "bottom": None}}
                 if response.status_code in {429, 500, 502, 503, 504}:
                     raise FxTwitterError(f"temporary upstream error: {response.status_code}")
                 response.raise_for_status()
@@ -50,6 +54,9 @@ class FxTwitterProvider:
                     await asyncio.sleep(0.5 * (2**attempt))
         raise FxTwitterError(str(last_error or "FxTwitter request failed"))
 
+    async def get_status(self, post_id: str) -> dict:
+        return await self._get(f"/2/status/{post_id}")
+
     async def get_thread(self, post_id: str) -> dict:
         return await self._get(f"/2/thread/{post_id}")
 
@@ -57,4 +64,78 @@ class FxTwitterProvider:
         return await self._get(
             f"/2/conversation/{post_id}",
             params={"ranking_mode": "likes"},
+        )
+
+    async def get_quotes(
+        self,
+        post_id: str,
+        *,
+        count: int = 20,
+        cursor: str | None = None,
+    ) -> dict:
+        return await self._get(
+            f"/2/status/{post_id}/quotes",
+            params={"count": max(1, min(count, 100)), "cursor": cursor},
+        )
+
+    async def get_profile(self, handle: str, *, about_account: bool = True) -> dict:
+        encoded = quote(handle.strip().lstrip("@"), safe=":")
+        if not encoded:
+            raise FxTwitterError("profile handle cannot be empty")
+        return await self._get(
+            f"/2/profile/{encoded}",
+            params={"about_account": "1" if about_account else None},
+        )
+
+    async def get_timeline(
+        self,
+        handle: str,
+        *,
+        count: int = 20,
+        cursor: str | None = None,
+        since: int | None = None,
+        media_only: bool = False,
+    ) -> dict:
+        encoded = quote(handle.strip().lstrip("@"), safe=":")
+        if not encoded:
+            raise FxTwitterError("profile handle cannot be empty")
+        suffix = "media" if media_only else "statuses"
+        return await self._get(
+            f"/2/profile/{encoded}/{suffix}",
+            params={
+                "count": max(1, min(count, 100)),
+                "cursor": cursor,
+                "since": since,
+            },
+        )
+
+    async def search(
+        self,
+        query: str,
+        *,
+        feed: str = "latest",
+        count: int = 30,
+        cursor: str | None = None,
+        language: str | None = None,
+    ) -> dict:
+        cleaned_query = query.strip()
+        if not cleaned_query:
+            raise FxTwitterError("search query cannot be empty")
+        if feed not in {"latest", "top", "media"}:
+            raise FxTwitterError(f"unsupported search feed: {feed}")
+        return await self._get(
+            "/2/search",
+            params={
+                "q": cleaned_query,
+                "feed": feed,
+                "count": max(1, min(count, 100)),
+                "cursor": cursor,
+                "lang": language,
+            },
+        )
+
+    async def trends(self, *, count: int = 20) -> dict:
+        return await self._get(
+            "/2/trends",
+            params={"type": "trending", "count": max(1, min(count, 50))},
         )
