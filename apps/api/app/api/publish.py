@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_publish_service
 from app.db.session import get_db
 from app.domain.models import DraftRevision, PublishTask
-from app.domain.schemas import PublishTaskOut
+from app.domain.schemas import PublishResultRequest, PublishTaskOut
 from app.services.publisher import PublishError, PublishService
 
 
@@ -45,5 +45,21 @@ async def open_xhs(
         raise HTTPException(status_code=404, detail="发布任务不存在")
     try:
         return await service.open_xhs_preview(db, task)
+    except PublishError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/{task_id}/mark-published", response_model=PublishTaskOut)
+def mark_published(
+    task_id: str,
+    body: PublishResultRequest,
+    db: Session = Depends(get_db),
+    service: PublishService = Depends(get_publish_service),
+) -> PublishTask:
+    task = db.get(PublishTask, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="发布任务不存在")
+    try:
+        return service.mark_published(db, task, body.result_url)
     except PublishError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
