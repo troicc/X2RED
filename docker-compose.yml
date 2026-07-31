@@ -4,7 +4,7 @@ services:
     working_dir: /workspace
     command: >-
       sh -c "pip install --no-build-isolation -e . &&
-      uvicorn app.main:app --app-dir apps/api --host 0.0.0.0 --port 8787"
+      x2red serve --host 0.0.0.0 --port 8787"
     ports:
       - "127.0.0.1:8787:8787"
     volumes:
