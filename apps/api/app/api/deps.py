@@ -4,6 +4,7 @@ from fastapi import Request
 
 from app.providers.base import XSourceProvider
 from app.services.cards import CardService
+from app.services.discovery import DiscoveryService
 from app.services.editorial import EditorialService
 from app.services.intake import IntakeService
 from app.services.jobs import JobEngine
@@ -16,6 +17,10 @@ def get_provider(request: Request) -> XSourceProvider:
 
 def get_intake_service(request: Request) -> IntakeService:
     return request.app.state.intake_service
+
+
+def get_discovery_service(request: Request) -> DiscoveryService:
+    return request.app.state.discovery_service
 
 
 def get_editorial_service(request: Request) -> EditorialService:
