@@ -7,12 +7,13 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api import assets, cards, drafts, extension, intake, jobs, publish, sources
+from app.api import assets, cards, discovery, drafts, extension, intake, jobs, publish, sources
 from app.core.config import get_settings
 from app.db.base import Base
 from app.db.session import engine
 from app.providers.fxtwitter import FxTwitterProvider
 from app.services.cards import CardService
+from app.services.discovery import DiscoveryService
 from app.services.editorial import EditorialService
 from app.services.intake import IntakeService
 from app.services.jobs import JobEngine
@@ -36,16 +37,18 @@ async def lifespan(app: FastAPI):
         max_bytes=settings.max_media_bytes,
         timeout_seconds=settings.request_timeout_seconds,
     )
+    raw_store = RawStore(settings.raw_dir)
     intake_service = IntakeService(
         settings,
         provider,
-        RawStore(settings.raw_dir),
+        raw_store,
         media_store,
     )
     job_engine = JobEngine(intake_service)
     app.state.provider = provider
     app.state.media_store = media_store
     app.state.intake_service = intake_service
+    app.state.discovery_service = DiscoveryService(provider, raw_store)
     app.state.job_engine = job_engine
     app.state.editorial_service = EditorialService(settings)
     app.state.card_service = CardService(settings)
@@ -57,8 +60,9 @@ async def lifespan(app: FastAPI):
     await media_store.close()
 
 
-app = FastAPI(title="X2RED", version="0.3.0", lifespan=lifespan)
+app = FastAPI(title="X2RED", version="0.4.0", lifespan=lifespan)
 app.include_router(jobs.router)
+app.include_router(discovery.router)
 app.include_router(intake.router)
 app.include_router(assets.router)
 app.include_router(sources.router)
