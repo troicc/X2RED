@@ -30,6 +30,7 @@ jobs:
       - run: x2red migrate
       - run: node --check apps/api/app/static/app.js
       - run: node --check apps/api/app/static/studio-v07.js
+      - run: node --check apps/api/app/static/studio-ux-v072.js
       - run: node --check apps/api/app/static/style-v07.js
       - run: node --check apps/api/app/static/studio-navigation-v071.js
       - run: pytest -q
