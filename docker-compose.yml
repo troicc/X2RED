@@ -1,0 +1,16 @@
+services:
+  api:
+    image: python:3.12-slim
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    command: python -m http.server 8000
+
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: x2red
+      POSTGRES_USER: x2red
+      POSTGRES_PASSWORD: x2red
+    ports:
+      - "5432:5432"
