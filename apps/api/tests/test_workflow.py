@@ -31,54 +31,121 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     class DummyProvider:
         name = "fxtwitter"
 
+        @staticmethod
+        def _status(post_id: str, text: str = "A local-first editorial workflow is available.") -> dict:
+            return {
+                "type": "status",
+                "id": post_id,
+                "url": f"https://x.com/tester/status/{post_id}",
+                "text": text,
+                "created_at": "2026-07-31T01:00:00+00:00",
+                "likes": 12,
+                "reposts": 3,
+                "quotes": 1,
+                "replies": 2,
+                "author": {
+                    "id": "u1",
+                    "screen_name": "tester",
+                    "name": "Test Author",
+                },
+            }
+
+        async def get_status(self, post_id: str) -> dict:
+            return {"code": 200, "status": self._status(post_id)}
+
         async def get_thread(self, post_id: str) -> dict:
+            focal = self._status(post_id, "A new local-first editorial workflow is available.")
+            focal["media"] = {
+                "photos": [
+                    {
+                        "type": "photo",
+                        "url": "https://pbs.twimg.com/media/test.jpg",
+                        "width": 1600,
+                        "height": 900,
+                        "altText": "test image",
+                    }
+                ]
+            }
             return {
                 "code": 200,
-                "status": {
-                    "type": "status",
-                    "id": post_id,
-                    "url": f"https://x.com/tester/status/{post_id}",
-                    "text": "A new local-first editorial workflow is available.",
-                    "created_at": "2026-07-31T01:00:00+00:00",
-                    "likes": 12,
-                    "reposts": 3,
-                    "quotes": 1,
-                    "replies": 2,
-                    "author": {
-                        "id": "u1",
-                        "screen_name": "tester",
-                        "name": "Test Author",
-                    },
-                    "media": {
-                        "photos": [
-                            {
-                                "type": "photo",
-                                "url": "https://pbs.twimg.com/media/test.jpg",
-                                "width": 1600,
-                                "height": 900,
-                                "altText": "test image",
-                            }
-                        ]
-                    },
-                },
+                "status": focal,
                 "thread": [
-                    {
-                        "type": "status",
-                        "id": "9876543211",
-                        "url": "https://x.com/tester/status/9876543211",
-                        "text": "The second post explains the review gate.",
-                        "created_at": "2026-07-31T01:01:00+00:00",
-                        "author": {
-                            "id": "u1",
-                            "screen_name": "tester",
-                            "name": "Test Author",
-                        },
-                    }
+                    self._status("9876543211", "The second post explains the review gate.")
                 ],
             }
 
         async def get_conversation(self, post_id: str) -> dict:
             return await self.get_thread(post_id)
+
+        async def get_quotes(
+            self,
+            post_id: str,
+            *,
+            count: int = 20,
+            cursor: str | None = None,
+        ) -> dict:
+            return {
+                "code": 200,
+                "results": [self._status("7776543210", f"Quote about {post_id}")],
+                "cursor": {"top": None, "bottom": cursor or "next-quotes"},
+            }
+
+        async def get_profile(self, handle: str, *, about_account: bool = True) -> dict:
+            return {
+                "code": 200,
+                "user": {
+                    "id": "u1",
+                    "screen_name": handle.lstrip("@"),
+                    "name": "Test Author",
+                    "about_account": {"available": about_account},
+                },
+            }
+
+        async def get_timeline(
+            self,
+            handle: str,
+            *,
+            count: int = 20,
+            cursor: str | None = None,
+            since: int | None = None,
+            media_only: bool = False,
+        ) -> dict:
+            return {
+                "code": 200,
+                "results": [
+                    self._status(
+                        "6676543210",
+                        f"Timeline result for {handle}; media={media_only}; since={since}",
+                    )
+                ],
+                "cursor": {"top": None, "bottom": cursor or "next-timeline"},
+            }
+
+        async def search(
+            self,
+            query: str,
+            *,
+            feed: str = "latest",
+            count: int = 30,
+            cursor: str | None = None,
+            language: str | None = None,
+        ) -> dict:
+            return {
+                "code": 200,
+                "results": [
+                    self._status(
+                        "5576543210",
+                        f"Search result for {query}; feed={feed}; lang={language}",
+                    )
+                ],
+                "cursor": {"top": None, "bottom": cursor or "next-search"},
+            }
+
+        async def trends(self, *, count: int = 20) -> dict:
+            return {
+                "code": 200,
+                "trends": [{"name": "Local AI", "tweet_count": count}],
+            }
 
         async def close(self) -> None:
             return None
@@ -87,7 +154,20 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         dummy = DummyProvider()
         main_module.app.state.provider = dummy
         main_module.app.state.intake_service.provider = dummy
+        main_module.app.state.discovery_service.provider = dummy
         yield test_client
+
+
+def wait_for_job(client: TestClient, job_id: str) -> dict:
+    job: dict = {}
+    for _ in range(100):
+        current = client.get(f"/api/jobs/{job_id}")
+        assert current.status_code == 200
+        job = current.json()
+        if job["state"] in {"succeeded", "failed"}:
+            return job
+        time.sleep(0.05)
+    return job
 
 
 def test_durable_intake_job(client: TestClient) -> None:
@@ -103,19 +183,66 @@ def test_durable_intake_job(client: TestClient) -> None:
     job = queued.json()
     assert job["state"] in {"pending", "running"}
 
-    for _ in range(100):
-        current = client.get(f"/api/jobs/{job['id']}")
-        assert current.status_code == 200
-        job = current.json()
-        if job["state"] in {"succeeded", "failed"}:
-            break
-        time.sleep(0.05)
-
+    job = wait_for_job(client, job["id"])
     assert job["state"] == "succeeded", job
     result = json.loads(job["result_json"])
     assert result["external_id"] == "8876543210"
     assert result["imported_count"] == 2
     assert client.get(f"/api/sources/{result['source_id']}").status_code == 200
+
+
+def test_discovery_candidate_inbox_and_import(client: TestClient) -> None:
+    search = client.post(
+        "/api/discovery/search",
+        json={"query": "local AI", "feed": "latest", "count": 20},
+    )
+    assert search.status_code == 200, search.text
+    search_data = search.json()
+    assert search_data["cursor"]["bottom"] == "next-search"
+    assert len(search_data["candidates"]) == 1
+    candidate = search_data["candidates"][0]
+    assert candidate["external_id"] == "5576543210"
+    assert candidate["state"] == "new"
+
+    queued = client.post(
+        f"/api/discovery/candidates/{candidate['id']}/import",
+        json={"mode": "thread", "download_media": False},
+    )
+    assert queued.status_code == 202, queued.text
+    job = wait_for_job(client, queued.json()["id"])
+    assert job["state"] == "succeeded", job
+
+    imported = client.get("/api/discovery/candidates?candidate_state=imported")
+    assert imported.status_code == 200
+    assert any(item["id"] == candidate["id"] for item in imported.json())
+
+    timeline = client.post(
+        "/api/discovery/timeline",
+        json={"handle": "tester", "count": 10, "media_only": False},
+    )
+    assert timeline.status_code == 200, timeline.text
+    assert timeline.json()["candidates"][0]["external_id"] == "6676543210"
+
+    quotes = client.post(
+        "/api/discovery/quotes",
+        json={"post_id": "5576543210", "count": 10},
+    )
+    assert quotes.status_code == 200, quotes.text
+    assert quotes.json()["candidates"][0]["external_id"] == "7776543210"
+
+    trends = client.post("/api/discovery/trends", json={"count": 10})
+    assert trends.status_code == 200, trends.text
+    trend_candidate = trends.json()["candidates"][0]
+    assert trend_candidate["kind"] == "trend"
+    trend_import = client.post(
+        f"/api/discovery/candidates/{trend_candidate['id']}/import",
+        json={"mode": "thread", "download_media": False},
+    )
+    assert trend_import.status_code == 400
+
+    profile = client.get("/api/discovery/profile/tester")
+    assert profile.status_code == 200
+    assert profile.json()["user"]["screen_name"] == "tester"
 
 
 def test_end_to_end_editorial_workflow(client: TestClient, tmp_path: Path) -> None:
