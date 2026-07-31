@@ -30,7 +30,7 @@ async function health() {
 async function loadSources(selectId = null) {
   const items = await api("/api/sources");
   const list = $("source-list");
-  list.innerHTML = "";
+  list.replaceChildren();
   for (const item of items) {
     const node = $("source-template").content.cloneNode(true);
     const button = node.querySelector("button");
@@ -48,7 +48,7 @@ async function selectSource(id) {
   state.sourceId = id;
   state.draftId = null;
   document.querySelectorAll(".source-item").forEach((el) => el.classList.toggle("active", el.dataset.id === id));
-  const item = await api(`/api/sources/${id}`);
+  const item = await api(`/api/sources/${encodeURIComponent(id)}`);
   $("empty-detail").hidden = true;
   $("source-detail").hidden = false;
   $("source-author").textContent = `${item.author_name || ""} @${item.author_handle || ""}`;
@@ -63,20 +63,25 @@ async function selectSource(id) {
 
 function renderAssets(assets) {
   const box = $("assets");
-  box.innerHTML = "";
+  box.replaceChildren();
   for (const asset of assets) {
     const wrap = document.createElement("div");
     wrap.className = "asset";
-    const url = asset.local_path ? `/api/assets/${asset.id}/file` : asset.remote_url;
-    if (asset.kind === "image") wrap.innerHTML = `<img src="${url}" alt=""><div>${asset.state}</div>`;
-    else wrap.innerHTML = `<video src="${url}" controls></video><div>${asset.state}</div>`;
+    const url = asset.local_path ? `/api/assets/${encodeURIComponent(asset.id)}/file` : asset.remote_url;
+    const media = document.createElement(asset.kind === "image" ? "img" : "video");
+    media.src = url;
+    if (asset.kind === "image") media.alt = asset.alt_text || "";
+    else media.controls = true;
+    const label = document.createElement("div");
+    label.textContent = asset.state;
+    wrap.append(media, label);
     if (asset.error) wrap.title = asset.error;
     box.appendChild(wrap);
   }
 }
 
 async function loadDrafts(sourceId) {
-  const drafts = await api(`/api/sources/${sourceId}/drafts`);
+  const drafts = await api(`/api/sources/${encodeURIComponent(sourceId)}/drafts`);
   if (!drafts.length) {
     $("empty-editor").hidden = false;
     $("draft-form").hidden = true;
@@ -123,7 +128,7 @@ $("generate-draft").addEventListener("click", async () => {
   const button = $("generate-draft");
   button.disabled = true;
   try {
-    const draft = await api(`/api/sources/${state.sourceId}/drafts`, {
+    const draft = await api(`/api/sources/${encodeURIComponent(state.sourceId)}/drafts`, {
       method: "POST",
       body: JSON.stringify({ style: $("draft-style").value }),
     });
@@ -139,7 +144,7 @@ $("draft-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!state.draftId) return;
   try {
-    const draft = await api(`/api/drafts/${state.draftId}`, {
+    const draft = await api(`/api/drafts/${encodeURIComponent(state.draftId)}`, {
       method: "PUT",
       body: JSON.stringify({
         title: $("draft-title").value,
@@ -157,7 +162,7 @@ $("draft-form").addEventListener("submit", async (event) => {
 async function review(decision) {
   if (!state.draftId) return;
   try {
-    await api(`/api/drafts/${state.draftId}/review`, {
+    await api(`/api/drafts/${encodeURIComponent(state.draftId)}/review`, {
       method: "POST",
       body: JSON.stringify({ decision, reason: "" }),
     });
@@ -172,7 +177,7 @@ $("reject").addEventListener("click", () => review("rejected"));
 $("prepare").addEventListener("click", async () => {
   if (!state.draftId) return;
   try {
-    const task = await api(`/api/publish/drafts/${state.draftId}/prepare`, { method: "POST" });
+    const task = await api(`/api/publish/drafts/${encodeURIComponent(state.draftId)}/prepare`, { method: "POST" });
     message($("draft-status"), `发布包已生成：${task.package_path}`, "ok");
     await loadPublish();
   } catch (error) {
@@ -183,25 +188,67 @@ $("prepare").addEventListener("click", async () => {
 async function loadPublish() {
   const tasks = await api("/api/publish");
   const box = $("publish-list");
-  box.innerHTML = "";
+  box.replaceChildren();
   for (const task of tasks) {
     const row = document.createElement("div");
     row.className = "publish-task";
-    row.innerHTML = `<div><strong>${task.title}</strong><small>${task.state} · ${task.package_path || "尚未打包"}</small><small class="error-text">${task.error || ""}</small></div>`;
-    const button = document.createElement("button");
-    button.textContent = "打开小红书预览";
-    button.disabled = !["packaged", "failed"].includes(task.state);
-    button.addEventListener("click", async () => {
-      button.disabled = true;
+
+    const details = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = task.title;
+    const meta = document.createElement("small");
+    meta.textContent = `${task.state} · ${task.package_path || "尚未打包"}`;
+    const error = document.createElement("small");
+    error.className = "error-text";
+    error.textContent = task.error || "";
+    details.append(title, meta, error);
+    if (task.result_url) {
+      const result = document.createElement("a");
+      result.href = task.result_url;
+      result.target = "_blank";
+      result.rel = "noreferrer";
+      result.textContent = "查看已发布笔记";
+      details.appendChild(result);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "row wrap gap";
+    const openButton = document.createElement("button");
+    openButton.textContent = "打开小红书预览";
+    openButton.disabled = !["packaged", "failed"].includes(task.state);
+    openButton.addEventListener("click", async () => {
+      openButton.disabled = true;
       try {
-        await api(`/api/publish/${task.id}/open-xhs`, { method: "POST" });
+        await api(`/api/publish/${encodeURIComponent(task.id)}/open-xhs`, { method: "POST" });
         await loadPublish();
-      } catch (error) {
-        alert(error.message);
-        button.disabled = false;
+      } catch (requestError) {
+        alert(requestError.message);
+        openButton.disabled = false;
       }
     });
-    row.appendChild(button);
+    actions.appendChild(openButton);
+
+    if (task.state === "awaiting_user_confirmation") {
+      const confirmButton = document.createElement("button");
+      confirmButton.className = "approve";
+      confirmButton.textContent = "记录发布结果";
+      confirmButton.addEventListener("click", async () => {
+        const resultUrl = window.prompt("粘贴发布成功的小红书作品链接");
+        if (!resultUrl) return;
+        try {
+          await api(`/api/publish/${encodeURIComponent(task.id)}/mark-published`, {
+            method: "POST",
+            body: JSON.stringify({ result_url: resultUrl }),
+          });
+          await loadPublish();
+        } catch (requestError) {
+          alert(requestError.message);
+        }
+      });
+      actions.appendChild(confirmButton);
+    }
+
+    row.append(details, actions);
     box.appendChild(row);
   }
 }
