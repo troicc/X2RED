@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[3]
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="x2red")
@@ -12,9 +14,23 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8787)
     serve.add_argument("--reload", action="store_true")
+    serve.add_argument("--skip-migrate", action="store_true")
 
     sub.add_parser("check", help="validate the local environment")
+    sub.add_parser("migrate", help="upgrade the local database schema")
     return parser
+
+
+def migrate() -> int:
+    from alembic import command
+    from alembic.config import Config
+
+    config = Config(str(ROOT / "alembic.ini"))
+    config.set_main_option("script_location", str(ROOT / "migrations"))
+    config.set_main_option("prepend_sys_path", str(ROOT / "apps/api"))
+    command.upgrade(config, "head")
+    print("database migrations are up to date")
+    return 0
 
 
 def check() -> int:
@@ -22,6 +38,7 @@ def check() -> int:
     from app.db.base import Base
     from app.db.session import engine
 
+    migrate()
     settings = get_settings()
     Base.metadata.create_all(engine)
     print(f"database: {settings.database_url}")
@@ -34,15 +51,19 @@ def check() -> int:
 
 def main() -> int:
     args = build_parser().parse_args()
-    command = args.command or "serve"
-    if command == "check":
+    command_name = args.command or "serve"
+    if command_name == "check":
         return check()
-    if command == "serve":
+    if command_name == "migrate":
+        return migrate()
+    if command_name == "serve":
         import uvicorn
 
+        if not args.skip_migrate:
+            migrate()
         uvicorn.run(
             "app.main:app",
-            app_dir=str(Path(__file__).resolve().parents[2]),
+            app_dir=str(ROOT / "apps/api"),
             host=args.host,
             port=args.port,
             reload=args.reload,
