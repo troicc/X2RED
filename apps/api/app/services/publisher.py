@@ -19,22 +19,11 @@ from app.domain.models import (
     PublishState,
     PublishTask,
     ReviewDecision,
-    RightsStatus,
     SourceItem,
+    WorkspaceState,
+    utcnow,
 )
 from app.services.source_graph import connected_source_ids
-
-_ALLOWED_TEXT_RIGHTS = {
-    RightsStatus.owned.value,
-    RightsStatus.licensed.value,
-    RightsStatus.open_license.value,
-    RightsStatus.limited_quote.value,
-}
-_ALLOWED_MEDIA_RIGHTS = {
-    RightsStatus.owned.value,
-    RightsStatus.licensed.value,
-    RightsStatus.open_license.value,
-}
 
 
 class PublishError(RuntimeError):
@@ -63,15 +52,11 @@ class PublishService:
         )
         if approved is None:
             raise PublishError("草稿尚未通过人工审核")
-        if not (approved.facts_checked and approved.rights_checked):
-            raise PublishError("最新批准记录未完成事实与版权检查")
+        if not approved.facts_checked:
+            raise PublishError("最新批准记录尚未完成人工事实核对")
 
         source_ids = connected_source_ids(db, draft.source_id)
-        sources = db.scalars(select(SourceItem).where(SourceItem.id.in_(source_ids))).all()
-        blocked_sources = [item for item in sources if item.rights_status not in _ALLOWED_TEXT_RIGHTS]
-        if blocked_sources:
-            states = ", ".join(sorted({item.rights_status for item in blocked_sources}))
-            raise PublishError(f"来源版权状态尚不可发布：{states}")
+        sources = list(db.scalars(select(SourceItem).where(SourceItem.id.in_(source_ids))).all())
 
         media_paths: list[str] = []
         selected_asset_ids: list[str] = []
@@ -91,7 +76,6 @@ class PublishService:
             media_paths.extend(str(path) for path in card_paths if Path(str(path)).is_file())
             card_render_id = card_render.id
 
-        source_assets: list[Asset] = []
         if include_source_assets:
             source_assets = list(
                 db.scalars(
@@ -101,17 +85,11 @@ class PublishService:
                     )
                 ).all()
             )
-            blocked_assets = [
-                asset for asset in source_assets if asset.rights_status not in _ALLOWED_MEDIA_RIGHTS
-            ]
-            if blocked_assets:
-                states = ", ".join(sorted({asset.rights_status for asset in blocked_assets}))
-                raise PublishError(f"原始媒体版权状态尚不可发布：{states}")
             media_paths.extend(asset.local_path for asset in source_assets if asset.local_path)
-            selected_asset_ids = [asset.id for asset in source_assets]
+            selected_asset_ids = [asset.id for asset in source_assets if asset.local_path]
 
         if not media_paths:
-            raise PublishError("发布包没有可用图片或视频，请生成卡片或选择可发布媒体")
+            raise PublishError("发布包没有可用图片或视频，请先生成卡片")
 
         payload = {
             "draft_id": draft.id,
@@ -122,10 +100,8 @@ class PublishService:
             "assets": media_paths,
             "card_render_id": card_render_id,
             "review_id": approved.id,
-            "rights": {
-                "source_statuses": sorted({item.rights_status for item in sources}),
-                "source_asset_ids": selected_asset_ids,
-            },
+            "source_urls": [item.canonical_url for item in sources],
+            "source_asset_ids": selected_asset_ids,
         }
         seed = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
         seed_digest = hashlib.sha256(seed).hexdigest()
@@ -149,7 +125,7 @@ class PublishService:
                 shutil.copy2(source_path, target)
             packaged_assets.append(str(target.resolve()))
         if not packaged_assets:
-            raise PublishError("发布素材文件已丢失，请重新生成或下载")
+            raise PublishError("发布素材文件已丢失，请重新生成")
         payload["assets"] = packaged_assets
         final_encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2).encode("utf-8")
         digest = hashlib.sha256(final_encoded).hexdigest()
@@ -225,9 +201,19 @@ class PublishService:
             host == "xiaohongshu.com" or host.endswith(".xiaohongshu.com")
         ):
             raise PublishError("请输入有效的小红书 HTTPS 作品链接")
+
+        now = utcnow()
         task.result_url = result_url.strip()
         task.state = PublishState.published.value
         task.error = ""
+        draft = db.get(DraftRevision, task.draft_id)
+        if draft is not None:
+            source = db.get(SourceItem, draft.source_id)
+            if source is not None:
+                source.workspace_state = WorkspaceState.archived.value
+                source.archived_at = now
+                source.last_published_at = now
+                source.published_count += 1
         db.commit()
         db.refresh(task)
         return task
