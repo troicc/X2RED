@@ -2,16 +2,19 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from contextlib import suppress
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.session import SessionLocal
+import app.db.session as db_session
 from app.domain.discovery import CandidateState, DiscoveryCandidate
 from app.domain.jobs import Job, JobState
 from app.domain.models import utcnow
 from app.services.intake import IntakeService
+
+log = logging.getLogger("x2red.jobs")
 
 
 class JobEngine:
@@ -24,7 +27,10 @@ class JobEngine:
     async def start(self) -> None:
         if self._task is not None:
             return
-        with SessionLocal() as db:
+        # Resolve SessionLocal through the module at runtime. Tests and embedded
+        # deployments may reload the database module with a different URL; holding
+        # a function imported by value would leave the worker attached to the old DB.
+        with db_session.SessionLocal() as db:
             interrupted = db.scalars(select(Job).where(Job.state == JobState.running.value)).all()
             for job in interrupted:
                 job.state = JobState.pending.value
@@ -87,14 +93,22 @@ class JobEngine:
 
     async def _loop(self) -> None:
         while self._running:
-            job_id = self._claim_next()
-            if job_id is None:
+            try:
+                job_id = self._claim_next()
+                if job_id is None:
+                    await asyncio.sleep(self.poll_seconds)
+                    continue
+                await self._process(job_id)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # One malformed row or transient database error must not terminate
+                # the durable worker and leave every subsequent job pending forever.
+                log.exception("job engine iteration failed")
                 await asyncio.sleep(self.poll_seconds)
-                continue
-            await self._process(job_id)
 
     def _claim_next(self) -> str | None:
-        with SessionLocal() as db:
+        with db_session.SessionLocal() as db:
             job = db.scalar(
                 select(Job)
                 .where(Job.state == JobState.pending.value)
@@ -112,7 +126,7 @@ class JobEngine:
             return job.id
 
     async def _process(self, job_id: str) -> None:
-        with SessionLocal() as db:
+        with db_session.SessionLocal() as db:
             job = db.get(Job, job_id)
             if job is None or job.state != JobState.running.value:
                 return
