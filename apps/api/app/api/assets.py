@@ -9,7 +9,6 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.domain.models import Asset
 
-
 router = APIRouter(prefix="/api/assets", tags=["assets"])
 
 
