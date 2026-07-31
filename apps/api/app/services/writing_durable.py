@@ -11,6 +11,15 @@ from app.domain.studio import AgentRun, AgentRunStatus, WritingArtifact, Writing
 from app.services.skills import binding_for
 from app.services.writing_core import ROLE_SKILLS
 
+_AUTHOR_CONTEXT_ROLES = {
+    "editor_in_chief",
+    "evidence_researcher",
+    "outline_architect",
+    "writer",
+    "chief_editor",
+    "final_reviser",
+}
+
 
 class DurableAgentRunnerMixin:
     async def _run_agent(
@@ -29,6 +38,17 @@ class DurableAgentRunnerMixin:
         binding = binding_for(db, skill_name, self.settings.model_name)
         if not binding.enabled:
             raise ValueError(f"Skill {skill_name} 已关闭")
+
+        if role in _AUTHOR_CONTEXT_ROLES:
+            decision = self.latest_artifact(db, project.id, "author_decision")
+            if decision is not None:
+                decision_payload = self._json(decision.content_json, {})
+                user_prompt = (
+                    f"{user_prompt}\n\n作者最近一次阶段决定："
+                    f"{json.dumps(decision_payload, ensure_ascii=False)[:5000]}\n"
+                    "必须优先执行作者明确写出的调整要求；不要把已否决版本原样返回。"
+                )
+
         input_hash = hashlib.sha256(
             (
                 f"{role}\n{system_prompt}\n{user_prompt}\n"
