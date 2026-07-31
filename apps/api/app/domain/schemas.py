@@ -170,9 +170,14 @@ class DraftOut(BaseModel):
 
 
 class CardGenerateRequest(BaseModel):
-    template: Literal["editorial_minimal", "tech_minimal", "clean_news", "warm_note"] = (
-        "editorial_minimal"
-    )
+    template: Literal[
+        "editorial_minimal",
+        "tech_minimal",
+        "clean_news",
+        "warm_note",
+        "warm_editorial",
+        "dark_tech",
+    ] = "editorial_minimal"
     max_cards: int = Field(default=6, ge=2, le=9)
 
 
