@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import importlib.util
 import json
@@ -180,7 +181,6 @@ class PublishService:
                 "Playwright 未安装。请执行 pip install -e '.[publisher]'，然后运行 playwright install chromium"
             )
 
-        import subprocess
         import sys
 
         log_path = package.parent / "xhs-preview.log"
@@ -194,8 +194,8 @@ class PublishService:
         log_handle = None
         try:
             log_handle = log_path.open("ab")
-            subprocess.Popen(
-                command,
+            await asyncio.create_subprocess_exec(
+                *command,
                 cwd=str(Path(__file__).resolve().parents[2]),
                 stdout=log_handle,
                 stderr=log_handle,
