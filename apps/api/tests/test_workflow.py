@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -87,6 +88,34 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         main_module.app.state.provider = dummy
         main_module.app.state.intake_service.provider = dummy
         yield test_client
+
+
+def test_durable_intake_job(client: TestClient) -> None:
+    queued = client.post(
+        "/api/jobs/intake",
+        json={
+            "url": "https://x.com/tester/status/8876543210",
+            "mode": "thread",
+            "download_media": False,
+        },
+    )
+    assert queued.status_code == 202, queued.text
+    job = queued.json()
+    assert job["state"] in {"pending", "running"}
+
+    for _ in range(100):
+        current = client.get(f"/api/jobs/{job['id']}")
+        assert current.status_code == 200
+        job = current.json()
+        if job["state"] in {"succeeded", "failed"}:
+            break
+        time.sleep(0.05)
+
+    assert job["state"] == "succeeded", job
+    result = json.loads(job["result_json"])
+    assert result["external_id"] == "8876543210"
+    assert result["imported_count"] == 2
+    assert client.get(f"/api/sources/{result['source_id']}").status_code == 200
 
 
 def test_end_to_end_editorial_workflow(client: TestClient, tmp_path: Path) -> None:
