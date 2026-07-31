@@ -1,15 +1,23 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import shutil
 from pathlib import Path
+from urllib.parse import urlparse
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
-from app.domain.models import Asset, DraftRevision, PublishState, PublishTask, ReviewDecision
+from app.domain.models import (
+    Asset,
+    DraftRevision,
+    PublishState,
+    PublishTask,
+    ReviewDecision,
+)
 
 
 class PublishError(RuntimeError):
@@ -90,10 +98,15 @@ class PublishService:
         package = Path(task.package_path)
         if not package.is_file():
             raise PublishError("发布包不存在，请重新生成")
+        if importlib.util.find_spec("playwright") is None:
+            raise PublishError(
+                "Playwright 未安装。请执行 pip install -e '.[publisher]'，然后运行 playwright install chromium"
+            )
 
         import subprocess
         import sys
 
+        log_path = package.parent / "xhs-preview.log"
         command = [
             sys.executable,
             "-m",
@@ -101,12 +114,14 @@ class PublishService:
             str(package),
             str(self.settings.browser_profile_dir),
         ]
+        log_handle = None
         try:
+            log_handle = log_path.open("ab")
             subprocess.Popen(
                 command,
                 cwd=str(Path(__file__).resolve().parents[2]),
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=log_handle,
+                stderr=log_handle,
                 start_new_session=True,
             )
         except OSError as exc:
@@ -114,8 +129,27 @@ class PublishService:
             task.error = str(exc)[:1000]
             db.commit()
             return task
+        finally:
+            if log_handle is not None:
+                log_handle.close()
 
         task.state = PublishState.awaiting_user_confirmation.value
+        task.error = ""
+        db.commit()
+        db.refresh(task)
+        return task
+
+    def mark_published(self, db: Session, task: PublishTask, result_url: str) -> PublishTask:
+        if task.state != PublishState.awaiting_user_confirmation.value:
+            raise PublishError(f"当前发布状态不可确认：{task.state}")
+        parsed = urlparse(result_url.strip())
+        host = (parsed.hostname or "").lower()
+        if parsed.scheme != "https" or not (
+            host == "xiaohongshu.com" or host.endswith(".xiaohongshu.com")
+        ):
+            raise PublishError("请输入有效的小红书 HTTPS 作品链接")
+        task.result_url = result_url.strip()
+        task.state = PublishState.published.value
         task.error = ""
         db.commit()
         db.refresh(task)
