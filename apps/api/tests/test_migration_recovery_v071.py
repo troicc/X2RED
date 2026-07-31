@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -9,6 +8,7 @@ from alembic import command
 from alembic.config import Config
 
 ROOT = Path(__file__).resolve().parents[3]
+_CREATED_AT = "2026-01-02 03:04:05.000000"
 
 
 def _config() -> Config:
@@ -16,6 +16,65 @@ def _config() -> Config:
     config.set_main_option("script_location", str(ROOT / "migrations"))
     config.set_main_option("prepend_sys_path", str(ROOT / "apps/api"))
     return config
+
+
+def _restore_historical_0005_jobs_schema(engine: sa.Engine) -> None:
+    """Replace the mutable-model replay with the schema users actually had.
+
+    Migration 0003 historically created the jobs table from application
+    metadata. Replaying it today therefore sees future model columns that did
+    not exist in databases created before 0006. This helper pins the real 0005
+    table shape so the regression test reproduces the production failure.
+    """
+
+    with engine.begin() as connection:
+        connection.exec_driver_sql("DROP TABLE jobs")
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE jobs (
+                id VARCHAR(64) NOT NULL PRIMARY KEY,
+                kind VARCHAR(80) NOT NULL,
+                state VARCHAR(30) NOT NULL,
+                payload_json TEXT NOT NULL,
+                result_json TEXT NOT NULL,
+                error TEXT NOT NULL,
+                attempts INTEGER NOT NULL,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL,
+                started_at DATETIME,
+                finished_at DATETIME
+            )
+            """
+        )
+        connection.exec_driver_sql("CREATE INDEX ix_jobs_kind ON jobs (kind)")
+        connection.exec_driver_sql("CREATE INDEX ix_jobs_state ON jobs (state)")
+
+
+def _insert_existing_job(connection: sa.Connection) -> None:
+    connection.execute(
+        sa.text(
+            """
+            INSERT INTO jobs (
+                id, kind, state, payload_json, result_json, error, attempts,
+                created_at, updated_at, started_at, finished_at
+            ) VALUES (
+                :id, :kind, :state, :payload_json, :result_json, :error,
+                :attempts, :created_at, :updated_at, NULL, NULL
+            )
+            """
+        ),
+        {
+            "id": "job_existing",
+            "kind": "intake.x",
+            "state": "pending",
+            "payload_json": "{}",
+            "result_json": "{}",
+            "error": "",
+            "attempts": 0,
+            "created_at": _CREATED_AT,
+            "updated_at": _CREATED_AT,
+        },
+    )
 
 
 @pytest.mark.parametrize("partially_applied", [False, True])
@@ -35,24 +94,9 @@ def test_sqlite_0006_upgrade_recovers_without_losing_jobs(
     command.upgrade(config, "0005")
 
     engine = sa.create_engine(database_url)
-    jobs = sa.Table("jobs", sa.MetaData(), autoload_with=engine)
-    created_at = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+    _restore_historical_0005_jobs_schema(engine)
     with engine.begin() as connection:
-        connection.execute(
-            jobs.insert().values(
-                id="job_existing",
-                kind="intake.x",
-                state="pending",
-                payload_json="{}",
-                result_json="{}",
-                error="",
-                attempts=0,
-                created_at=created_at,
-                updated_at=created_at,
-                started_at=None,
-                finished_at=None,
-            )
-        )
+        _insert_existing_job(connection)
         if partially_applied:
             # Reproduce the exact state left by the original migration: SQLite
             # committed the first three ALTER TABLE statements, then rejected
