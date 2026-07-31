@@ -1,4 +1,4 @@
-const state = { sourceId: null, draftId: null };
+const state = { sourceId: null, draftId: null, currentSource: null };
 const $ = (id) => document.getElementById(id);
 
 async function api(path, options = {}) {
@@ -38,6 +38,7 @@ async function loadSources(selectId = null) {
     button.classList.toggle("active", item.id === state.sourceId);
     node.querySelector(".source-name").textContent = `@${item.author_handle || item.author_name || "unknown"}`;
     node.querySelector(".source-preview").textContent = item.text_original.slice(0, 90) || "（无正文）";
+    button.title = `版权状态：${item.rights_status}`;
     button.addEventListener("click", () => selectSource(item.id));
     list.appendChild(node);
   }
@@ -49,15 +50,21 @@ async function selectSource(id) {
   state.draftId = null;
   document.querySelectorAll(".source-item").forEach((el) => el.classList.toggle("active", el.dataset.id === id));
   const item = await api(`/api/sources/${encodeURIComponent(id)}`);
+  state.currentSource = item;
   $("empty-detail").hidden = true;
   $("source-detail").hidden = false;
   $("source-author").textContent = `${item.author_name || ""} @${item.author_handle || ""}`;
   $("source-link").href = item.canonical_url;
   $("source-text").textContent = item.text_original;
+  $("rights-status").value = item.rights_status || "needs_review";
+  $("rights-note").value = item.rights_note || "";
+  const assetStates = new Set(item.assets.map((asset) => asset.rights_status));
+  $("asset-rights-status").value = assetStates.size === 1 ? [...assetStates][0] : "needs_review";
   renderAssets(item.assets);
   $("related").textContent = item.related.length
-    ? `相关上下文 ${item.related.length} 条：` + item.related.map((r) => r.text_original.slice(0, 55)).join(" ｜ ")
+    ? `相关上下文 ${item.related.length} 条：` + item.related.map((related) => related.text_original.slice(0, 55)).join(" ｜ ")
     : "当前未加载额外上下文。";
+  message($("rights-status-message"), `当前文本状态：${item.rights_status}`);
   await loadDrafts(id);
 }
 
@@ -73,9 +80,9 @@ function renderAssets(assets) {
     if (asset.kind === "image") media.alt = asset.alt_text || "";
     else media.controls = true;
     const label = document.createElement("div");
-    label.textContent = asset.state;
+    label.textContent = `${asset.state} · ${asset.rights_status}`;
     wrap.append(media, label);
-    if (asset.error) wrap.title = asset.error;
+    if (asset.error || asset.rights_note) wrap.title = [asset.error, asset.rights_note].filter(Boolean).join("\n");
     box.appendChild(wrap);
   }
 }
@@ -97,7 +104,41 @@ function showDraft(draft) {
   $("draft-title").value = draft.title;
   $("draft-body").value = draft.body;
   $("draft-tags").value = draft.tags;
+  $("facts-checked").checked = false;
+  $("rights-checked").checked = false;
   message($("draft-status"), `当前版本 v${draft.version} · ${draft.created_by}`);
+  loadCards(draft.id);
+}
+
+async function loadCards(draftId) {
+  const renders = await api(`/api/drafts/${encodeURIComponent(draftId)}/cards`);
+  const latest = renders.find((render) => render.status === "rendered");
+  renderCards(latest || null);
+}
+
+function renderCards(render) {
+  const gallery = $("card-gallery");
+  gallery.replaceChildren();
+  if (!render) {
+    const empty = document.createElement("div");
+    empty.className = "empty compact";
+    empty.textContent = "当前版本还没有卡片。";
+    gallery.appendChild(empty);
+    return;
+  }
+  let paths = [];
+  try {
+    paths = JSON.parse(render.output_paths_json || "[]");
+  } catch {
+    paths = [];
+  }
+  paths.forEach((_, index) => {
+    const image = document.createElement("img");
+    image.src = `/api/cards/${encodeURIComponent(render.id)}/files/${index}`;
+    image.alt = `小红书卡片 ${index + 1}`;
+    image.loading = "lazy";
+    gallery.appendChild(image);
+  });
 }
 
 $("intake-form").addEventListener("submit", async (event) => {
@@ -118,6 +159,32 @@ $("intake-form").addEventListener("submit", async (event) => {
     await loadSources(result.source_id);
   } catch (error) {
     message($("intake-status"), error.message, "error");
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$("save-rights").addEventListener("click", async () => {
+  if (!state.sourceId) return;
+  const button = $("save-rights");
+  button.disabled = true;
+  try {
+    const item = await api(`/api/sources/${encodeURIComponent(state.sourceId)}/rights`, {
+      method: "PUT",
+      body: JSON.stringify({
+        source_status: $("rights-status").value,
+        source_note: $("rights-note").value,
+        asset_status: $("asset-rights-status").value,
+        asset_note: $("rights-note").value,
+        apply_to_related: $("apply-related-rights").checked,
+      }),
+    });
+    state.currentSource = item;
+    renderAssets(item.assets);
+    message($("rights-status-message"), "版权判断已保存。", "ok");
+    await loadSources();
+  } catch (error) {
+    message($("rights-status-message"), error.message, "error");
   } finally {
     button.disabled = false;
   }
@@ -153,9 +220,28 @@ $("draft-form").addEventListener("submit", async (event) => {
       }),
     });
     showDraft(draft);
-    message($("draft-status"), `已保存为新版本 v${draft.version}`, "ok");
+    message($("draft-status"), `已保存为新版本 v${draft.version}，请重新生成卡片并审核。`, "ok");
   } catch (error) {
     message($("draft-status"), error.message, "error");
+  }
+});
+
+$("generate-cards").addEventListener("click", async () => {
+  if (!state.draftId) return;
+  const button = $("generate-cards");
+  button.disabled = true;
+  message($("draft-status"), "正在生成卡片…");
+  try {
+    const render = await api(`/api/drafts/${encodeURIComponent(state.draftId)}/cards`, {
+      method: "POST",
+      body: JSON.stringify({ template: $("card-template").value, max_cards: 6 }),
+    });
+    renderCards(render);
+    message($("draft-status"), "图片卡片已生成。", "ok");
+  } catch (error) {
+    message($("draft-status"), error.message, "error");
+  } finally {
+    button.disabled = false;
   }
 });
 
@@ -164,7 +250,12 @@ async function review(decision) {
   try {
     await api(`/api/drafts/${encodeURIComponent(state.draftId)}/review`, {
       method: "POST",
-      body: JSON.stringify({ decision, reason: "" }),
+      body: JSON.stringify({
+        decision,
+        reason: "",
+        facts_checked: $("facts-checked").checked,
+        rights_checked: $("rights-checked").checked,
+      }),
     });
     message($("draft-status"), decision === "approved" ? "此版本已批准。" : "此版本已退回。", decision === "approved" ? "ok" : "error");
   } catch (error) {
@@ -177,7 +268,13 @@ $("reject").addEventListener("click", () => review("rejected"));
 $("prepare").addEventListener("click", async () => {
   if (!state.draftId) return;
   try {
-    const task = await api(`/api/publish/drafts/${encodeURIComponent(state.draftId)}/prepare`, { method: "POST" });
+    const task = await api(`/api/publish/drafts/${encodeURIComponent(state.draftId)}/prepare`, {
+      method: "POST",
+      body: JSON.stringify({
+        include_cards: true,
+        include_source_assets: $("include-source-assets").checked,
+      }),
+    });
     message($("draft-status"), `发布包已生成：${task.package_path}`, "ok");
     await loadPublish();
   } catch (error) {
