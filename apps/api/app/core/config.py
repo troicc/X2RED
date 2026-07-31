@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     raw_dir: Path = Path("./data/raw")
     export_dir: Path = Path("./data/exports")
     browser_profile_dir: Path = Path("./data/profiles/xhs")
+    card_font_path: Path | None = None
     download_media: bool = True
     max_media_bytes: int = Field(default=200 * 1024 * 1024, ge=1)
     model_base_url: str = ""
