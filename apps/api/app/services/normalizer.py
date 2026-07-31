@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -10,7 +11,12 @@ from sqlalchemy.orm import Session
 from app.domain.models import Asset, AssetVariant, SourceItem, SourceRelation
 
 
-def _timestamp(value: Any) -> datetime | None:
+def _timestamp(value: Any, numeric: Any = None) -> datetime | None:
+    if numeric not in (None, ""):
+        try:
+            return datetime.fromtimestamp(float(numeric), tz=UTC)
+        except (TypeError, ValueError, OSError):
+            pass
     if not value:
         return None
     if isinstance(value, datetime):
@@ -19,7 +25,10 @@ def _timestamp(value: Any) -> datetime | None:
     try:
         return datetime.fromisoformat(text)
     except ValueError:
-        return None
+        try:
+            return parsedate_to_datetime(str(value))
+        except (TypeError, ValueError, OverflowError):
+            return None
 
 
 def _user(raw: dict) -> dict:
@@ -41,19 +50,25 @@ def _canonical_url(raw: dict, status_id: str, handle: str) -> str:
 
 
 def _status_list(payload: dict) -> list[dict]:
-    items: list[dict] = []
+    pending: list[dict] = []
     focal = payload.get("status") or payload.get("tweet")
     if isinstance(focal, dict):
-        items.append(focal)
+        pending.append(focal)
     for key in ("thread", "conversation", "replies", "tweets"):
         value = payload.get(key)
         if isinstance(value, list):
-            items.extend(item for item in value if isinstance(item, dict))
+            pending.extend(item for item in value if isinstance(item, dict))
+
     deduped: dict[str, dict] = {}
-    for item in items:
+    while pending:
+        item = pending.pop(0)
         sid = _status_id(item)
-        if sid:
-            deduped[sid] = item
+        if not sid or sid in deduped:
+            continue
+        deduped[sid] = item
+        quote = item.get("quote")
+        if isinstance(quote, dict):
+            pending.append(quote)
     return list(deduped.values())
 
 
@@ -97,13 +112,13 @@ def upsert_payload(db: Session, payload: dict, focal_id: str) -> tuple[SourceIte
             "author_avatar_url": author["avatar"],
             "text_original": str(raw.get("text") or raw.get("full_text") or ""),
             "language": str(raw.get("lang") or raw.get("language") or ""),
-            "created_at": _timestamp(raw.get("created_at")),
+            "created_at": _timestamp(raw.get("created_at"), raw.get("created_timestamp")),
             "state": "available" if raw.get("type") != "tombstone" else "unavailable",
             "possibly_sensitive": bool(raw.get("possibly_sensitive") or False),
             "metrics_json": json.dumps(
                 {
                     "likes": raw.get("likes", 0),
-                    "reposts": raw.get("reposts", 0),
+                    "reposts": raw.get("reposts", raw.get("retweets", 0)),
                     "quotes": raw.get("quotes", 0),
                     "replies": raw.get("replies", 0),
                     "views": raw.get("views", 0),
@@ -150,7 +165,9 @@ def upsert_payload(db: Session, payload: dict, focal_id: str) -> tuple[SourceIte
                     bitrate=int(variant_raw.get("bitrate") or 0),
                     width=int(variant_raw.get("width") or 0),
                     height=int(variant_raw.get("height") or 0),
-                    selected=bool(selected_variant and variant_raw.get("url") == selected_variant.get("url")),
+                    selected=bool(
+                        selected_variant and variant_raw.get("url") == selected_variant.get("url")
+                    ),
                 )
                 db.add(variant)
 
@@ -178,7 +195,13 @@ def upsert_payload(db: Session, payload: dict, focal_id: str) -> tuple[SourceIte
 
     for sid, raw in raw_by_id.items():
         source = source_by_external[sid]
-        reply_id = str(raw.get("replying_to_status") or raw.get("in_reply_to_status_id") or "")
+        replying_to = raw.get("replying_to")
+        reply_id = str(
+            (replying_to.get("status") if isinstance(replying_to, dict) else "")
+            or raw.get("replying_to_status")
+            or raw.get("in_reply_to_status_id")
+            or ""
+        )
         if reply_id and reply_id in source_by_external:
             relation = db.scalar(
                 select(SourceRelation).where(
@@ -193,6 +216,25 @@ def upsert_payload(db: Session, payload: dict, focal_id: str) -> tuple[SourceIte
                         from_source_id=source.id,
                         to_source_id=source_by_external[reply_id].id,
                         relation_type="reply_to",
+                    )
+                )
+
+        quote = raw.get("quote")
+        quote_id = _status_id(quote) if isinstance(quote, dict) else ""
+        if quote_id and quote_id in source_by_external:
+            relation = db.scalar(
+                select(SourceRelation).where(
+                    SourceRelation.from_source_id == source.id,
+                    SourceRelation.to_source_id == source_by_external[quote_id].id,
+                    SourceRelation.relation_type == "quote_of",
+                )
+            )
+            if relation is None:
+                db.add(
+                    SourceRelation(
+                        from_source_id=source.id,
+                        to_source_id=source_by_external[quote_id].id,
+                        relation_type="quote_of",
                     )
                 )
 
@@ -215,4 +257,7 @@ def choose_video_variant(formats: list[dict], max_height: int = 1080) -> dict | 
         candidates = [item for item in formats if item.get("url")]
     if not candidates:
         return None
-    return max(candidates, key=lambda item: (int(item.get("height") or 0), int(item.get("bitrate") or 0)))
+    return max(
+        candidates,
+        key=lambda item: (int(item.get("height") or 0), int(item.get("bitrate") or 0)),
+    )
