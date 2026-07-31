@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "x2red"
+version = "0.1.0"
+description = "Local-first X to Xiaohongshu editorial studio"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "uvicorn[standard]>=0.34,<1",
+  "sqlalchemy>=2.0,<3",
+  "alembic>=1.14,<2",
+  "pydantic-settings>=2.7,<3",
+  "httpx>=0.28,<1",
+  "jinja2>=3.1,<4",
+  "python-multipart>=0.0.20,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8,<10",
+  "pytest-asyncio>=0.25,<1",
+  "ruff>=0.9,<1",
+]
+publisher = ["playwright>=1.49,<2"]
+
+[project.scripts]
+x2red = "app.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "apps/api"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["apps/api"]
+
+[tool.setuptools.package-data]
+app = ["static/*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["apps/api"]
+testpaths = ["apps/api/tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]

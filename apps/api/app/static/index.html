@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>X2RED 本地编辑台</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header>
+    <div>
+      <strong>X2RED</strong>
+      <span>本地 X → 小红书编辑台</span>
+    </div>
+    <span id="health" class="pill">检查服务…</span>
+  </header>
+
+  <main>
+    <section class="card intake">
+      <h1>导入一条 X 内容</h1>
+      <p>默认读取原作者 Thread。完整对话只在确实需要讨论上下文时使用。</p>
+      <form id="intake-form">
+        <input id="x-url" type="url" required placeholder="https://x.com/user/status/123..." />
+        <select id="mode">
+          <option value="thread">Thread</option>
+          <option value="conversation">完整对话</option>
+        </select>
+        <label class="check"><input id="download-media" type="checkbox" checked /> 下载媒体</label>
+        <button type="submit">导入</button>
+      </form>
+      <div id="intake-status" class="status"></div>
+    </section>
+
+    <section class="workspace">
+      <aside class="card sidebar">
+        <div class="row between"><h2>来源箱</h2><button id="refresh" class="secondary">刷新</button></div>
+        <div id="source-list" class="source-list"></div>
+      </aside>
+
+      <section class="card detail">
+        <div id="empty-detail" class="empty">选择一条来源开始编辑。</div>
+        <div id="source-detail" hidden>
+          <div class="row between gap">
+            <div>
+              <h2 id="source-author"></h2>
+              <a id="source-link" target="_blank" rel="noreferrer">查看原帖</a>
+            </div>
+            <select id="draft-style">
+              <option value="explain">解释拆解</option>
+              <option value="news">资讯速览</option>
+              <option value="opinion">编辑观察</option>
+            </select>
+          </div>
+          <pre id="source-text" class="source-text"></pre>
+          <div id="assets" class="assets"></div>
+          <div id="related" class="related"></div>
+          <button id="generate-draft">生成草稿</button>
+        </div>
+      </section>
+
+      <section class="card editor">
+        <h2>编辑与审核</h2>
+        <div id="empty-editor" class="empty">生成草稿后可在这里修改。</div>
+        <form id="draft-form" hidden>
+          <input id="draft-title" maxlength="80" placeholder="标题" />
+          <textarea id="draft-body" rows="18" maxlength="4000" placeholder="正文"></textarea>
+          <input id="draft-tags" maxlength="500" placeholder="标签，逗号分隔" />
+          <div class="row wrap gap">
+            <button type="submit">保存新版本</button>
+            <button type="button" id="approve" class="approve">批准此版本</button>
+            <button type="button" id="reject" class="danger">退回</button>
+            <button type="button" id="prepare" class="secondary">生成发布包</button>
+          </div>
+          <div id="draft-status" class="status"></div>
+        </form>
+      </section>
+    </section>
+
+    <section class="card publish">
+      <div class="row between"><h2>发布任务</h2><button id="refresh-publish" class="secondary">刷新</button></div>
+      <p>“打开小红书预览”只上传并填充内容，不会点击最终发布。</p>
+      <div id="publish-list"></div>
+    </section>
+  </main>
+
+  <template id="source-template">
+    <button class="source-item">
+      <span class="source-name"></span>
+      <span class="source-preview"></span>
+    </button>
+  </template>
+  <script src="/static/app.js"></script>
+</body>
+</html>

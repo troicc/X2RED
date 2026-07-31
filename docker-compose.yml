@@ -1,16 +1,17 @@
 services:
-  api:
+  x2red:
     image: python:3.12-slim
     working_dir: /workspace
+    command: >-
+      sh -c "pip install --no-build-isolation -e . &&
+      uvicorn app.main:app --app-dir apps/api --host 0.0.0.0 --port 8787"
+    ports:
+      - "127.0.0.1:8787:8787"
     volumes:
       - .:/workspace
-    command: python -m http.server 8000
-
-  db:
-    image: postgres:16
+      - ./data:/workspace/data
     environment:
-      POSTGRES_DB: x2red
-      POSTGRES_USER: x2red
-      POSTGRES_PASSWORD: x2red
-    ports:
-      - "5432:5432"
+      X2RED_DATABASE_URL: sqlite:///./data/x2red.db
+      X2RED_MEDIA_DIR: ./data/assets
+      X2RED_RAW_DIR: ./data/raw
+      X2RED_EXPORT_DIR: ./data/exports

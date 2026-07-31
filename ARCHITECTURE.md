@@ -1,60 +1,64 @@
-# X2RED Architecture
+# X2RED architecture
 
-## Goal
-Local-first X content intelligence and Xiaohongshu editorial workflow.
+## Product boundary
 
-## Principles
-- FxTwitter is a replaceable read-only source adapter.
-- No user X cookies are stored.
-- Raw source payloads are immutable.
-- Publishing requires human approval.
+X2RED is an editorial workstation, not a timeline scraper or unattended publishing bot. Every source enters because the user selected it, every generated draft is reviewable, and every Xiaohongshu publication requires a final human click.
 
-## Monorepo
+## Runtime
 
+```text
+Chrome extension / local web UI
+            |
+            v
+FastAPI intake and editorial API
+            |
+  +---------+----------+----------------+
+  |                    |                |
+FxTwitter provider   Asset store    Editorial service
+  |                    |                |
+Raw snapshots       SHA-256 files   Draft revisions
+  +--------------------+----------------+
+                       |
+                  SQLite database
+                       |
+                  Review approval
+                       |
+                  Publish package
+                       |
+          Playwright XHS preparation
+          (never clicks final publish)
 ```
-apps/
-  api/ FastAPI backend
-  web/ React editorial studio
-  extension/ browser capture helper
-packages/
-  domain/ shared models
-  providers/ external source adapters
-  media/ download and processing
-  ai/ editorial pipelines
-infra/
-  docker
-  migrations
+
+## Replaceable boundaries
+
+- `XSourceProvider`: FxTwitter today; official X API, self-hosted FxEmbed, or manual capture later.
+- `EditorialService`: deterministic local fallback plus optional OpenAI-compatible model gateway.
+- `Publisher`: package export is always available; Playwright is an optional desktop adapter.
+- `AssetStore`: local content-addressed files now; encrypted external storage can be added later.
+
+## Durable domain objects
+
+- `SourceItem`: one X post or tombstone.
+- `SourceRelation`: thread, reply, quote, or repost relationship.
+- `RawSnapshot`: immutable provider response and payload hash.
+- `Asset` and `AssetVariant`: original media plus available encodes.
+- `DraftRevision`: immutable editorial versions.
+- `ReviewDecision`: explicit approval or rejection event.
+- `PublishTask`: approved frozen payload, package hash, state, and result.
+
+## Workflow states
+
+```text
+source: available | unavailable | deleted | private
+asset: discovered | downloading | ready | failed
+review: pending | approved | rejected
+publish: draft | approved | packaged | awaiting_user_confirmation | published | failed
 ```
 
-## Core pipeline
+## Deliberate non-goals for v0.1
 
-X URL -> Intake Job -> FxTwitter Provider -> Source Graph -> Media Assets -> AI Editorial -> Review -> XHS Publisher
-
-## Domains
-
-### Source
-SourceItem, SourceRevision, SourceRelation, AuthorProfile
-
-### Media
-Asset, AssetVariant, DownloadJob, MediaFingerprint
-
-### Editorial
-Draft, Claim, Translation, CardLayout, ReviewDecision
-
-### Publishing
-PublishAccount, PublishTask, PublishResult
-
-## Provider chain
-
-1. Local cache
-2. FxTwitter public API
-3. Self-hosted FxEmbed
-4. Manual import
-
-## First milestone
-
-- Paste X URL
-- Fetch thread
-- Store normalized data
-- Download media variants
-- Generate editorial workspace
+- Broad timeline mirroring.
+- Automatic trend-to-post pipelines.
+- Automatic comments, follows, or direct messages.
+- Storing a user's X cookie.
+- Clicking the final Xiaohongshu publish button.
