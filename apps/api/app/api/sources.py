@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.db.session import get_db
-from app.domain.models import SourceItem, SourceRelation
+from app.domain.models import SourceItem
 from app.domain.schemas import SourceDetail, SourceListItem
+from app.services.source_graph import connected_sources
 
 
 router = APIRouter(prefix="/api/sources", tags=["sources"])
@@ -27,19 +28,7 @@ def get_source(source_id: str, db: Session = Depends(get_db)) -> SourceDetail:
     if source is None:
         raise HTTPException(status_code=404, detail="来源不存在")
 
-    relations = db.scalars(
-        select(SourceRelation).where(
-            or_(
-                SourceRelation.from_source_id == source_id,
-                SourceRelation.to_source_id == source_id,
-            )
-        )
-    ).all()
-    related_ids = {
-        relation.to_source_id if relation.from_source_id == source_id else relation.from_source_id
-        for relation in relations
-    }
-    related = list(db.scalars(select(SourceItem).where(SourceItem.id.in_(related_ids))).all()) if related_ids else []
+    related = [item for item in connected_sources(db, source_id) if item.id != source_id]
     return SourceDetail(
         id=source.id,
         external_id=source.external_id,
