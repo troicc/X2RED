@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "x2red"
-version = "0.1.0"
+version = "0.2.0"
 description = "Local-first X to Xiaohongshu editorial studio"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -17,6 +17,7 @@ dependencies = [
   "httpx>=0.28,<1",
   "jinja2>=3.1,<4",
   "python-multipart>=0.0.20,<1",
+  "pillow>=11,<13",
 ]
 
 [project.optional-dependencies]
