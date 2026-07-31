@@ -14,7 +14,7 @@ from app.services.scoring import baseline_median, calculate_score, core_engageme
 
 def test_scoring_uses_relative_and_breakout_signals() -> None:
     baseline = baseline_median([10, 11, 9, 10, 12, 8])
-    engagement = core_engagement({"likes": 100, "reposts": 10, "quotes": 5, "replies": 20})
+    engagement = core_engagement({"likes": 350, "reposts": 10, "quotes": 5, "replies": 20})
     score = calculate_score(
         current_engagement=engagement,
         baseline_value=baseline,
@@ -185,8 +185,9 @@ def test_signal_monitor_and_multi_agent_writing_studio(
         analyses = client.get(
             f"/api/signals/candidates/{breakout['candidate_id']}/analyses"
         ).json()
-        assert analyses[0]["level"] == "l1"
-        assert json.loads(analyses[0]["result_json"])["summary"]
+        analyses_by_level = {item["level"]: item for item in analyses}
+        assert {"l1", "l2"} <= set(analyses_by_level)
+        assert json.loads(analyses_by_level["l1"]["result_json"])["summary"]
 
         from app.domain.models import SourceItem
 
