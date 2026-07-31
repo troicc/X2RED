@@ -39,8 +39,11 @@ from app.services.x2pdf_import import X2PDFImportService
 
 settings = get_settings()
 STATIC_DIR = Path(__file__).parent / "static"
-STYLESHEET = "[hidden]{display:none!important;}\n" + (STATIC_DIR / "styles.css").read_text(
-    encoding="utf-8"
+STYLESHEET = (
+    "[hidden]{display:none!important;}\n"
+    + (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
+    + "\n"
+    + (STATIC_DIR / "workbench-v06.css").read_text(encoding="utf-8")
 )
 
 
@@ -139,11 +142,7 @@ def ready() -> dict:
             status_code=503,
             detail=f"required directories are not ready: {', '.join(missing)}",
         )
-    return {
-        "ok": True,
-        "database": "ready",
-        "directories": sorted(required_dirs),
-    }
+    return {"ok": True, "database": "ready", "directories": sorted(required_dirs)}
 
 
 @app.get("/", include_in_schema=False)
