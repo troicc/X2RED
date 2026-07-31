@@ -32,6 +32,15 @@ class AssetState(str, enum.Enum):
     failed = "failed"
 
 
+class RightsStatus(str, enum.Enum):
+    owned = "owned"
+    licensed = "licensed"
+    open_license = "open_license"
+    limited_quote = "limited_quote"
+    needs_review = "needs_review"
+    do_not_publish = "do_not_publish"
+
+
 class ReviewState(str, enum.Enum):
     pending = "pending"
     approved = "approved"
@@ -79,6 +88,10 @@ class SourceItem(Base):
     state: Mapped[str] = mapped_column(String(32), default=SourceState.available.value)
     possibly_sensitive: Mapped[bool] = mapped_column(Boolean, default=False)
     metrics_json: Mapped[str] = mapped_column(Text, default="{}")
+    rights_status: Mapped[str] = mapped_column(
+        String(32), default=RightsStatus.needs_review.value, index=True
+    )
+    rights_note: Mapped[str] = mapped_column(Text, default="")
 
     assets: Mapped[list[Asset]] = relationship(back_populates="source", cascade="all, delete-orphan")
     drafts: Mapped[list[DraftRevision]] = relationship(
@@ -113,6 +126,10 @@ class Asset(Base):
     alt_text: Mapped[str] = mapped_column(Text, default="")
     state: Mapped[str] = mapped_column(String(30), default=AssetState.discovered.value)
     error: Mapped[str] = mapped_column(Text, default="")
+    rights_status: Mapped[str] = mapped_column(
+        String(32), default=RightsStatus.needs_review.value, index=True
+    )
+    rights_note: Mapped[str] = mapped_column(Text, default="")
 
     source: Mapped[SourceItem] = relationship(back_populates="assets")
     variants: Mapped[list[AssetVariant]] = relationship(
@@ -156,6 +173,24 @@ class DraftRevision(Base):
     reviews: Mapped[list[ReviewDecision]] = relationship(
         back_populates="draft", cascade="all, delete-orphan"
     )
+    card_renders: Mapped[list[CardRender]] = relationship(
+        back_populates="draft", cascade="all, delete-orphan"
+    )
+
+
+class CardRender(Base):
+    __tablename__ = "card_renders"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: new_id("cards"))
+    draft_id: Mapped[str] = mapped_column(ForeignKey("draft_revisions.id", ondelete="CASCADE"))
+    template: Mapped[str] = mapped_column(String(40), default="warm_editorial")
+    spec_json: Mapped[str] = mapped_column(Text, default="{}")
+    output_paths_json: Mapped[str] = mapped_column(Text, default="[]")
+    status: Mapped[str] = mapped_column(String(30), default="rendered", index=True)
+    error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    draft: Mapped[DraftRevision] = relationship(back_populates="card_renders")
 
 
 class ReviewDecision(Base):
@@ -166,6 +201,8 @@ class ReviewDecision(Base):
     decision: Mapped[str] = mapped_column(String(30), default=ReviewState.pending.value)
     reason: Mapped[str] = mapped_column(Text, default="")
     reviewer: Mapped[str] = mapped_column(String(80), default="local-user")
+    facts_checked: Mapped[bool] = mapped_column(Boolean, default=False)
+    rights_checked: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     draft: Mapped[DraftRevision] = relationship(back_populates="reviews")
