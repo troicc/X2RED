@@ -55,6 +55,8 @@ STYLESHEET = (
     + (STATIC_DIR / "workbench-v06.css").read_text(encoding="utf-8")
     + "\n"
     + (STATIC_DIR / "studio-v07.css").read_text(encoding="utf-8")
+    + "\n"
+    + (STATIC_DIR / "style-v07.css").read_text(encoding="utf-8")
 )
 
 
@@ -281,5 +283,9 @@ def ready() -> dict:
 @app.get("/", include_in_schema=False)
 def index() -> HTMLResponse:
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-    html = html.replace("</body>", '<script src="/static/studio-v07.js"></script></body>')
+    scripts = (
+        '<script src="/static/studio-v07.js"></script>'
+        '<script src="/static/style-v07.js"></script>'
+    )
+    html = html.replace("</body>", f"{scripts}</body>")
     return HTMLResponse(html)
