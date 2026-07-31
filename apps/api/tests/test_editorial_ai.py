@@ -54,6 +54,11 @@ async def test_model_generation_runs_analysis_before_writing(
                 {"statement": "审核周期更快", "source_index": 1, "verification": "needs_external_check"},
             ],
         },
+        {
+            "title": "这项新功能真正改变了什么",
+            "body": "先说结论\n\n能确认的是作者发布了新功能；审核提速目前仍只是早期反馈，不能直接当作普遍效果。",
+            "tags": ["产品观察", "效率工具", "信息拆解", "事实核查"],
+        },
     ]
     calls: list[dict] = []
 
@@ -69,11 +74,14 @@ async def test_model_generation_runs_analysis_before_writing(
     assert result["analysis"]["recommended_angle"]["name"] == "验证边界"
     assert result["draft"]["title"] == "这项新功能真正改变了什么"
     assert result["draft"]["claims"][1]["verification"] == "needs_external_check"
-    assert len(calls) == 2
+    assert result["quality_passes"] == ["analysis", "draft", "de_translation"]
+    assert len(calls) == 3
     assert calls[0]["reasoning_effort"] == "high"
     assert calls[1]["reasoning_effort"] == "medium"
+    assert calls[2]["reasoning_effort"] == "low"
     assert "不要直接写小红书正文" in calls[0]["user_prompt"]
     assert "编辑分析" in calls[1]["user_prompt"]
+    assert "去掉 AI 翻译味" in calls[2]["user_prompt"]
 
 
 def test_glm_reasoning_options_are_enabled() -> None:
