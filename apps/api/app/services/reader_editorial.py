@@ -150,7 +150,7 @@ outline 每一项包含 heading、purpose、source_indices，并按读者理解�
   需要警惕、事实核查、本文基于已归档来源整理、评估此方案的适用性。
 - 禁止用“先说结论 / 值得关注的3个点 / 这对读者有什么用”组成模板化骨架。
 - 正文 650-1200 个中文字符，短段落，最多一个三项列表；结尾留下一个清晰判断，
-  不要以免责声明结束。
+  不要以免责声明收尾。
 - 标题 14-26 个汉字，必须具体说明技术结果或关键反差。
 - 标签 4-7 个。
 
@@ -170,7 +170,7 @@ outline 每一项包含 heading、purpose、source_indices，并按读者理解�
             )
 
             final = initial
-            passes = ["editorial.analysis", "writing.draft", "reader-first"]
+            passes = ["editorial.analysis", "writing.draft"]
             if polish_binding.enabled:
                 final = await self._polish_draft(
                     initial,
@@ -286,7 +286,7 @@ outline 每一项包含 heading、purpose、source_indices，并按读者理解�
     ) -> dict:
         sanitized = super()._sanitize_generated(generated, context, style)
         cleaned_body = self._reader_body(str(sanitized.get("body") or ""))
-        if len(re.sub(r"\s+", "", cleaned_body)) < 80:
+        if len(re.sub(r"\s+", "", cleaned_body)) < 30:
             cleaned_body = self._reader_body(self._fallback(context, style)["body"])
         sanitized["body"] = cleaned_body[:4000]
         return sanitized
