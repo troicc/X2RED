@@ -54,17 +54,74 @@
           <pre id="source-text" class="source-text"></pre>
           <div id="assets" class="assets"></div>
           <div id="related" class="related"></div>
+
+          <div class="subcard rights-panel">
+            <h3>版权与来源闸</h3>
+            <p>文本可标记为有限引用；原始图片或视频只有自有、已授权或开放许可时才能打包发布。</p>
+            <div class="form-grid">
+              <label>文本状态
+                <select id="rights-status">
+                  <option value="needs_review">待确认</option>
+                  <option value="limited_quote">有限引用</option>
+                  <option value="owned">自有内容</option>
+                  <option value="licensed">已获授权</option>
+                  <option value="open_license">开放许可</option>
+                  <option value="do_not_publish">禁止发布</option>
+                </select>
+              </label>
+              <label>原始媒体状态
+                <select id="asset-rights-status">
+                  <option value="needs_review">待确认</option>
+                  <option value="owned">自有内容</option>
+                  <option value="licensed">已获授权</option>
+                  <option value="open_license">开放许可</option>
+                  <option value="do_not_publish">禁止发布</option>
+                </select>
+              </label>
+            </div>
+            <input id="rights-note" maxlength="2000" placeholder="授权依据、引用范围或不使用原图的说明" />
+            <div class="row wrap gap">
+              <label class="check"><input id="apply-related-rights" type="checkbox" checked /> 同步到整个 Thread / 对话上下文</label>
+              <button id="save-rights" type="button" class="secondary">保存版权判断</button>
+            </div>
+            <div id="rights-status-message" class="status"></div>
+          </div>
+
           <button id="generate-draft">生成草稿</button>
         </div>
       </section>
 
       <section class="card editor">
-        <h2>编辑与审核</h2>
+        <h2>编辑、制图与审核</h2>
         <div id="empty-editor" class="empty">生成草稿后可在这里修改。</div>
         <form id="draft-form" hidden>
           <input id="draft-title" maxlength="80" placeholder="标题" />
           <textarea id="draft-body" rows="18" maxlength="4000" placeholder="正文"></textarea>
           <input id="draft-tags" maxlength="500" placeholder="标签，逗号分隔" />
+
+          <div class="subcard">
+            <div class="row between gap">
+              <div>
+                <h3>小红书图片卡片</h3>
+                <p>卡片由当前草稿生成，修改正文后应重新生成。</p>
+              </div>
+              <select id="card-template">
+                <option value="warm_editorial">暖色编辑</option>
+                <option value="clean_news">清爽资讯</option>
+                <option value="dark_tech">深色科技</option>
+              </select>
+            </div>
+            <button type="button" id="generate-cards" class="secondary">生成图片卡片</button>
+            <div id="card-gallery" class="card-gallery"></div>
+          </div>
+
+          <div class="subcard review-checks">
+            <h3>终审确认</h3>
+            <label class="check"><input id="facts-checked" type="checkbox" /> 已核对人名、日期、数字和因果表述</label>
+            <label class="check"><input id="rights-checked" type="checkbox" /> 已核对来源标注、引用范围和媒体版权</label>
+            <label class="check"><input id="include-source-assets" type="checkbox" /> 发布包同时附带有明确授权的原始图片/视频</label>
+          </div>
+
           <div class="row wrap gap">
             <button type="submit">保存新版本</button>
             <button type="button" id="approve" class="approve">批准此版本</button>
