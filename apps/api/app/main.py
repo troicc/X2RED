@@ -4,12 +4,25 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.api import assets, cards, discovery, drafts, extension, intake, jobs, publish, sources
+from app.api import (
+    assets,
+    cards,
+    discovery,
+    drafts,
+    extension,
+    intake,
+    integrations,
+    jobs,
+    publish,
+    settings as settings_api,
+    sources,
+)
 from app.core.config import get_settings
 from app.db.base import Base
 from app.db.session import engine
@@ -22,6 +35,7 @@ from app.services.jobs import JobEngine
 from app.services.media_store import MediaStore
 from app.services.publisher import PublishService
 from app.services.raw_store import RawStore
+from app.services.x2pdf_import import X2PDFImportService
 
 settings = get_settings()
 STATIC_DIR = Path(__file__).parent / "static"
@@ -32,8 +46,6 @@ STYLESHEET = "[hidden]{display:none!important;}\n" + (STATIC_DIR / "styles.css")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # CLI startup applies versioned Alembic migrations. create_all keeps direct
-    # ASGI/test embedding usable for a brand-new SQLite database.
     Base.metadata.create_all(engine)
     provider = FxTwitterProvider(
         settings.fxtwitter_base_url,
@@ -45,12 +57,7 @@ async def lifespan(app: FastAPI):
         timeout_seconds=settings.request_timeout_seconds,
     )
     raw_store = RawStore(settings.raw_dir)
-    intake_service = IntakeService(
-        settings,
-        provider,
-        raw_store,
-        media_store,
-    )
+    intake_service = IntakeService(settings, provider, raw_store, media_store)
     job_engine = JobEngine(intake_service)
     app.state.provider = provider
     app.state.media_store = media_store
@@ -60,6 +67,7 @@ async def lifespan(app: FastAPI):
     app.state.editorial_service = EditorialService(settings)
     app.state.card_service = CardService(settings)
     app.state.publish_service = PublishService(settings)
+    app.state.x2pdf_import_service = X2PDFImportService(raw_store)
     await job_engine.start()
     yield
     await job_engine.stop()
@@ -67,15 +75,24 @@ async def lifespan(app: FastAPI):
     await media_store.close()
 
 
-app = FastAPI(title="X2RED", version="0.5.0", lifespan=lifespan)
+app = FastAPI(title="X2RED", version="0.6.0", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=r"^(chrome-extension://[a-z]{32}|http://(?:127\.0\.0\.1|localhost)(?::\d+)?)$",
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type"],
+)
 app.include_router(jobs.router)
 app.include_router(discovery.router)
 app.include_router(intake.router)
+app.include_router(integrations.router)
 app.include_router(assets.router)
 app.include_router(sources.router)
 app.include_router(drafts.router)
 app.include_router(cards.router)
 app.include_router(publish.router)
+app.include_router(settings_api.router)
 app.include_router(extension.router)
 
 
@@ -96,7 +113,9 @@ def health() -> dict:
         "version": app.version,
         "model_configured": model_configured,
         "model_name": settings.model_name if model_configured else "",
-        "editorial_pipeline": "three-pass" if model_configured else "structured-fallback",
+        "editorial_pipeline": "skill-driven" if model_configured else "structured-fallback",
+        "x2pdf_bridge": "/api/integrations/x2pdf/documents",
+        "card_renderer": "html-playwright",
     }
 
 
