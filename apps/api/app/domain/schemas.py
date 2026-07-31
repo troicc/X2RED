@@ -29,6 +29,22 @@ class IntakeResponse(BaseModel):
     snapshot_id: str
 
 
+class JobOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    kind: str
+    state: str
+    payload_json: str
+    result_json: str
+    error: str
+    attempts: int
+    created_at: datetime
+    updated_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+
+
 class AssetOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
