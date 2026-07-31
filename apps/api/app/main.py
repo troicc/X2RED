@@ -64,7 +64,7 @@ async def lifespan(app: FastAPI):
     await media_store.close()
 
 
-app = FastAPI(title="X2RED", version="0.4.0", lifespan=lifespan)
+app = FastAPI(title="X2RED", version="0.5.0", lifespan=lifespan)
 app.include_router(jobs.router)
 app.include_router(discovery.router)
 app.include_router(intake.router)
@@ -79,7 +79,15 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True, "name": settings.app_name, "version": app.version}
+    model_configured = bool(settings.model_base_url and settings.model_name)
+    return {
+        "ok": True,
+        "name": settings.app_name,
+        "version": app.version,
+        "model_configured": model_configured,
+        "model_name": settings.model_name if model_configured else "",
+        "editorial_pipeline": "three-pass" if model_configured else "structured-fallback",
+    }
 
 
 @app.get("/ready")
