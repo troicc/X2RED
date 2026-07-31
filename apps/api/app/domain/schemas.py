@@ -85,6 +85,10 @@ class ReviewRequest(BaseModel):
     reason: str = Field(default="", max_length=1000)
 
 
+class PublishResultRequest(BaseModel):
+    result_url: str = Field(min_length=1, max_length=2000)
+
+
 class PublishTaskOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
