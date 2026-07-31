@@ -74,14 +74,19 @@ async def test_model_generation_runs_analysis_before_writing(
     assert result["analysis"]["recommended_angle"]["name"] == "验证边界"
     assert result["draft"]["title"] == "这项新功能真正改变了什么"
     assert result["draft"]["claims"][1]["verification"] == "needs_external_check"
-    assert result["quality_passes"] == ["analysis", "draft", "de_translation"]
+    assert result["quality_passes"] == [
+        "editorial.analysis",
+        "writing.draft",
+        "writing.de_translate",
+    ]
     assert len(calls) == 3
     assert calls[0]["reasoning_effort"] == "high"
     assert calls[1]["reasoning_effort"] == "medium"
     assert calls[2]["reasoning_effort"] == "low"
-    assert "不要直接写小红书正文" in calls[0]["user_prompt"]
+    assert calls[0]["model_name"] == "glm-5.2"
+    assert "不要直接写正文" in calls[0]["user_prompt"]
     assert "编辑分析" in calls[1]["user_prompt"]
-    assert "去掉 AI 翻译味" in calls[2]["user_prompt"]
+    assert "机械过渡" in calls[2]["user_prompt"]
 
 
 def test_glm_reasoning_options_are_enabled() -> None:
