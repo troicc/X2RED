@@ -32,5 +32,10 @@ All endpoints are local by default.
 - `POST /api/publish/drafts/{draft_id}/prepare`
 - `GET /api/publish`
 - `POST /api/publish/{task_id}/open-xhs`
+- `POST /api/publish/{task_id}/mark-published`
+
+`mark-published` accepts the manually confirmed Xiaohongshu result URL and moves an
+`awaiting_user_confirmation` task to `published`. The URL must use HTTPS and belong
+to `xiaohongshu.com` or one of its subdomains.
 
 Interactive OpenAPI documentation is available at `/docs` while the app is running.
