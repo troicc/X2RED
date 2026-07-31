@@ -9,7 +9,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
-from app.domain.models import DraftRevision, SourceItem, SourceRelation
+from app.domain.models import DraftRevision, SourceItem
+from app.services.source_graph import connected_sources
 
 
 _STYLE_LABELS = {
@@ -88,21 +89,7 @@ class EditorialService:
         return revised
 
     def _context(self, db: Session, source: SourceItem) -> list[SourceItem]:
-        relations = db.scalars(
-            select(SourceRelation)
-            .where(
-                (SourceRelation.from_source_id == source.id)
-                | (SourceRelation.to_source_id == source.id)
-            )
-            .order_by(SourceRelation.position)
-        ).all()
-        ids = {source.id}
-        for relation in relations:
-            ids.add(relation.from_source_id)
-            ids.add(relation.to_source_id)
-        items = db.scalars(select(SourceItem).where(SourceItem.id.in_(ids))).all()
-        items.sort(key=lambda item: item.created_at.timestamp() if item.created_at else 0)
-        return items
+        return connected_sources(db, source.id)
 
     async def _model_generate(self, context: list[SourceItem], style: str) -> dict | None:
         if not (
