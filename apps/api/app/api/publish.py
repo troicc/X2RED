@@ -10,7 +10,6 @@ from app.domain.models import DraftRevision, PublishTask
 from app.domain.schemas import PublishResultRequest, PublishTaskOut
 from app.services.publisher import PublishError, PublishService
 
-
 router = APIRouter(prefix="/api/publish", tags=["publish"])
 
 
