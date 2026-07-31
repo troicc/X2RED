@@ -9,7 +9,6 @@ from app.domain.schemas import IntakeRequest, IntakeResponse
 from app.services.intake import IntakeService
 from app.services.url_parser import extract_x_post_id
 
-
 router = APIRouter(prefix="/api/intake", tags=["intake"])
 
 
