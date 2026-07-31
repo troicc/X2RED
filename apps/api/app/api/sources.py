@@ -27,9 +27,30 @@ def _source_detail(db: Session, source_id: str) -> SourceDetail:
         raise HTTPException(status_code=404, detail="来源不存在")
 
     related = [item for item in connected_sources(db, source_id) if item.id != source_id]
-    return SourceDetail.model_validate(
-        source,
-        update={"assets": source.assets, "related": related},
+    return SourceDetail(
+        id=source.id,
+        provider=source.provider,
+        external_id=source.external_id,
+        canonical_url=source.canonical_url,
+        author_handle=source.author_handle,
+        author_name=source.author_name,
+        author_avatar_url=source.author_avatar_url,
+        text_original=source.text_original,
+        content_kind=source.content_kind,
+        workspace_state=source.workspace_state,
+        created_at=source.created_at,
+        captured_at=source.captured_at,
+        archived_at=source.archived_at,
+        last_published_at=source.last_published_at,
+        published_count=source.published_count,
+        state=source.state,
+        rights_status=source.rights_status,
+        rights_note=source.rights_note,
+        structured_content_json=source.structured_content_json,
+        editor_note=source.editor_note,
+        metrics_json=source.metrics_json,
+        assets=source.assets,
+        related=related,
     )
 
 
