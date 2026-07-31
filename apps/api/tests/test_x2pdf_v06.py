@@ -96,8 +96,14 @@ def test_x2pdf_bridge_lifecycle_skills_and_publish_archive(
         archived = client.post(f"/api/sources/{source_id}/archive")
         assert archived.status_code == 200
         assert archived.json()["workspace_state"] == "archived"
-        assert not any(item["id"] == source_id for item in client.get("/api/sources?workspace_state=active").json())
-        assert any(item["id"] == source_id for item in client.get("/api/sources?workspace_state=archived").json())
+        assert not any(
+            item["id"] == source_id
+            for item in client.get("/api/sources?workspace_state=active").json()
+        )
+        assert any(
+            item["id"] == source_id
+            for item in client.get("/api/sources?workspace_state=archived").json()
+        )
         restored = client.post(f"/api/sources/{source_id}/restore")
         assert restored.status_code == 200
         assert restored.json()["workspace_state"] == "active"
@@ -159,5 +165,6 @@ def test_x2pdf_bridge_lifecycle_skills_and_publish_archive(
         assert client.get(f"/api/sources/{source_id}").status_code == 404
 
         health = client.get("/health").json()
-        assert health["version"] == "0.6.0"
+        assert health["version"] == "0.6.1"
+        assert health["editorial_pipeline"] == "reader-first-skill-pipeline"
         assert health["x2pdf_bridge"] == "/api/integrations/x2pdf/documents"

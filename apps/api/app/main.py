@@ -29,12 +29,12 @@ from app.db.session import engine
 from app.providers.fxtwitter import FxTwitterProvider
 from app.services.cards import CardService
 from app.services.discovery import DiscoveryService
-from app.services.editorial import EditorialService
 from app.services.intake import IntakeService
 from app.services.jobs import JobEngine
 from app.services.media_store import MediaStore
 from app.services.publisher import PublishService
 from app.services.raw_store import RawStore
+from app.services.reader_editorial import ReaderFirstEditorialService
 from app.services.x2pdf_import import X2PDFImportService
 
 settings = get_settings()
@@ -67,7 +67,7 @@ async def lifespan(app: FastAPI):
     app.state.intake_service = intake_service
     app.state.discovery_service = DiscoveryService(provider, raw_store)
     app.state.job_engine = job_engine
-    app.state.editorial_service = EditorialService(settings)
+    app.state.editorial_service = ReaderFirstEditorialService(settings)
     app.state.card_service = CardService(settings)
     app.state.publish_service = PublishService(settings)
     app.state.x2pdf_import_service = X2PDFImportService(raw_store)
@@ -78,7 +78,7 @@ async def lifespan(app: FastAPI):
     await media_store.close()
 
 
-app = FastAPI(title="X2RED", version="0.6.0", lifespan=lifespan)
+app = FastAPI(title="X2RED", version="0.6.1", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=r"^(chrome-extension://[a-z]{32}|http://(?:127\.0\.0\.1|localhost)(?::\d+)?)$",
@@ -116,7 +116,9 @@ def health() -> dict:
         "version": app.version,
         "model_configured": model_configured,
         "model_name": settings.model_name if model_configured else "",
-        "editorial_pipeline": "skill-driven" if model_configured else "structured-fallback",
+        "editorial_pipeline": "reader-first-skill-pipeline"
+        if model_configured
+        else "reader-first-fallback",
         "x2pdf_bridge": "/api/integrations/x2pdf/documents",
         "card_renderer": "html-playwright",
     }

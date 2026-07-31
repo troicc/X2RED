@@ -165,7 +165,7 @@ def test_skill_pipeline_transform_and_storyboard(
 
         health = client.get("/health")
         assert health.status_code == 200
-        assert health.json()["version"] == "0.6.0"
+        assert health.json()["version"] == "0.6.1"
         assert health.json()["model_configured"] is True
-        assert health.json()["editorial_pipeline"] == "skill-driven"
+        assert health.json()["editorial_pipeline"] == "reader-first-skill-pipeline"
         assert health.json()["card_renderer"] == "html-playwright"
