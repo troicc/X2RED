@@ -5,7 +5,7 @@ install:
 	python -m playwright install chromium
 
 dev:
-	uvicorn app.main:app --app-dir apps/api --host 127.0.0.1 --port 8787 --reload
+	x2red serve --host 127.0.0.1 --port 8787 --reload
 
 test:
 	pytest -q
@@ -14,7 +14,7 @@ lint:
 	ruff check apps/api
 
 migrate:
-	alembic upgrade head
+	x2red migrate
 
 extension:
 	@echo "Load extension/chrome as an unpacked Chrome extension"
