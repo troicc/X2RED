@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -13,6 +13,7 @@ RightsStatusValue = Literal[
     "needs_review",
     "do_not_publish",
 ]
+WorkspaceStateValue = Literal["active", "archived"]
 
 
 class IntakeRequest(BaseModel):
@@ -67,21 +68,35 @@ class SourceListItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
+    provider: str
     external_id: str
     canonical_url: str
     author_handle: str
     author_name: str
+    author_avatar_url: str
     text_original: str
+    content_kind: str
+    workspace_state: str
     created_at: datetime | None
     captured_at: datetime
+    archived_at: datetime | None
+    last_published_at: datetime | None
+    published_count: int
     state: str
     rights_status: str
     rights_note: str
 
 
 class SourceDetail(SourceListItem):
+    structured_content_json: str
+    editor_note: str
+    metrics_json: str
     assets: list[AssetOut] = Field(default_factory=list)
     related: list[SourceListItem] = Field(default_factory=list)
+
+
+class SourceNoteUpdateRequest(BaseModel):
+    editor_note: str = Field(default="", max_length=6000)
 
 
 class RightsUpdateRequest(BaseModel):
@@ -90,6 +105,37 @@ class RightsUpdateRequest(BaseModel):
     asset_status: RightsStatusValue | None = None
     asset_note: str = Field(default="", max_length=2000)
     apply_to_related: bool = True
+
+
+class X2PDFImportRequest(BaseModel):
+    document: dict[str, Any]
+
+
+class X2PDFImportResponse(BaseModel):
+    source_id: str
+    external_id: str
+    content_kind: str
+    block_count: int
+    asset_count: int
+    updated: bool
+
+
+class SkillBindingOut(BaseModel):
+    skill_name: str
+    label: str
+    category: str
+    description: str
+    enabled: bool
+    model_name: str
+    reasoning_effort: str
+    prompt_version: str
+
+
+class SkillBindingUpdate(BaseModel):
+    enabled: bool
+    model_name: str = Field(default="", max_length=120)
+    reasoning_effort: Literal["low", "medium", "high"] = "medium"
+    prompt_version: str = Field(default="v1", max_length=40)
 
 
 class DraftGenerateRequest(BaseModel):
@@ -124,7 +170,9 @@ class DraftOut(BaseModel):
 
 
 class CardGenerateRequest(BaseModel):
-    template: Literal["warm_editorial", "dark_tech", "clean_news"] = "warm_editorial"
+    template: Literal["editorial_minimal", "tech_minimal", "clean_news", "warm_note"] = (
+        "editorial_minimal"
+    )
     max_cards: int = Field(default=6, ge=2, le=9)
 
 
