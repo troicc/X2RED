@@ -154,9 +154,25 @@ async def lifespan(app: FastAPI):
             "artifact_ids": [artifact.id for artifact in artifacts],
         }
 
+    async def style_training_handler(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
+        profile = await writing_service.train_style(
+            db,
+            name=str(payload["name"]),
+            description=str(payload.get("description") or ""),
+            original_samples=[str(item) for item in payload.get("original_samples") or []],
+            held_out_samples=[str(item) for item in payload.get("held_out_samples") or []],
+            author_feedback=[str(item) for item in payload.get("author_feedback") or []],
+        )
+        return {
+            "style_profile_id": profile.id,
+            "name": profile.name,
+            "version": profile.version,
+        }
+
     job_engine.register("signal.scan_target", scan_target_handler)
     job_engine.register("signal.analyze", analyze_handler)
     job_engine.register("writing.advance", writing_handler)
+    job_engine.register("writing.train_style", style_training_handler)
     scheduler = StudioScheduler(settings, job_engine, signal_service)
 
     app.state.provider = provider
@@ -226,6 +242,7 @@ def health() -> dict:
         else "multi-agent-structured-fallback",
         "intelligence_pipeline": "monitor-score-l1-l2",
         "writing_pipeline": "editor-research-outline-writer-three-reviews-chief-editor",
+        "style_pipeline": "original-samples-held-out-feedback",
         "scheduler_enabled": settings.scheduler_enabled,
         "sqlite_wal": settings.database_url.startswith("sqlite"),
         "x2pdf_bridge": "/api/integrations/x2pdf/documents",
