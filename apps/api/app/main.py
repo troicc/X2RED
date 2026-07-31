@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
@@ -25,6 +25,9 @@ from app.services.raw_store import RawStore
 
 settings = get_settings()
 STATIC_DIR = Path(__file__).parent / "static"
+STYLESHEET = "[hidden]{display:none!important;}\n" + (STATIC_DIR / "styles.css").read_text(
+    encoding="utf-8"
+)
 
 
 @asynccontextmanager
@@ -74,6 +77,13 @@ app.include_router(drafts.router)
 app.include_router(cards.router)
 app.include_router(publish.router)
 app.include_router(extension.router)
+
+
+@app.get("/static/styles.css", include_in_schema=False)
+def stylesheet() -> Response:
+    return Response(STYLESHEET, media_type="text/css")
+
+
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
