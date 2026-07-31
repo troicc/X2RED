@@ -25,6 +25,11 @@ class SourceState(str, enum.Enum):
     private = "private"
 
 
+class WorkspaceState(str, enum.Enum):
+    active = "active"
+    archived = "archived"
+
+
 class AssetState(str, enum.Enum):
     discovered = "discovered"
     downloading = "downloading"
@@ -86,6 +91,15 @@ class SourceItem(Base):
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     state: Mapped[str] = mapped_column(String(32), default=SourceState.available.value)
+    workspace_state: Mapped[str] = mapped_column(
+        String(20), default=WorkspaceState.active.value, index=True
+    )
+    content_kind: Mapped[str] = mapped_column(String(30), default="post", index=True)
+    structured_content_json: Mapped[str] = mapped_column(Text, default="{}")
+    editor_note: Mapped[str] = mapped_column(Text, default="")
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    published_count: Mapped[int] = mapped_column(Integer, default=0)
     possibly_sensitive: Mapped[bool] = mapped_column(Boolean, default=False)
     metrics_json: Mapped[str] = mapped_column(Text, default="{}")
     rights_status: Mapped[str] = mapped_column(
@@ -223,6 +237,21 @@ class PublishTask(Base):
     result_url: Mapped[str] = mapped_column(Text, default="")
     error: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class SkillBinding(Base):
+    __tablename__ = "skill_bindings"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: new_id("skill"))
+    skill_name: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    model_name: Mapped[str] = mapped_column(String(120), default="")
+    reasoning_effort: Mapped[str] = mapped_column(String(20), default="medium")
+    prompt_version: Mapped[str] = mapped_column(String(40), default="v1")
+    config_json: Mapped[str] = mapped_column(Text, default="{}")
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
