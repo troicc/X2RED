@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 from urllib.parse import urlparse
 
-
 _POST_ID_RE = re.compile(r"/status(?:es)?/(\d{2,20})(?:/|$)")
 _ALLOWED_HOSTS = {
     "x.com",
