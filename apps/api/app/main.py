@@ -7,11 +7,12 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api import assets, drafts, extension, intake, publish, sources
+from app.api import assets, cards, drafts, extension, intake, publish, sources
 from app.core.config import get_settings
 from app.db.base import Base
 from app.db.session import engine
 from app.providers.fxtwitter import FxTwitterProvider
+from app.services.cards import CardService
 from app.services.editorial import EditorialService
 from app.services.intake import IntakeService
 from app.services.media_store import MediaStore
@@ -43,17 +44,19 @@ async def lifespan(app: FastAPI):
         media_store,
     )
     app.state.editorial_service = EditorialService(settings)
+    app.state.card_service = CardService(settings)
     app.state.publish_service = PublishService(settings)
     yield
     await provider.close()
     await media_store.close()
 
 
-app = FastAPI(title="X2RED", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="X2RED", version="0.2.0", lifespan=lifespan)
 app.include_router(intake.router)
 app.include_router(assets.router)
 app.include_router(sources.router)
 app.include_router(drafts.router)
+app.include_router(cards.router)
 app.include_router(publish.router)
 app.include_router(extension.router)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
