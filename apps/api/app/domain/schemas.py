@@ -5,6 +5,15 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+RightsStatusValue = Literal[
+    "owned",
+    "licensed",
+    "open_license",
+    "limited_quote",
+    "needs_review",
+    "do_not_publish",
+]
+
 
 class IntakeRequest(BaseModel):
     url: str
@@ -31,8 +40,11 @@ class AssetOut(BaseModel):
     mime_type: str
     width: int
     height: int
+    alt_text: str
     state: str
     error: str
+    rights_status: str
+    rights_note: str
 
 
 class SourceListItem(BaseModel):
@@ -47,11 +59,21 @@ class SourceListItem(BaseModel):
     created_at: datetime | None
     captured_at: datetime
     state: str
+    rights_status: str
+    rights_note: str
 
 
 class SourceDetail(SourceListItem):
     assets: list[AssetOut] = Field(default_factory=list)
     related: list[SourceListItem] = Field(default_factory=list)
+
+
+class RightsUpdateRequest(BaseModel):
+    source_status: RightsStatusValue
+    source_note: str = Field(default="", max_length=2000)
+    asset_status: RightsStatusValue | None = None
+    asset_note: str = Field(default="", max_length=2000)
+    apply_to_related: bool = True
 
 
 class DraftGenerateRequest(BaseModel):
@@ -80,9 +102,34 @@ class DraftOut(BaseModel):
     created_at: datetime
 
 
+class CardGenerateRequest(BaseModel):
+    template: Literal["warm_editorial", "dark_tech", "clean_news"] = "warm_editorial"
+    max_cards: int = Field(default=6, ge=2, le=9)
+
+
+class CardRenderOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    draft_id: str
+    template: str
+    spec_json: str
+    output_paths_json: str
+    status: str
+    error: str
+    created_at: datetime
+
+
 class ReviewRequest(BaseModel):
     decision: Literal["approved", "rejected"]
     reason: str = Field(default="", max_length=1000)
+    facts_checked: bool = False
+    rights_checked: bool = False
+
+
+class PublishPrepareRequest(BaseModel):
+    include_cards: bool = True
+    include_source_assets: bool = False
 
 
 class PublishResultRequest(BaseModel):
