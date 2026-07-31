@@ -65,5 +65,6 @@ extend-immutable-calls = ["fastapi.Depends", "fastapi.params.Depends"]
 "apps/api/app/services/jobs.py" = ["BLE001"]
 # Selector fallback intentionally tries several unstable third-party DOM shapes.
 "apps/api/app/services/xhs_preview_worker.py" = ["BLE001", "S112"]
-# Tests use controlled literals and local temporary paths.
-"apps/api/tests/*" = ["S101", "S105", "S106", "S108"]
+# Tests use controlled literals, local temporary paths, and fixture-local imports
+# that must happen after environment variables are set.
+"apps/api/tests/*" = ["I001", "S101", "S105", "S106", "S108"]
