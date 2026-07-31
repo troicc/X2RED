@@ -75,6 +75,13 @@ SKILLS: tuple[SkillDefinition, ...] = (
         "medium",
     ),
     SkillDefinition(
+        "writing.style_train",
+        "个人风格训练 Agent",
+        "风格实验室",
+        "从原创样本提炼规则，用留出样本和作者改稿反馈验证并版本化。",
+        "high",
+    ),
+    SkillDefinition(
         "writing.editor",
         "总编辑 Agent",
         "多 Agent 写作",
