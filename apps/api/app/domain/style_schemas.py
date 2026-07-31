@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class StyleProfileTrainRequest(BaseModel):
@@ -10,6 +10,19 @@ class StyleProfileTrainRequest(BaseModel):
     held_out_samples: list[str] = Field(default_factory=list, max_length=10)
     author_feedback: list[str] = Field(default_factory=list, max_length=50)
 
+    @field_validator("name", "description")
     @classmethod
-    def _clean_samples(cls, values: list[str]) -> list[str]:
+    def clean_text(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("original_samples", "held_out_samples", "author_feedback")
+    @classmethod
+    def clean_samples(cls, values: list[str]) -> list[str]:
         return [value.strip() for value in values if value.strip()]
+
+    @field_validator("original_samples")
+    @classmethod
+    def require_three_non_empty_originals(cls, values: list[str]) -> list[str]:
+        if len(values) < 3:
+            raise ValueError("至少需要 3 篇非空原创样本")
+        return values
