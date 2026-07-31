@@ -131,7 +131,11 @@ async def test_reader_first_generation_keeps_caveats_out_of_reader_prompt(
     result = await service._model_generate([source], "explain")
 
     assert result is not None
-    assert "reader-first" in result["quality_passes"]
+    assert result["quality_passes"] == [
+        "editorial.analysis",
+        "writing.draft",
+        "writing.de_translate",
+    ]
     assert "不要把事实核查流程写成面向读者的内容" in calls[0]["system_prompt"]
     assert "禁止使用以下标题或句式" in calls[1]["user_prompt"]
     assert "不要以免责声明收尾" in calls[1]["user_prompt"]
