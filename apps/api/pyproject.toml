@@ -1,0 +1,16 @@
+[project]
+name = "x2red-api"
+version = "0.1.0"
+description = "Local first X to Xiaohongshu editorial studio API"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "httpx>=0.27",
+  "pydantic>=2.8",
+  "sqlalchemy>=2.0",
+  "alembic>=1.13",
+]
+
+[tool.ruff]
+line-length = 100
