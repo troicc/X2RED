@@ -1,5 +1,6 @@
-const state = { sourceId: null, draftId: null, currentSource: null };
+const state = { sourceId: null, draftId: null, currentSource: null, activeJobId: null };
 const $ = (id) => document.getElementById(id);
+const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -141,13 +142,85 @@ function renderCards(render) {
   });
 }
 
+function showJobFailure(job, submitButton) {
+  const box = $("intake-status");
+  box.replaceChildren();
+  box.className = "status error";
+  const text = document.createElement("span");
+  text.textContent = `导入失败：${job.error || "未知错误"}`;
+  const retryButton = document.createElement("button");
+  retryButton.type = "button";
+  retryButton.className = "secondary inline-action";
+  retryButton.textContent = "重试任务";
+  retryButton.addEventListener("click", async () => {
+    retryButton.disabled = true;
+    try {
+      const retried = await api(`/api/jobs/${encodeURIComponent(job.id)}/retry`, { method: "POST" });
+      await pollIntakeJob(retried.id, submitButton);
+    } catch (error) {
+      message(box, error.message, "error");
+      submitButton.disabled = false;
+    }
+  });
+  box.append(text, retryButton);
+  submitButton.disabled = false;
+}
+
+async function pollIntakeJob(jobId, submitButton) {
+  state.activeJobId = jobId;
+  submitButton.disabled = true;
+  for (let count = 0; count < 600; count += 1) {
+    const job = await api(`/api/jobs/${encodeURIComponent(jobId)}`);
+    if (job.state === "succeeded") {
+      let result;
+      try {
+        result = JSON.parse(job.result_json || "{}");
+      } catch {
+        throw new Error("任务成功，但结果数据无法解析");
+      }
+      message(
+        $("intake-status"),
+        `已导入 ${result.imported_count || 0} 条内容、发现 ${result.asset_count || 0} 个素材。`,
+        "ok",
+      );
+      state.activeJobId = null;
+      submitButton.disabled = false;
+      await loadSources(result.source_id || null);
+      return;
+    }
+    if (job.state === "failed" || job.state === "canceled") {
+      state.activeJobId = null;
+      showJobFailure(job, submitButton);
+      return;
+    }
+    const stateLabel = job.state === "running" ? "正在读取与归档" : "等待执行";
+    message($("intake-status"), `${stateLabel} · 第 ${job.attempts || 0} 次尝试 · 任务 ${job.id.slice(-8)}`);
+    await sleep(500);
+  }
+  state.activeJobId = null;
+  submitButton.disabled = false;
+  message($("intake-status"), "任务仍在后台运行。可继续使用页面，稍后刷新来源箱。", "error");
+}
+
+async function resumeLatestIntakeJob() {
+  try {
+    const jobs = await api("/api/jobs?limit=20");
+    const active = jobs.find((job) => job.kind === "intake_x" && ["pending", "running"].includes(job.state));
+    if (active && !state.activeJobId) {
+      pollIntakeJob(active.id, $("intake-form").querySelector('button[type="submit"]'));
+    }
+  } catch {
+    // The rest of the application remains usable when no job history exists yet.
+  }
+}
+
 $("intake-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const button = event.submitter;
   button.disabled = true;
-  message($("intake-status"), "正在读取 FxTwitter、保存来源并处理媒体…");
+  message($("intake-status"), "任务正在排队…");
   try {
-    const result = await api("/api/intake/x", {
+    const job = await api("/api/jobs/intake", {
       method: "POST",
       body: JSON.stringify({
         url: $("x-url").value,
@@ -155,11 +228,9 @@ $("intake-form").addEventListener("submit", async (event) => {
         download_media: $("download-media").checked,
       }),
     });
-    message($("intake-status"), `已导入 ${result.imported_count} 条内容、发现 ${result.asset_count} 个素材。`, "ok");
-    await loadSources(result.source_id);
+    await pollIntakeJob(job.id, button);
   } catch (error) {
     message($("intake-status"), error.message, "error");
-  } finally {
     button.disabled = false;
   }
 });
@@ -358,3 +429,4 @@ if (queryUrl) $("x-url").value = queryUrl;
 health();
 loadSources();
 loadPublish();
+resumeLatestIntakeJob();
