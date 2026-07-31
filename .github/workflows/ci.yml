@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "agent/**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      X2RED_DATABASE_URL: sqlite:///./ci-migration.db
+      X2RED_MEDIA_DIR: ./ci-data/assets
+      X2RED_RAW_DIR: ./ci-data/raw
+      X2RED_EXPORT_DIR: ./ci-data/exports
+      X2RED_BROWSER_PROFILE_DIR: ./ci-data/profile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e '.[dev]'
+      - run: python -m compileall -q apps/api/app
+      - run: x2red migrate
+      - run: node --check apps/api/app/static/app.js
+      - run: pytest -q
+      # FastAPI requires Depends(...) defaults; durable worker boundaries also
+      # intentionally convert arbitrary provider/browser errors into persisted states.
+      - run: ruff check apps/api --select E,F,I,B,UP --ignore E501,UP035,UP042,B008,I001
