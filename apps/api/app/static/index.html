@@ -3,149 +3,401 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>X2RED 本地编辑台</title>
+  <meta name="color-scheme" content="light" />
+  <title>X2RED 创作工作台</title>
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
-  <header>
-    <div>
-      <strong>X2RED</strong>
-      <span>本地 X → 小红书编辑台</span>
-    </div>
-    <span id="health" class="pill">检查服务…</span>
-  </header>
-
-  <main>
-    <section class="card intake">
-      <h1>导入一条 X 内容</h1>
-      <p>默认读取原作者 Thread。完整对话只在确实需要讨论上下文时使用。</p>
-      <form id="intake-form">
-        <input id="x-url" type="url" required placeholder="https://x.com/user/status/123..." />
-        <select id="mode">
-          <option value="thread">Thread</option>
-          <option value="conversation">完整对话</option>
-        </select>
-        <label class="check"><input id="download-media" type="checkbox" checked /> 下载媒体</label>
-        <button type="submit">导入</button>
-      </form>
-      <div id="intake-status" class="status"></div>
-    </section>
-
-    <section class="workspace">
-      <aside class="card sidebar">
-        <div class="row between"><h2>来源箱</h2><button id="refresh" class="secondary">刷新</button></div>
-        <div id="source-list" class="source-list"></div>
-      </aside>
-
-      <section class="card detail">
-        <div id="empty-detail" class="empty">选择一条来源开始编辑。</div>
-        <div id="source-detail" hidden>
-          <div class="row between gap">
-            <div>
-              <h2 id="source-author"></h2>
-              <a id="source-link" target="_blank" rel="noreferrer">查看原帖</a>
-            </div>
-            <select id="draft-style">
-              <option value="explain">解释拆解</option>
-              <option value="news">资讯速览</option>
-              <option value="opinion">编辑观察</option>
-            </select>
-          </div>
-          <pre id="source-text" class="source-text"></pre>
-          <div id="assets" class="assets"></div>
-          <div id="related" class="related"></div>
-
-          <div class="subcard rights-panel">
-            <h3>版权与来源闸</h3>
-            <p>文本可标记为有限引用；原始图片或视频只有自有、已授权或开放许可时才能打包发布。</p>
-            <div class="form-grid">
-              <label>文本状态
-                <select id="rights-status">
-                  <option value="needs_review">待确认</option>
-                  <option value="limited_quote">有限引用</option>
-                  <option value="owned">自有内容</option>
-                  <option value="licensed">已获授权</option>
-                  <option value="open_license">开放许可</option>
-                  <option value="do_not_publish">禁止发布</option>
-                </select>
-              </label>
-              <label>原始媒体状态
-                <select id="asset-rights-status">
-                  <option value="needs_review">待确认</option>
-                  <option value="owned">自有内容</option>
-                  <option value="licensed">已获授权</option>
-                  <option value="open_license">开放许可</option>
-                  <option value="do_not_publish">禁止发布</option>
-                </select>
-              </label>
-            </div>
-            <input id="rights-note" maxlength="2000" placeholder="授权依据、引用范围或不使用原图的说明" />
-            <div class="row wrap gap">
-              <label class="check"><input id="apply-related-rights" type="checkbox" checked /> 同步到整个 Thread / 对话上下文</label>
-              <button id="save-rights" type="button" class="secondary">保存版权判断</button>
-            </div>
-            <div id="rights-status-message" class="status"></div>
-          </div>
-
-          <button id="generate-draft">生成草稿</button>
+  <div class="app-shell">
+    <aside class="app-sidebar">
+      <div class="brand-block">
+        <div class="brand-mark">X</div>
+        <div>
+          <strong>X2RED</strong>
+          <span>Creator Studio</span>
         </div>
-      </section>
+      </div>
 
-      <section class="card editor">
-        <h2>编辑、制图与审核</h2>
-        <div id="empty-editor" class="empty">生成草稿后可在这里修改。</div>
-        <form id="draft-form" hidden>
-          <input id="draft-title" maxlength="80" placeholder="标题" />
-          <textarea id="draft-body" rows="18" maxlength="4000" placeholder="正文"></textarea>
-          <input id="draft-tags" maxlength="500" placeholder="标签，逗号分隔" />
+      <nav class="primary-nav" aria-label="主导航">
+        <button class="nav-item active" data-view="workbench-view">
+          <span class="nav-icon">✦</span><span>创作工作台</span>
+        </button>
+        <button class="nav-item" data-view="publish-view">
+          <span class="nav-icon">↗</span><span>发布任务</span>
+        </button>
+        <button class="nav-item" data-view="settings-view">
+          <span class="nav-icon">⌘</span><span>模型与设置</span>
+        </button>
+      </nav>
 
-          <div class="subcard">
-            <div class="row between gap">
-              <div>
-                <h3>小红书图片卡片</h3>
-                <p>卡片由当前草稿生成，修改正文后应重新生成。</p>
-              </div>
-              <select id="card-template">
-                <option value="warm_editorial">暖色编辑</option>
-                <option value="clean_news">清爽资讯</option>
-                <option value="dark_tech">深色科技</option>
-              </select>
+      <div class="sidebar-spacer"></div>
+      <div class="local-note">
+        <span class="local-dot"></span>
+        <div>
+          <strong>Local-first</strong>
+          <small>内容与素材保存在本机</small>
+        </div>
+      </div>
+    </aside>
+
+    <div class="app-main">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">X → EDITORIAL → XIAOHONGSHU</p>
+          <h1 id="page-title">创作工作台</h1>
+        </div>
+        <div class="topbar-status">
+          <span id="model-status" class="status-chip neutral">AI 检查中</span>
+          <span id="health" class="status-chip neutral">服务检查中</span>
+        </div>
+      </header>
+
+      <main class="view-stack">
+        <section id="workbench-view" class="app-view active">
+          <section class="import-composer surface">
+            <div class="import-copy">
+              <span class="section-kicker">NEW SOURCE</span>
+              <h2>把值得分析的 X 内容放进工作台</h2>
+              <p>先保留来源，再由 AI 做事实拆分、角度选择、中文表达和卡片叙事。</p>
             </div>
-            <button type="button" id="generate-cards" class="secondary">生成图片卡片</button>
-            <div id="card-gallery" class="card-gallery"></div>
-          </div>
+            <form id="intake-form" class="import-form">
+              <div class="url-field">
+                <span>↗</span>
+                <input id="x-url" type="url" required placeholder="粘贴 x.com 帖子链接" />
+              </div>
+              <select id="mode" aria-label="导入范围">
+                <option value="thread">作者 Thread</option>
+                <option value="conversation">完整对话</option>
+              </select>
+              <label class="switch-field">
+                <input id="download-media" type="checkbox" checked />
+                <span class="switch-ui"></span>
+                <span>下载媒体</span>
+              </label>
+              <button type="submit" class="primary-action">导入来源</button>
+            </form>
+            <div id="intake-status" class="inline-status"></div>
+          </section>
 
-          <div class="subcard review-checks">
-            <h3>终审确认</h3>
-            <label class="check"><input id="facts-checked" type="checkbox" /> 已核对人名、日期、数字和因果表述</label>
-            <label class="check"><input id="rights-checked" type="checkbox" /> 已核对来源标注、引用范围和媒体版权</label>
-            <label class="check"><input id="include-source-assets" type="checkbox" /> 发布包同时附带有明确授权的原始图片/视频</label>
-          </div>
+          <section class="workbench-grid">
+            <aside class="source-rail surface">
+              <div class="rail-header">
+                <div>
+                  <span class="section-kicker">INBOX</span>
+                  <h2>来源箱</h2>
+                </div>
+                <button id="refresh" class="icon-button" type="button" title="刷新来源">↻</button>
+              </div>
+              <div class="source-filter">
+                <span>⌕</span>
+                <input id="source-search" type="search" placeholder="搜索作者或内容" />
+              </div>
+              <div id="source-list" class="source-list"></div>
+            </aside>
 
-          <div class="row wrap gap">
-            <button type="submit">保存新版本</button>
-            <button type="button" id="approve" class="approve">批准此版本</button>
-            <button type="button" id="reject" class="danger">退回</button>
-            <button type="button" id="prepare" class="secondary">生成发布包</button>
-          </div>
-          <div id="draft-status" class="status"></div>
-        </form>
-      </section>
-    </section>
+            <section class="workspace-canvas surface">
+              <div id="empty-workbench" class="workbench-empty">
+                <div class="empty-orbit">✦</div>
+                <h2>从一条来源开始</h2>
+                <p>选择左侧内容，查看来源、AI 分析、草稿、卡片和审核状态。</p>
+              </div>
 
-    <section class="card publish">
-      <div class="row between"><h2>发布任务</h2><button id="refresh-publish" class="secondary">刷新</button></div>
-      <p>“打开小红书预览”只上传并填充内容，不会点击最终发布。</p>
-      <div id="publish-list"></div>
-    </section>
-  </main>
+              <div id="active-workbench" hidden>
+                <div class="source-identity">
+                  <div class="avatar" id="source-avatar">X</div>
+                  <div class="source-identity-copy">
+                    <div class="identity-line">
+                      <h2 id="source-author"></h2>
+                      <span id="source-rights-badge" class="mini-badge">待确认</span>
+                    </div>
+                    <a id="source-link" target="_blank" rel="noreferrer">在 X 查看原帖 ↗</a>
+                  </div>
+                  <div class="identity-actions">
+                    <select id="draft-style" aria-label="草稿风格">
+                      <option value="explain">解释拆解</option>
+                      <option value="news">资讯速览</option>
+                      <option value="opinion">编辑观察</option>
+                    </select>
+                    <button id="generate-draft" type="button" class="primary-action">AI 分析并生成</button>
+                  </div>
+                </div>
+
+                <div class="stage-tabs" role="tablist" aria-label="创作阶段">
+                  <button class="stage-tab active" data-tab="source-pane" role="tab">01 来源</button>
+                  <button class="stage-tab" data-tab="analysis-pane" role="tab">02 分析</button>
+                  <button class="stage-tab" data-tab="draft-pane" role="tab">03 文案</button>
+                  <button class="stage-tab" data-tab="cards-pane" role="tab">04 制图</button>
+                  <button class="stage-tab" data-tab="review-pane" role="tab">05 审核</button>
+                </div>
+
+                <section id="source-pane" class="stage-pane active">
+                  <div class="pane-grid source-pane-grid">
+                    <article class="content-panel">
+                      <div class="panel-heading">
+                        <div>
+                          <span class="section-kicker">ORIGINAL SOURCE</span>
+                          <h3>原帖与上下文</h3>
+                        </div>
+                        <span id="related-count" class="count-badge">0 条上下文</span>
+                      </div>
+                      <pre id="source-text" class="source-text"></pre>
+                      <div id="related" class="related-list"></div>
+                    </article>
+
+                    <aside class="content-panel rights-panel">
+                      <div class="panel-heading">
+                        <div>
+                          <span class="section-kicker">RIGHTS GATE</span>
+                          <h3>版权与来源判断</h3>
+                        </div>
+                      </div>
+                      <p class="helper-copy">文本引用和原始媒体授权分开判断；未明确授权的图片不会被用于发布包。</p>
+                      <label class="field-label">文本状态
+                        <select id="rights-status">
+                          <option value="needs_review">待确认</option>
+                          <option value="limited_quote">有限引用</option>
+                          <option value="owned">自有内容</option>
+                          <option value="licensed">已获授权</option>
+                          <option value="open_license">开放许可</option>
+                          <option value="do_not_publish">禁止发布</option>
+                        </select>
+                      </label>
+                      <label class="field-label">原始媒体状态
+                        <select id="asset-rights-status">
+                          <option value="needs_review">待确认</option>
+                          <option value="owned">自有内容</option>
+                          <option value="licensed">已获授权</option>
+                          <option value="open_license">开放许可</option>
+                          <option value="do_not_publish">禁止发布</option>
+                        </select>
+                      </label>
+                      <label class="field-label">判断说明
+                        <textarea id="rights-note" rows="4" maxlength="2000" placeholder="授权依据、引用范围或不使用原图的说明"></textarea>
+                      </label>
+                      <label class="check-row"><input id="apply-related-rights" type="checkbox" checked /> 同步到整个 Thread / 对话</label>
+                      <button id="save-rights" type="button" class="secondary-action">保存版权判断</button>
+                      <div id="rights-status-message" class="inline-status"></div>
+                    </aside>
+                  </div>
+
+                  <article class="content-panel media-panel">
+                    <div class="panel-heading">
+                      <div>
+                        <span class="section-kicker">SOURCE MEDIA</span>
+                        <h3>来源素材</h3>
+                      </div>
+                      <span class="helper-copy">只有明确授权的图片会进入内容卡片</span>
+                    </div>
+                    <div id="assets" class="assets"></div>
+                  </article>
+                </section>
+
+                <section id="analysis-pane" class="stage-pane">
+                  <div id="analysis-empty" class="stage-empty">
+                    <div class="empty-orbit small">◎</div>
+                    <h3>还没有编辑分析</h3>
+                    <p>点击“AI 分析并生成”，模型会先拆分事实、作者主张、不确定项和选题角度，再写稿。</p>
+                  </div>
+                  <div id="analysis-content" hidden>
+                    <article class="analysis-hero">
+                      <div>
+                        <span class="section-kicker">EDITORIAL THESIS</span>
+                        <h2 id="analysis-topic"></h2>
+                        <p id="analysis-summary"></p>
+                      </div>
+                      <div class="angle-card">
+                        <span>推荐角度</span>
+                        <strong id="analysis-angle-name"></strong>
+                        <p id="analysis-angle-reason"></p>
+                      </div>
+                    </article>
+
+                    <div class="analysis-grid">
+                      <article class="analysis-card facts-card">
+                        <div class="analysis-card-title"><span>✓</span><h3>来源事实</h3></div>
+                        <div id="analysis-facts" class="analysis-list"></div>
+                      </article>
+                      <article class="analysis-card claims-card">
+                        <div class="analysis-card-title"><span>“</span><h3>作者主张</h3></div>
+                        <div id="analysis-claims" class="analysis-list"></div>
+                      </article>
+                      <article class="analysis-card caution-card">
+                        <div class="analysis-card-title"><span>!</span><h3>仍待确认</h3></div>
+                        <div id="analysis-uncertainties" class="analysis-list"></div>
+                      </article>
+                      <article class="analysis-card value-card">
+                        <div class="analysis-card-title"><span>✦</span><h3>读者价值</h3></div>
+                        <div id="analysis-values" class="analysis-list"></div>
+                      </article>
+                    </div>
+
+                    <article class="content-panel">
+                      <div class="panel-heading">
+                        <div>
+                          <span class="section-kicker">TITLE DIRECTIONS</span>
+                          <h3>候选标题</h3>
+                        </div>
+                      </div>
+                      <div id="analysis-titles" class="title-candidates"></div>
+                    </article>
+                  </div>
+                </section>
+
+                <section id="draft-pane" class="stage-pane">
+                  <div id="empty-editor" class="stage-empty">
+                    <div class="empty-orbit small">✎</div>
+                    <h3>还没有草稿</h3>
+                    <p>生成草稿后，可以在这里编辑，或让 AI 去翻译味、加强判断、精简和重写标题。</p>
+                  </div>
+                  <form id="draft-form" hidden>
+                    <div class="editor-toolbar">
+                      <div>
+                        <span class="section-kicker">AI EDITING TOOLS</span>
+                        <h3>内容编辑器</h3>
+                      </div>
+                      <div class="transform-actions">
+                        <button type="button" data-transform="de_translate" class="tool-button">去翻译味</button>
+                        <button type="button" data-transform="stronger_insight" class="tool-button">更有判断</button>
+                        <button type="button" data-transform="concise" class="tool-button">精简正文</button>
+                        <button type="button" data-transform="rewrite_title" class="tool-button">重写标题</button>
+                      </div>
+                    </div>
+                    <label class="field-label editor-field">标题
+                      <input id="draft-title" maxlength="80" placeholder="标题" />
+                    </label>
+                    <label class="field-label editor-field">正文
+                      <textarea id="draft-body" rows="22" maxlength="4000" placeholder="正文"></textarea>
+                    </label>
+                    <label class="field-label editor-field">标签
+                      <input id="draft-tags" maxlength="500" placeholder="标签，逗号分隔" />
+                    </label>
+                    <div class="editor-footer">
+                      <div id="draft-status" class="inline-status"></div>
+                      <button type="submit" class="primary-action">保存为新版本</button>
+                    </div>
+                  </form>
+                </section>
+
+                <section id="cards-pane" class="stage-pane">
+                  <div class="card-controls content-panel">
+                    <div>
+                      <span class="section-kicker">VISUAL STORYBOARD</span>
+                      <h3>内容驱动的卡片叙事</h3>
+                      <p class="helper-copy">系统会优先生成封面、推荐角度、来源事实、正文要点、核查边界和来源页。</p>
+                    </div>
+                    <div class="card-control-actions">
+                      <select id="card-template">
+                        <option value="warm_editorial">柔和杂志</option>
+                        <option value="clean_news">极简蓝图</option>
+                        <option value="dark_tech">深色科技</option>
+                      </select>
+                      <button type="button" id="generate-cards" class="primary-action">生成整套卡片</button>
+                    </div>
+                  </div>
+                  <div id="card-gallery" class="card-gallery"></div>
+                </section>
+
+                <section id="review-pane" class="stage-pane">
+                  <div class="review-grid">
+                    <article class="content-panel review-panel">
+                      <span class="section-kicker">FINAL REVIEW</span>
+                      <h3>发布前终审</h3>
+                      <label class="review-check"><input id="facts-checked" type="checkbox" /><span><strong>事实核对</strong><small>人名、日期、数字、效果和因果表述均已核对</small></span></label>
+                      <label class="review-check"><input id="rights-checked" type="checkbox" /><span><strong>版权核对</strong><small>来源标注、引用范围和媒体授权均已确认</small></span></label>
+                      <label class="review-check"><input id="include-source-assets" type="checkbox" /><span><strong>附带原始媒体</strong><small>仅打包明确授权的图片或视频</small></span></label>
+                    </article>
+                    <article class="content-panel release-panel">
+                      <span class="section-kicker">RELEASE PACKAGE</span>
+                      <h3>生成发布包</h3>
+                      <p>批准后生成带哈希的不可变发布包，再打开小红书创作中心进行人工终审。</p>
+                      <div class="release-actions">
+                        <button type="button" id="reject" class="ghost-danger">退回</button>
+                        <button type="button" id="approve" class="secondary-action">批准版本</button>
+                        <button type="button" id="prepare" class="primary-action">生成发布包</button>
+                      </div>
+                    </article>
+                  </div>
+                </section>
+              </div>
+            </section>
+          </section>
+        </section>
+
+        <section id="publish-view" class="app-view">
+          <section class="page-intro">
+            <span class="section-kicker">PUBLISH QUEUE</span>
+            <h2>发布任务</h2>
+            <p>这里管理已通过事实和版权审核的发布包。X2RED 只预填内容，不会点击最终发布。</p>
+          </section>
+          <section class="surface page-surface">
+            <div class="rail-header">
+              <h3>任务列表</h3>
+              <button id="refresh-publish" class="secondary-action">刷新任务</button>
+            </div>
+            <div id="publish-list" class="publish-list"></div>
+          </section>
+        </section>
+
+        <section id="settings-view" class="app-view">
+          <section class="page-intro">
+            <span class="section-kicker">MODEL & LOCAL SETTINGS</span>
+            <h2>模型与本地设置</h2>
+            <p>确认 X2RED 是否真的接入模型，而不是悄悄退回规则化草稿。</p>
+          </section>
+          <section class="settings-grid">
+            <article class="surface settings-card">
+              <span class="section-kicker">AI PROVIDER</span>
+              <h3>当前模型</h3>
+              <div class="settings-value" id="settings-model-name">检查中…</div>
+              <p id="settings-model-copy">正在读取本地服务状态。</p>
+            </article>
+            <article class="surface settings-card">
+              <span class="section-kicker">GENERATION PIPELINE</span>
+              <h3>三阶段编辑</h3>
+              <ol class="pipeline-list">
+                <li><span>01</span>事实、主张、不确定项和选题分析</li>
+                <li><span>02</span>根据推荐角度完成中文成稿</li>
+                <li><span>03</span>去翻译味与中文节奏终审</li>
+              </ol>
+            </article>
+            <article class="surface settings-card wide">
+              <span class="section-kicker">MAC CONFIGURATION</span>
+              <h3>GLM-5.2 配置</h3>
+              <pre class="config-snippet">X2RED_MODEL_BASE_URL=https://open.bigmodel.cn/api/paas/v4
+X2RED_MODEL_API_KEY=你的智谱APIKey
+X2RED_MODEL_NAME=glm-5.2</pre>
+              <p>配置保存在项目根目录的 <code>.env</code> 中。修改后重启 X2RED。</p>
+            </article>
+          </section>
+        </section>
+      </main>
+    </div>
+  </div>
 
   <template id="source-template">
-    <button class="source-item">
-      <span class="source-name"></span>
+    <button class="source-item" type="button">
+      <span class="source-item-top">
+        <span class="source-mini-avatar"></span>
+        <span class="source-meta">
+          <strong class="source-name"></strong>
+          <small class="source-date"></small>
+        </span>
+        <span class="source-state-dot"></span>
+      </span>
       <span class="source-preview"></span>
+      <span class="source-item-bottom">
+        <span class="source-type">X SOURCE</span>
+        <span class="source-rights"></span>
+      </span>
     </button>
   </template>
+
+  <div id="card-lightbox" class="lightbox" hidden>
+    <button id="close-lightbox" class="lightbox-close" type="button" aria-label="关闭">×</button>
+    <img id="lightbox-image" alt="卡片预览" />
+    <div id="lightbox-caption"></div>
+  </div>
+
   <script src="/static/app.js"></script>
 </body>
 </html>

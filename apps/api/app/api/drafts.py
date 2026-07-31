@@ -10,6 +10,7 @@ from app.domain.models import DraftRevision, ReviewDecision, SourceItem
 from app.domain.schemas import (
     DraftGenerateRequest,
     DraftOut,
+    DraftTransformRequest,
     DraftUpdateRequest,
     ReviewRequest,
 )
@@ -62,6 +63,30 @@ def revise_draft(
         body=body.body,
         tags=body.tags,
     )
+    db.commit()
+    db.refresh(revised)
+    return revised
+
+
+@router.post("/drafts/{draft_id}/transform", response_model=DraftOut)
+async def transform_draft(
+    draft_id: str,
+    body: DraftTransformRequest,
+    db: Session = Depends(get_db),
+    service: EditorialService = Depends(get_editorial_service),
+) -> DraftRevision:
+    draft = db.get(DraftRevision, draft_id)
+    if draft is None:
+        raise HTTPException(status_code=404, detail="草稿不存在")
+    try:
+        revised = await service.transform(
+            db,
+            draft,
+            action=body.action,
+            instruction=body.instruction,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     db.commit()
     db.refresh(revised)
     return revised
