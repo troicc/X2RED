@@ -1,9 +1,48 @@
 #!/usr/bin/env sh
 set -eu
 
-if [ ! -d .venv ]; then
-  python3 -m venv .venv
+# Always run relative to the repository root, even when invoked from elsewhere.
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+cd "$REPO_ROOT"
+
+# Prefer the version used by CI, while still allowing newer supported Python versions.
+if [ -n "${X2RED_PYTHON:-}" ]; then
+  PYTHON_BIN=$X2RED_PYTHON
+elif command -v python3.12 >/dev/null 2>&1; then
+  PYTHON_BIN=python3.12
+elif command -v python3 >/dev/null 2>&1; then
+  PYTHON_BIN=python3
+else
+  echo "X2RED requires Python 3.12 or newer." >&2
+  exit 1
 fi
-. .venv/bin/activate
-python -m pip install --no-build-isolation -e .
-exec x2red serve --host 127.0.0.1 --port 8787 "$@"
+
+"$PYTHON_BIN" - <<'PY'
+import sys
+if sys.version_info < (3, 12):
+    raise SystemExit(
+        f"X2RED requires Python 3.12 or newer; found {sys.version.split()[0]}"
+    )
+print(f"Using Python {sys.version.split()[0]}")
+PY
+
+# Recreate a broken or stale environment automatically.
+if [ -d .venv ] && ! .venv/bin/python -c 'import sys; raise SystemExit(sys.version_info < (3, 12))' >/dev/null 2>&1; then
+  echo "Existing .venv is invalid; recreating it."
+  rm -rf .venv
+fi
+
+if [ ! -x .venv/bin/python ]; then
+  "$PYTHON_BIN" -m venv .venv
+fi
+
+VENV_PYTHON="$REPO_ROOT/.venv/bin/python"
+
+# Python 3.12+ no longer installs setuptools as a core venv dependency. The
+# project uses setuptools.build_meta, so bootstrap it before the editable install.
+"$VENV_PYTHON" -m ensurepip --upgrade
+"$VENV_PYTHON" -m pip install --upgrade pip setuptools wheel
+"$VENV_PYTHON" -m pip install -e .
+
+exec "$VENV_PYTHON" -m app.cli serve --host 127.0.0.1 --port 8787 "$@"
