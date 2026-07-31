@@ -56,6 +56,20 @@ _KEYWORD_TAGS = {
     "content": "内容创作",
 }
 
+_ANALYSIS_FIELDS = (
+    "topic",
+    "one_sentence_summary",
+    "verified_facts",
+    "author_claims",
+    "uncertainties",
+    "audience_value",
+    "angles",
+    "recommended_angle",
+    "title_candidates",
+    "outline",
+    "avoid",
+)
+
 
 class EditorialService:
     def __init__(self, settings: Settings) -> None:
@@ -63,11 +77,15 @@ class EditorialService:
 
     async def generate(self, db: Session, source: SourceItem, style: str) -> DraftRevision:
         context = self._context(db, source)
-        generated = await self._model_generate(context, style)
-        generator = "model"
-        if generated is None:
+        model_result = await self._model_generate(context, style)
+        analysis: dict = {}
+        if model_result is None:
             generated = self._fallback(context, style)
             generator = "structured-fallback"
+        else:
+            generated = model_result["draft"]
+            analysis = self._compact_analysis(model_result["analysis"])
+            generator = "model-two-pass"
         generated = self._sanitize_generated(generated, context, style)
 
         version = int(
@@ -87,11 +105,12 @@ class EditorialService:
                     "source_ids": [item.id for item in context],
                     "source_urls": [item.canonical_url for item in context],
                     "generator": generator,
-                    "model": self.settings.model_name if generator == "model" else "",
+                    "model": self.settings.model_name if generator == "model-two-pass" else "",
+                    "editorial_analysis": analysis,
                 },
                 ensure_ascii=False,
             ),
-            created_by="model" if generator == "model" else "system",
+            created_by="model" if generator == "model-two-pass" else "system",
         )
         db.add(draft)
         db.flush()
@@ -139,6 +158,180 @@ class EditorialService:
         if not (self.settings.model_base_url and self.settings.model_name):
             return None
 
+        source_blocks = self._source_blocks(context)
+        source_json = json.dumps(source_blocks, ensure_ascii=False)[:20000]
+        style_label = _STYLE_LABELS.get(style, style)
+
+        analysis_prompt = f"""
+你将收到一组来自 X 的原帖或 Thread。先完成编辑分析，不要直接写小红书正文。
+
+写作类型：{style_label}
+
+分析任务：
+1. 用一句话说明真正发生了什么，不要逐句翻译。
+2. 区分“来源直接陈述的事实”“原作者自己的判断/宣传”“目前无法确认的内容”。
+3. 找出这条信息对中文读者真正有用的地方，避免泛泛而谈。
+4. 提出 3 个明显不同的选题角度，并推荐其中一个，说明推荐理由。
+5. 给出 5 个不标题党、但有信息增量的中文标题候选。
+6. 设计正文结构：每一节写什么、依据来自哪些 source_index。
+7. 列出写作时必须避免的误读、夸大和事实跳跃。
+
+只输出合法 JSON：
+{{
+  "topic": "主题",
+  "one_sentence_summary": "一句话总结",
+  "verified_facts": [{{"statement": "来源直接支持的事实", "source_index": 1}}],
+  "author_claims": [{{"statement": "原作者的观点或自我评价", "source_index": 1}}],
+  "uncertainties": ["尚待外部核查的点"],
+  "audience_value": ["对中文读者的具体价值"],
+  "angles": [
+    {{"name": "角度名", "thesis": "核心判断", "why": "为什么成立"}}
+  ],
+  "recommended_angle": {{"name": "推荐角度", "reason": "推荐理由"}},
+  "title_candidates": ["标题1", "标题2", "标题3", "标题4", "标题5"],
+  "outline": [
+    {{"heading": "段落标题", "purpose": "这一节解决什么问题", "source_indices": [1]}}
+  ],
+  "avoid": ["必须避免的表达"]
+}}
+
+来源数据：
+{source_json}
+""".strip()
+
+        try:
+            analysis = await self._chat_json(
+                system_prompt=(
+                    "你是一名资深中文内容主编和事实核查编辑。先分析证据、价值和叙事角度，"
+                    "再决定怎么写；不把原作者的宣传自动视为事实。"
+                ),
+                user_prompt=analysis_prompt,
+                temperature=0.2,
+                reasoning_effort="high",
+            )
+
+            writing_prompt = f"""
+请根据“编辑分析”和“原始来源”写出一篇真正可发布的中文小红书笔记。
+
+写作类型：{style_label}
+具体要求：{_STYLE_GUIDES.get(style, _STYLE_GUIDES["explain"])}
+
+编辑分析：
+{json.dumps(analysis, ensure_ascii=False)[:12000]}
+
+原始来源：
+{source_json}
+
+必须遵守：
+1. 采用编辑分析中的 recommended_angle，不要把所有角度混成一篇流水账。
+2. 标题 12-22 个汉字，优先从 title_candidates 中择优改写；具体、有信息量，拒绝标题党。
+3. 开头两行直接交代“发生了什么”和“为什么值得读”。
+4. 正文 500-1000 个汉字，短段落，每节都要推进信息，不复述同一句话。
+5. 必须把来源事实、作者观点和编辑判断清楚区分。
+6. 不得添加来源和分析中没有的人名、数字、日期、效果、因果关系或行业结论。
+7. uncertainties 中的内容必须用保守措辞呈现，不得写成确定事实。
+8. 结尾给读者一个具体判断框架或行动建议，不写空洞互动话术。
+9. 标签给出 4-7 个，不带 #，避免“热门”“干货”等空泛词。
+10. claims 中每一项包含 statement、source_index、verification；verification 只能是 source_only 或 needs_external_check。
+
+只输出合法 JSON：
+{{
+  "title": "标题",
+  "body": "完整正文",
+  "tags": ["标签1", "标签2"],
+  "claims": [
+    {{"statement": "可核查陈述", "source_index": 1, "verification": "source_only"}}
+  ]
+}}
+""".strip()
+
+            parsed = await self._chat_json(
+                system_prompt=(
+                    "你是一名严谨、有判断力、熟悉小红书阅读节奏的中文主编。"
+                    "你根据已经完成的编辑分析写作，而不是机械翻译或堆砌原文。"
+                ),
+                user_prompt=writing_prompt,
+                temperature=0.5,
+                reasoning_effort="medium",
+            )
+            tags = parsed.get("tags")
+            if isinstance(tags, list):
+                tags_value = ",".join(str(tag) for tag in tags)
+            else:
+                tags_value = str(tags or "")
+            claims = self._map_model_claims(parsed.get("claims"), context)
+            return {
+                "analysis": analysis,
+                "draft": {
+                    "title": str(parsed.get("title") or ""),
+                    "body": str(parsed.get("body") or ""),
+                    "tags": tags_value,
+                    "claims": claims,
+                },
+            }
+        except (httpx.HTTPError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+            return None
+
+    async def _chat_json(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float,
+        reasoning_effort: str,
+    ) -> dict:
+        request_body: dict = {
+            "model": self.settings.model_name,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": temperature,
+            "response_format": {"type": "json_object"},
+        }
+        request_body.update(self._reasoning_options(reasoning_effort))
+
+        headers = {"Content-Type": "application/json"}
+        if self.settings.model_api_key:
+            headers["Authorization"] = f"Bearer {self.settings.model_api_key}"
+
+        endpoint = self.settings.model_base_url.rstrip("/") + "/chat/completions"
+        variants = [request_body]
+        without_format = dict(request_body)
+        without_format.pop("response_format", None)
+        variants.append(without_format)
+        if "thinking" in request_body or "reasoning_effort" in request_body:
+            portable = dict(without_format)
+            portable.pop("thinking", None)
+            portable.pop("reasoning_effort", None)
+            variants.append(portable)
+
+        last_response: httpx.Response | None = None
+        async with httpx.AsyncClient(timeout=120) as client:
+            for index, payload in enumerate(variants):
+                response = await client.post(endpoint, headers=headers, json=payload)
+                last_response = response
+                if response.status_code not in {400, 404, 422} or index == len(variants) - 1:
+                    response.raise_for_status()
+                    message = response.json()["choices"][0]["message"]
+                    content = str(message.get("content") or "")
+                    return self._parse_json_object(content)
+        if last_response is not None:
+            last_response.raise_for_status()
+        raise ValueError("model returned no response")
+
+    def _reasoning_options(self, effort: str) -> dict:
+        model = self.settings.model_name.lower()
+        base_url = self.settings.model_base_url.lower()
+        if model.startswith("glm-5") or "bigmodel.cn" in base_url:
+            return {
+                "thinking": {"type": "enabled"},
+                "reasoning_effort": effort,
+            }
+        return {}
+
+    @staticmethod
+    def _source_blocks(context: list[SourceItem]) -> list[dict]:
         source_blocks = []
         for index, item in enumerate(context, start=1):
             try:
@@ -157,83 +350,21 @@ class EditorialService:
                     "url": item.canonical_url,
                 }
             )
+        return source_blocks
 
-        prompt = f"""
-请把下列 X 来源整理成一篇真正可发布的中文小红书笔记。
-
-写作类型：{_STYLE_LABELS.get(style, style)}
-具体要求：{_STYLE_GUIDES.get(style, _STYLE_GUIDES["explain"])}
-
-必须遵守：
-1. 标题 12-22 个汉字，具体、有信息量，不使用“震惊”“炸裂”“必看”等廉价标题党。
-2. 开头两行必须让读者立刻知道发生了什么以及为什么值得关注。
-3. 正文 450-900 个汉字；短段落；每段不超过 4 行；最多使用 4 个克制的 emoji。
-4. 不要逐句翻译或复述。先提炼，再解释，再给出判断边界。
-5. 原作者事实、原作者观点、编辑补充必须明确区分。
-6. 不得补写来源中没有的人名、数字、日期、因果关系或行业结论。
-7. 对不确定信息使用“据原作者描述”“目前尚不能确认”等表述。
-8. 标签给出 4-7 个，不带 #，避免“热门”“干货”等空泛标签。
-9. claims 中每一项必须包含 statement、source_index、verification，verification 只能是 source_only 或 needs_external_check。
-
-只输出合法 JSON：
-{{
-  "title": "标题",
-  "body": "完整正文",
-  "tags": ["标签1", "标签2"],
-  "claims": [
-    {{"statement": "可核查陈述", "source_index": 1, "verification": "source_only"}}
-  ]
-}}
-
-来源数据：
-{json.dumps(source_blocks, ensure_ascii=False)[:18000]}
-""".strip()
-
-        request_body = {
-            "model": self.settings.model_name,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        "你是一名严谨但有表达力的中文内容主编，熟悉小红书阅读节奏。"
-                        "你的任务是提高信息密度和可读性，不是制造情绪或伪造事实。"
-                    ),
-                },
-                {"role": "user", "content": prompt},
-            ],
-            "temperature": 0.55,
-            "response_format": {"type": "json_object"},
+    @staticmethod
+    def _compact_analysis(analysis: dict) -> dict:
+        compact = {key: analysis.get(key) for key in _ANALYSIS_FIELDS if key in analysis}
+        encoded = json.dumps(compact, ensure_ascii=False)
+        if len(encoded) <= 12000:
+            return compact
+        return {
+            "topic": str(analysis.get("topic") or "")[:300],
+            "one_sentence_summary": str(analysis.get("one_sentence_summary") or "")[:600],
+            "recommended_angle": analysis.get("recommended_angle") or {},
+            "uncertainties": (analysis.get("uncertainties") or [])[:8],
+            "title_candidates": (analysis.get("title_candidates") or [])[:5],
         }
-        headers = {"Content-Type": "application/json"}
-        if self.settings.model_api_key:
-            headers["Authorization"] = f"Bearer {self.settings.model_api_key}"
-
-        try:
-            async with httpx.AsyncClient(timeout=75) as client:
-                endpoint = self.settings.model_base_url.rstrip("/") + "/chat/completions"
-                response = await client.post(endpoint, headers=headers, json=request_body)
-                # Some local gateways do not support response_format. Retry once
-                # without it rather than silently falling back to low-quality copy.
-                if response.status_code in {400, 404, 422}:
-                    request_body.pop("response_format", None)
-                    response = await client.post(endpoint, headers=headers, json=request_body)
-                response.raise_for_status()
-                content = response.json()["choices"][0]["message"]["content"]
-                parsed = self._parse_json_object(content)
-                tags = parsed.get("tags")
-                if isinstance(tags, list):
-                    tags_value = ",".join(str(tag) for tag in tags)
-                else:
-                    tags_value = str(tags or "")
-                claims = self._map_model_claims(parsed.get("claims"), context)
-                return {
-                    "title": str(parsed.get("title") or ""),
-                    "body": str(parsed.get("body") or ""),
-                    "tags": tags_value,
-                    "claims": claims,
-                }
-        except (httpx.HTTPError, KeyError, TypeError, ValueError, json.JSONDecodeError):
-            return None
 
     @staticmethod
     def _parse_json_object(content: str) -> dict:
