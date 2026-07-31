@@ -18,7 +18,6 @@ from app.services.media_store import MediaStore
 from app.services.publisher import PublishService
 from app.services.raw_store import RawStore
 
-
 settings = get_settings()
 STATIC_DIR = Path(__file__).parent / "static"
 
