@@ -50,9 +50,26 @@ def main() -> int:
 
         files = [path for path in payload.get("assets", []) if Path(path).is_file()]
         if files:
+            video_suffixes = {".mp4", ".mov", ".m4v", ".webm"}
+            is_video = Path(files[0]).suffix.lower() in video_suffixes
+            tab_selectors = (
+                ("text=上传视频", "text=视频")
+                if is_video
+                else ("text=上传图文", "text=图文")
+            )
+            for selector in tab_selectors:
+                try:
+                    page.locator(selector).first.click(timeout=3000)
+                    break
+                except Exception:
+                    continue
+            page.wait_for_timeout(1000)
             try:
-                page.locator('input[type="file"]').first.set_input_files(files, timeout=20_000)
-                page.wait_for_timeout(3500)
+                upload_files = files[:1] if is_video else files[:18]
+                page.locator('input[type="file"]').first.set_input_files(
+                    upload_files, timeout=20_000
+                )
+                page.wait_for_timeout(6000 if is_video else 3500)
             except Exception as exc:
                 print(f"素材上传未完成: {exc}", file=sys.stderr)
 
