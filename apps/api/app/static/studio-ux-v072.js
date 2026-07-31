@@ -3,6 +3,7 @@
     project: null,
     lastFocusKey: "",
     busy: false,
+    scheduled: false,
   };
 
   const approvalTypes = new Set(["editorial_brief", "outline", "revision_plan"]);
@@ -33,6 +34,15 @@
     canceled: "项目已取消",
   };
 
+  function scheduleEnhance() {
+    if (uxState.scheduled) return;
+    uxState.scheduled = true;
+    window.requestAnimationFrame(() => {
+      uxState.scheduled = false;
+      enhanceProjectDetail();
+    });
+  }
+
   function projectEndpoint(urlValue, method) {
     if ((method || "GET").toUpperCase() !== "GET") return false;
     try {
@@ -51,7 +61,7 @@
       response.clone().json().then((project) => {
         if (!project?.id || !Array.isArray(project.artifacts)) return;
         uxState.project = project;
-        window.requestAnimationFrame(enhanceProjectDetail);
+        scheduleEnhance();
       }).catch(() => {});
     }
     return response;
@@ -98,6 +108,13 @@
     document.getElementById("refresh-writing")?.click();
   }
 
+  function resetDock() {
+    uxState.busy = false;
+    const detail = document.getElementById("writing-detail");
+    if (detail) delete detail.dataset.uxFingerprint;
+    scheduleEnhance();
+  }
+
   function setDockBusy(dock, text) {
     uxState.busy = true;
     dock.classList.add("busy");
@@ -125,8 +142,7 @@
       refreshSelectedProject();
     } catch (error) {
       window.alert(error.message);
-      uxState.busy = false;
-      refreshSelectedProject();
+      resetDock();
     }
   }
 
@@ -134,7 +150,7 @@
     if (uxState.busy) return;
     const note = window.prompt("写下需要修改的地方。Agent 会按这条反馈重新生成当前阶段。", "");
     if (note === null) return;
-    setDockBusy(dock, "正在退回当前阶段…");
+    setDockBusy(dock, "正在退回并重新生成当前阶段…");
     try {
       await api(
         `/api/writing/projects/${encodeURIComponent(project.id)}/artifacts/${encodeURIComponent(artifact.id)}/approve`,
@@ -151,14 +167,13 @@
       refreshSelectedProject();
     } catch (error) {
       window.alert(error.message);
-      uxState.busy = false;
-      refreshSelectedProject();
+      resetDock();
     }
   }
 
   async function continueProject(project, dock) {
     if (uxState.busy) return;
-    setDockBusy(dock, "正在运行下一阶段…");
+    setDockBusy(dock, "正在运行到下一个确认点…");
     try {
       const job = await api(`/api/writing/projects/${encodeURIComponent(project.id)}/run`, {
         method: "POST",
@@ -168,8 +183,7 @@
       refreshSelectedProject();
     } catch (error) {
       window.alert(error.message);
-      uxState.busy = false;
-      refreshSelectedProject();
+      resetDock();
     }
   }
 
@@ -235,18 +249,21 @@
       card.dataset.artifactId = artifact.id;
       card.dataset.artifactType = artifact.artifact_type;
       const header = card.querySelector(".artifact-header");
-      if (!header || header.querySelector(".artifact-toggle")) return;
-      const toggle = document.createElement("button");
-      toggle.type = "button";
-      toggle.className = "artifact-toggle";
-      toggle.textContent = artifact.id === focusArtifact?.id ? "收起" : "展开";
-      header.appendChild(toggle);
+      if (!header) return;
+      let toggle = header.querySelector(".artifact-toggle");
+      if (!toggle) {
+        toggle = document.createElement("button");
+        toggle.type = "button";
+        toggle.className = "artifact-toggle";
+        header.appendChild(toggle);
+        toggle.addEventListener("click", () => {
+          card.classList.toggle("collapsed");
+          toggle.textContent = card.classList.contains("collapsed") ? "展开" : "收起";
+        });
+      }
       const collapsed = artifact.id !== focusArtifact?.id;
       card.classList.toggle("collapsed", collapsed);
-      toggle.addEventListener("click", () => {
-        card.classList.toggle("collapsed");
-        toggle.textContent = card.classList.contains("collapsed") ? "展开" : "收起";
-      });
+      toggle.textContent = collapsed ? "展开" : "收起";
     });
     return cards.find((card) => card.dataset.artifactId === focusArtifact?.id) || cards.at(-1);
   }
@@ -261,8 +278,9 @@
     const title = document.createElement("strong");
     title.textContent = stageNames[project.state] || project.current_stage || "继续写作流程";
     const detail = document.createElement("small");
-    detail.textContent = project.state.startsWith("awaiting_")
-      ? "确认后系统会自动运行到下一个需要你决定的阶段。"
+    const pending = pendingArtifact(project);
+    detail.textContent = pending
+      ? `${artifactName(pending.artifact_type)}确认后，系统会自动运行到下一个需要你决定的阶段。`
       : project.state === "completed"
         ? "终稿已经写入创作工作台，可直接编辑、制图和发布。"
         : "系统会运行到下一个人工确认点。";
@@ -270,7 +288,6 @@
 
     const actions = document.createElement("div");
     actions.className = "writing-dock-actions";
-    const pending = pendingArtifact(project);
     if (pending) {
       const reject = document.createElement("button");
       reject.type = "button";
@@ -307,12 +324,22 @@
     return dock;
   }
 
+  function projectFingerprint(project) {
+    const tail = latestArtifact(project);
+    return [project.id, project.state, project.current_stage, project.artifacts.length, tail?.id || ""].join(":");
+  }
+
   function enhanceProjectDetail() {
     const project = uxState.project;
     const detail = document.getElementById("writing-detail");
     if (!project || !detail || detail.hidden) return;
-    uxState.busy = false;
+    const fingerprint = projectFingerprint(project);
+    if (detail.dataset.uxFingerprint === fingerprint && detail.querySelector(".writing-action-dock")) {
+      return;
+    }
 
+    uxState.busy = false;
+    detail.dataset.uxFingerprint = fingerprint;
     detail.querySelector(".writing-action-dock")?.remove();
     detail.querySelector(".final-article-preview")?.remove();
     detail.querySelector(".project-run-actions")?.classList.add("legacy-project-actions");
@@ -326,7 +353,7 @@
     const focusCard = prepareArtifacts(project, detail);
     detail.appendChild(buildDock(project));
 
-    const focusKey = `${project.id}:${project.state}:${project.current_stage}:${project.artifacts.length}`;
+    const focusKey = projectFingerprint(project);
     if (focusKey !== uxState.lastFocusKey) {
       uxState.lastFocusKey = focusKey;
       const panel = detail.closest(".project-detail-panel");
@@ -340,9 +367,9 @@
 
   function installObserver() {
     const root = document.getElementById("writing-view") || document.body;
-    const observer = new MutationObserver(() => window.requestAnimationFrame(enhanceProjectDetail));
+    const observer = new MutationObserver(scheduleEnhance);
     observer.observe(root, { childList: true, subtree: true });
-    enhanceProjectDetail();
+    scheduleEnhance();
   }
 
   if (document.readyState === "loading") {
