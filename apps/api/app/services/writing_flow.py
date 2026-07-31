@@ -83,6 +83,11 @@ class WritingFlowMixin:
                 WritingState.canceled.value,
             }:
                 break
-            output.append(await self.run_next(db, project))
-            db.flush()
+            artifact = await self.run_next(db, project)
+            output.append(artifact)
+            # Each role handoff is a durable checkpoint. A later model outage must
+            # not erase an approved brief, evidence pack, outline, or completed review.
+            db.commit()
+            db.refresh(project)
+            db.refresh(artifact)
         return output
