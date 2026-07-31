@@ -3,9 +3,11 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.api import assets, cards, discovery, drafts, extension, intake, jobs, publish, sources
 from app.core.config import get_settings
@@ -27,6 +29,8 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # CLI startup applies versioned Alembic migrations. create_all keeps direct
+    # ASGI/test embedding usable for a brand-new SQLite database.
     Base.metadata.create_all(engine)
     provider = FxTwitterProvider(
         settings.fxtwitter_base_url,
@@ -76,6 +80,33 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 @app.get("/health")
 def health() -> dict:
     return {"ok": True, "name": settings.app_name, "version": app.version}
+
+
+@app.get("/ready")
+def ready() -> dict:
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=503, detail="database is not ready") from exc
+
+    required_dirs = {
+        "media": settings.media_dir,
+        "raw": settings.raw_dir,
+        "exports": settings.export_dir,
+        "browser_profile": settings.browser_profile_dir,
+    }
+    missing = [name for name, path in required_dirs.items() if not path.is_dir()]
+    if missing:
+        raise HTTPException(
+            status_code=503,
+            detail=f"required directories are not ready: {', '.join(missing)}",
+        )
+    return {
+        "ok": True,
+        "database": "ready",
+        "directories": sorted(required_dirs),
+    }
 
 
 @app.get("/", include_in_schema=False)
