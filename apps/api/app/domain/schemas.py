@@ -102,6 +102,11 @@ class DraftUpdateRequest(BaseModel):
     tags: str = Field(default="", max_length=500)
 
 
+class DraftTransformRequest(BaseModel):
+    action: Literal["de_translate", "stronger_insight", "concise", "rewrite_title"]
+    instruction: str = Field(default="", max_length=500)
+
+
 class DraftOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
