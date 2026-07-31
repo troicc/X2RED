@@ -107,7 +107,22 @@ def test_end_to_end_editorial_workflow(client: TestClient, tmp_path: Path) -> No
     detail = client.get(f"/api/sources/{source_id}")
     assert detail.status_code == 200
     assert detail.json()["author_handle"] == "tester"
+    assert detail.json()["rights_status"] == "needs_review"
     assert len(detail.json()["assets"]) == 1
+
+    rights = client.put(
+        f"/api/sources/{source_id}/rights",
+        json={
+            "source_status": "limited_quote",
+            "source_note": "仅引用文本并保留原始链接",
+            "asset_status": "licensed",
+            "asset_note": "测试授权",
+            "apply_to_related": True,
+        },
+    )
+    assert rights.status_code == 200, rights.text
+    assert rights.json()["rights_status"] == "limited_quote"
+    assert rights.json()["assets"][0]["rights_status"] == "licensed"
 
     generated = client.post(
         f"/api/sources/{source_id}/drafts",
@@ -131,16 +146,43 @@ def test_end_to_end_editorial_workflow(client: TestClient, tmp_path: Path) -> No
     assert revised_draft["version"] == 2
     assert revised_draft["created_by"] == "human"
 
-    blocked = client.post(f"/api/publish/drafts/{revised_draft['id']}/prepare")
+    blocked = client.post(
+        f"/api/publish/drafts/{revised_draft['id']}/prepare",
+        json={"include_cards": True, "include_source_assets": False},
+    )
     assert blocked.status_code == 400
+
+    incomplete_review = client.post(
+        f"/api/drafts/{revised_draft['id']}/review",
+        json={"decision": "approved", "reason": "", "facts_checked": False, "rights_checked": True},
+    )
+    assert incomplete_review.status_code == 400
+
+    cards = client.post(
+        f"/api/drafts/{revised_draft['id']}/cards",
+        json={"template": "warm_editorial", "max_cards": 6},
+    )
+    assert cards.status_code == 200, cards.text
+    card_render = cards.json()
+    card_paths = json.loads(card_render["output_paths_json"])
+    assert len(card_paths) >= 2
+    assert all(Path(path).is_file() for path in card_paths)
 
     review = client.post(
         f"/api/drafts/{revised_draft['id']}/review",
-        json={"decision": "approved", "reason": "已核对来源"},
+        json={
+            "decision": "approved",
+            "reason": "已核对来源",
+            "facts_checked": True,
+            "rights_checked": True,
+        },
     )
     assert review.status_code == 200
 
-    prepared = client.post(f"/api/publish/drafts/{revised_draft['id']}/prepare")
+    prepared = client.post(
+        f"/api/publish/drafts/{revised_draft['id']}/prepare",
+        json={"include_cards": True, "include_source_assets": False},
+    )
     assert prepared.status_code == 200, prepared.text
     task = prepared.json()
     assert task["state"] == "packaged"
@@ -149,6 +191,9 @@ def test_end_to_end_editorial_workflow(client: TestClient, tmp_path: Path) -> No
     payload = json.loads(package_path.read_text(encoding="utf-8"))
     assert payload["title"] == "本地编辑工作流"
     assert payload["body"] == "这是人工修订后的正文。"
+    assert payload["card_render_id"] == card_render["id"]
+    assert len(payload["assets"]) >= 2
+    assert all(Path(path).is_file() for path in payload["assets"])
 
 
 def test_rejects_non_x_url(client: TestClient) -> None:
