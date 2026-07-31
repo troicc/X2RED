@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
+from app.domain.discovery import CandidateState, DiscoveryCandidate
 from app.domain.jobs import Job, JobState
 from app.domain.models import utcnow
 from app.services.intake import IntakeService
@@ -48,6 +49,7 @@ class JobEngine:
         post_id: str,
         mode: str,
         download_media: bool,
+        candidate_id: str | None = None,
     ) -> Job:
         job = Job(
             kind="intake_x",
@@ -57,11 +59,16 @@ class JobEngine:
                     "post_id": post_id,
                     "mode": mode,
                     "download_media": download_media,
+                    "candidate_id": candidate_id,
                 },
                 ensure_ascii=False,
             ),
         )
         db.add(job)
+        if candidate_id:
+            candidate = db.get(DiscoveryCandidate, candidate_id)
+            if candidate is not None:
+                candidate.state = CandidateState.saved.value
         db.commit()
         db.refresh(job)
         return job
@@ -124,6 +131,11 @@ class JobEngine:
                 job = db.get(Job, job_id)
                 if job is None:
                     return
+                candidate_id = str(payload.get("candidate_id") or "")
+                if candidate_id:
+                    candidate = db.get(DiscoveryCandidate, candidate_id)
+                    if candidate is not None:
+                        candidate.state = CandidateState.imported.value
                 job.result_json = json.dumps(
                     {
                         "source_id": source_id,
@@ -131,6 +143,7 @@ class JobEngine:
                         "imported_count": imported_count,
                         "asset_count": asset_count,
                         "snapshot_id": snapshot.id,
+                        "candidate_id": candidate_id,
                     },
                     ensure_ascii=False,
                 )
