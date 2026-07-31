@@ -5,6 +5,7 @@ import json
 from contextlib import suppress
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
 from app.domain.jobs import Job, JobState
@@ -39,6 +40,43 @@ class JobEngine:
             with suppress(asyncio.CancelledError):
                 await self._task
             self._task = None
+
+    def enqueue_intake(
+        self,
+        db: Session,
+        *,
+        post_id: str,
+        mode: str,
+        download_media: bool,
+    ) -> Job:
+        job = Job(
+            kind="intake_x",
+            state=JobState.pending.value,
+            payload_json=json.dumps(
+                {
+                    "post_id": post_id,
+                    "mode": mode,
+                    "download_media": download_media,
+                },
+                ensure_ascii=False,
+            ),
+        )
+        db.add(job)
+        db.commit()
+        db.refresh(job)
+        return job
+
+    def retry(self, db: Session, job: Job) -> Job:
+        if job.state not in {JobState.failed.value, JobState.canceled.value}:
+            raise ValueError(f"当前任务状态不可重试：{job.state}")
+        job.state = JobState.pending.value
+        job.result_json = "{}"
+        job.error = ""
+        job.started_at = None
+        job.finished_at = None
+        db.commit()
+        db.refresh(job)
+        return job
 
     async def _loop(self) -> None:
         while self._running:
