@@ -9,7 +9,6 @@ from app.domain.models import SourceItem
 from app.domain.schemas import SourceDetail, SourceListItem
 from app.services.source_graph import connected_sources
 
-
 router = APIRouter(prefix="/api/sources", tags=["sources"])
 
 
