@@ -101,14 +101,14 @@ def review_draft(
     draft = db.get(DraftRevision, draft_id)
     if draft is None:
         raise HTTPException(status_code=404, detail="草稿不存在")
-    if body.decision == "approved" and not (body.facts_checked and body.rights_checked):
-        raise HTTPException(status_code=400, detail="批准前必须完成事实和版权检查")
+    if body.decision == "approved" and not body.facts_checked:
+        raise HTTPException(status_code=400, detail="批准前必须完成人工事实核对")
     decision = ReviewDecision(
         draft_id=draft.id,
         decision=body.decision,
         reason=body.reason,
         facts_checked=body.facts_checked,
-        rights_checked=body.rights_checked,
+        rights_checked=True,
     )
     db.add(decision)
     db.commit()

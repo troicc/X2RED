@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 
-def test_three_pass_generation_transform_and_storyboard(
+def test_skill_pipeline_transform_and_storyboard(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -119,19 +119,21 @@ def test_three_pass_generation_transform_and_storyboard(
         assert generated.status_code == 200, generated.text
         draft = generated.json()
         provenance = json.loads(draft["provenance_json"])
-        assert provenance["generator"] == "model-three-pass"
-        assert provenance["quality_passes"] == ["analysis", "draft", "de_translation"]
+        assert provenance["generator"] == "model-skill-pipeline"
+        assert provenance["quality_passes"] == [
+            "editorial.analysis",
+            "writing.draft",
+            "writing.de_translate",
+        ]
         assert provenance["editorial_analysis"]["recommended_angle"]["name"] == "复杂产品的导航分层"
         assert "硬塞一个菜单" in draft["body"]
 
-        transform_response = {
-            "title": "复杂产品需要新的导航分层",
-            "body": "这不是多一个控件，而是把稳定路径和临时操作分开。",
-            "tags": ["UI设计", "交互设计", "产品设计"],
-        }
-
         async def fake_transform(**_: object) -> dict:
-            return transform_response
+            return {
+                "title": "复杂产品需要新的导航分层",
+                "body": "这不是多一个控件，而是把稳定路径和临时操作分开。",
+                "tags": ["UI设计", "交互设计", "产品设计"],
+            }
 
         monkeypatch.setattr(service, "_chat_json", fake_transform)
         transformed = client.post(
@@ -156,12 +158,14 @@ def test_three_pass_generation_transform_and_storyboard(
         assert "thesis" in kinds
         assert "facts" in kinds
         assert kinds[-1] == "source"
+        assert specs[0]["renderer"] in {"html-playwright", "pillow-fallback"}
         paths = json.loads(render["output_paths_json"])
         with Image.open(paths[0]) as image:
             assert image.size == (1242, 1656)
 
         health = client.get("/health")
         assert health.status_code == 200
-        assert health.json()["version"] == "0.5.0"
+        assert health.json()["version"] == "0.6.0"
         assert health.json()["model_configured"] is True
-        assert health.json()["editorial_pipeline"] == "three-pass"
+        assert health.json()["editorial_pipeline"] == "skill-driven"
+        assert health.json()["card_renderer"] == "html-playwright"

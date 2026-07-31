@@ -19,7 +19,7 @@ def test_editorial_and_card_quality(tmp_path: Path) -> None:
         author_name="Product Designer",
         text_original=(
             "一个新的本地优先内容工作流上线了。它会保存原始来源，"
-            "把事实核对与版权审核放在发布之前。最终发布动作必须由本人确认。"
+            "把事实核对与人工审核放在发布之前。最终发布动作必须由本人确认。"
         ),
         metrics_json="{}",
     )
@@ -55,7 +55,13 @@ def test_editorial_and_card_quality(tmp_path: Path) -> None:
     for index, spec in enumerate(specs, start=1):
         spec["page"] = index
         spec["total"] = len(specs)
+
+    html_document = service.html_renderer._document(specs[0], "editorial_minimal")
+    assert "本地内容工作流为什么值得关注" in html_document
+    assert "1242px" in html_document
+    assert "1656px" in html_document
+
     output = tmp_path / "preview.png"
-    service._draw_card(output, specs[0], "warm_editorial")
+    service._draw_fallback(output, specs[0], "editorial_minimal")
     with Image.open(output) as image:
         assert image.size == (1242, 1656)
