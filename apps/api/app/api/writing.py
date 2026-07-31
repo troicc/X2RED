@@ -21,6 +21,7 @@ from app.domain.studio_schemas import (
     WritingProjectOut,
     WritingRunRequest,
 )
+from app.domain.style_schemas import StyleProfileTrainRequest
 from app.services.jobs import JobEngine
 from app.services.writing_studio import MultiAgentWritingService
 
@@ -73,6 +74,29 @@ def create_style(body: StyleProfileCreate, db: Session = Depends(get_db)) -> Sty
     db.commit()
     db.refresh(item)
     return item
+
+
+@router.post(
+    "/styles/train",
+    response_model=JobOut,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def train_style(
+    body: StyleProfileTrainRequest,
+    db: Session = Depends(get_db),
+    engine: JobEngine = Depends(get_job_engine),
+) -> Job:
+    try:
+        return engine.enqueue(
+            db,
+            kind="writing.train_style",
+            payload=body.model_dump(),
+            priority=108,
+            max_attempts=2,
+            dedupe_key=f"writing.train_style:{body.name.strip()}",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/projects", response_model=list[WritingProjectOut])
