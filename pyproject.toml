@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "x2red"
-version = "0.2.0"
+version = "0.4.0"
 description = "Local-first X to Xiaohongshu editorial studio"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -51,11 +51,19 @@ target-version = "py312"
 src = ["apps/api"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP"]
-ignore = ["E501", "UP035", "UP042"]
+select = ["E", "F", "I", "B", "UP", "ASYNC", "BLE", "S"]
+# FastAPI dependency injection intentionally calls Depends in parameter defaults.
+ignore = ["E501", "UP035", "UP042", "B008"]
 
 [tool.ruff.lint.flake8-bugbear]
-extend-immutable-calls = ["fastapi.Depends"]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.params.Depends"]
 
 [tool.ruff.lint.per-file-ignores]
-"apps/api/tests/test_workflow.py" = ["I001"]
+# These boundaries must convert arbitrary provider/filesystem/job failures into
+# persisted user-visible states instead of terminating the worker.
+"apps/api/app/services/intake.py" = ["BLE001"]
+"apps/api/app/services/jobs.py" = ["BLE001"]
+# Selector fallback intentionally tries several unstable third-party DOM shapes.
+"apps/api/app/services/xhs_preview_worker.py" = ["BLE001", "S112"]
+# Tests use controlled literals and local temporary paths.
+"apps/api/tests/*" = ["S101", "S105", "S106", "S108"]
