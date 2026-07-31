@@ -287,7 +287,8 @@ def test_end_to_end_editorial_workflow(client: TestClient, tmp_path: Path) -> No
     assert generated.status_code == 200, generated.text
     first_draft = generated.json()
     assert first_draft["version"] == 1
-    assert "先说结论" in first_draft["body"]
+    assert "先说结论" not in first_draft["body"]
+    assert "真正值得看的" in first_draft["body"]
 
     revised = client.put(
         f"/api/drafts/{first_draft['id']}",
