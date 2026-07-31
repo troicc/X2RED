@@ -7,8 +7,8 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.domain.models import SourceItem
-from app.domain.studio import StyleProfile, WritingProject
+from app.domain.models import DraftRevision, SourceItem
+from app.domain.studio import StyleProfile, WritingArtifact, WritingProject
 from app.domain.style_snapshot import WritingStyleSnapshot
 
 
@@ -83,13 +83,32 @@ class StyleSnapshotMixin:
         return project
 
     def _style_payload(self, db: Session, project: WritingProject) -> dict[str, Any]:
-        snapshot = db.scalar(
-            select(WritingStyleSnapshot).where(WritingStyleSnapshot.project_id == project.id)
-        )
+        snapshot = self.style_snapshot(db, project.id)
         if snapshot is not None:
             return self._json(snapshot.snapshot_json, dict(_DEFAULT_STYLE))
         # Compatibility for projects created before migration 0007.
         return super()._style_payload(db, project)
+
+    def _create_draft_revision(
+        self,
+        db: Session,
+        project: WritingProject,
+        artifact: WritingArtifact,
+    ) -> DraftRevision:
+        draft = super()._create_draft_revision(db, project, artifact)
+        snapshot = self.style_snapshot(db, project.id)
+        if snapshot is None:
+            return draft
+        provenance = self._json(draft.provenance_json, {})
+        provenance.update(
+            {
+                "style_snapshot_id": snapshot.id,
+                "style_profile_version": snapshot.style_profile_version,
+                "style_snapshot_hash": snapshot.snapshot_hash,
+            }
+        )
+        draft.provenance_json = json.dumps(provenance, ensure_ascii=False)
+        return draft
 
     def style_snapshot(self, db: Session, project_id: str) -> WritingStyleSnapshot | None:
         return db.scalar(
