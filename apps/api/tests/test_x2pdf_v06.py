@@ -16,6 +16,7 @@ def test_x2pdf_bridge_lifecycle_skills_and_publish_archive(
     monkeypatch.setenv("X2RED_RAW_DIR", str(tmp_path / "raw"))
     monkeypatch.setenv("X2RED_EXPORT_DIR", str(tmp_path / "exports"))
     monkeypatch.setenv("X2RED_BROWSER_PROFILE_DIR", str(tmp_path / "profiles"))
+    monkeypatch.setenv("X2RED_SCHEDULER_ENABLED", "false")
     monkeypatch.setenv("X2RED_MODEL_BASE_URL", "https://open.bigmodel.cn/api/paas/v4")
     monkeypatch.setenv("X2RED_MODEL_NAME", "glm-5.2")
 
@@ -114,6 +115,10 @@ def test_x2pdf_bridge_lifecycle_skills_and_publish_archive(
             "editorial.analysis",
             "writing.draft",
             "visual.storyboard",
+            "intelligence.l1",
+            "intelligence.l2",
+            "writing.editor",
+            "review.fact",
         }
         disabled = client.put(
             "/api/settings/skills/writing.de_translate",
@@ -165,6 +170,7 @@ def test_x2pdf_bridge_lifecycle_skills_and_publish_archive(
         assert client.get(f"/api/sources/{source_id}").status_code == 404
 
         health = client.get("/health").json()
-        assert health["version"] == "0.6.1"
-        assert health["editorial_pipeline"] == "reader-first-skill-pipeline"
+        assert health["version"] == "0.7.0"
+        assert health["editorial_pipeline"] == "multi-agent-signal-to-story"
+        assert health["writing_pipeline"].endswith("chief-editor")
         assert health["x2pdf_bridge"] == "/api/integrations/x2pdf/documents"

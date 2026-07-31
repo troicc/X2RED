@@ -19,6 +19,7 @@ def test_skill_pipeline_transform_and_storyboard(
     monkeypatch.setenv("X2RED_EXPORT_DIR", str(tmp_path / "exports"))
     monkeypatch.setenv("X2RED_BROWSER_PROFILE_DIR", str(tmp_path / "profiles"))
     monkeypatch.setenv("X2RED_DOWNLOAD_MEDIA", "false")
+    monkeypatch.setenv("X2RED_SCHEDULER_ENABLED", "false")
     monkeypatch.setenv("X2RED_MODEL_BASE_URL", "https://model.example/v1")
     monkeypatch.setenv("X2RED_MODEL_NAME", "glm-5.2")
     monkeypatch.setenv("X2RED_MODEL_API_KEY", "test-key")
@@ -165,7 +166,8 @@ def test_skill_pipeline_transform_and_storyboard(
 
         health = client.get("/health")
         assert health.status_code == 200
-        assert health.json()["version"] == "0.6.1"
+        assert health.json()["version"] == "0.7.0"
         assert health.json()["model_configured"] is True
-        assert health.json()["editorial_pipeline"] == "reader-first-skill-pipeline"
+        assert health.json()["editorial_pipeline"] == "multi-agent-signal-to-story"
+        assert health.json()["intelligence_pipeline"] == "monitor-score-l1-l2"
         assert health.json()["card_renderer"] == "html-playwright"

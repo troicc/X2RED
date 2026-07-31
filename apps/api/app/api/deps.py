@@ -9,6 +9,8 @@ from app.services.editorial import EditorialService
 from app.services.intake import IntakeService
 from app.services.jobs import JobEngine
 from app.services.publisher import PublishService
+from app.services.signal_studio import SignalStudioService
+from app.services.writing_studio import MultiAgentWritingService
 
 
 def get_provider(request: Request) -> XSourceProvider:
@@ -37,3 +39,11 @@ def get_job_engine(request: Request) -> JobEngine:
 
 def get_publish_service(request: Request) -> PublishService:
     return request.app.state.publish_service
+
+
+def get_signal_service(request: Request) -> SignalStudioService:
+    return request.app.state.signal_service
+
+
+def get_writing_service(request: Request) -> MultiAgentWritingService:
+    return request.app.state.writing_service

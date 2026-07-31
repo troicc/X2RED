@@ -40,6 +40,11 @@ class JobOut(BaseModel):
     result_json: str
     error: str
     attempts: int
+    max_attempts: int
+    priority: int
+    dedupe_key: str
+    available_at: datetime
+    locked_by: str
     created_at: datetime
     updated_at: datetime
     started_at: datetime | None

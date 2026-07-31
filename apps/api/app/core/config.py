@@ -28,6 +28,13 @@ class Settings(BaseSettings):
     model_api_key: str = ""
     model_name: str = ""
     request_timeout_seconds: float = 20.0
+    scheduler_enabled: bool = True
+    scheduler_timezone: str = "Asia/Shanghai"
+    scheduler_poll_seconds: int = Field(default=30, ge=10, le=3600)
+    scheduler_batch_size: int = Field(default=20, ge=1, le=200)
+    auto_l1_grades: str = "T1,T2,T3"
+    auto_l2_grades: str = "T2,T3"
+    auto_l2_daily_limit: int = Field(default=5, ge=0, le=100)
 
     def ensure_directories(self) -> None:
         for path in (

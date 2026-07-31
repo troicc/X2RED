@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import text
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
 from app.api import (
     assets,
@@ -21,11 +24,14 @@ from app.api import (
     jobs,
     publish,
     settings as settings_api,
+    signals,
     sources,
+    writing,
 )
 from app.core.config import get_settings
 from app.db.base import Base
 from app.db.session import engine
+from app.domain.studio import ContentAnalysis, WritingProject
 from app.providers.fxtwitter import FxTwitterProvider
 from app.services.cards import CardService
 from app.services.discovery import DiscoveryService
@@ -35,6 +41,9 @@ from app.services.media_store import MediaStore
 from app.services.publisher import PublishService
 from app.services.raw_store import RawStore
 from app.services.reader_editorial import ReaderFirstEditorialService
+from app.services.signal_studio import SignalStudioService
+from app.services.studio_scheduler import StudioScheduler
+from app.services.writing_studio import MultiAgentWritingService
 from app.services.x2pdf_import import X2PDFImportService
 
 settings = get_settings()
@@ -44,6 +53,10 @@ STYLESHEET = (
     + (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
     + "\n"
     + (STATIC_DIR / "workbench-v06.css").read_text(encoding="utf-8")
+    + "\n"
+    + (STATIC_DIR / "studio-v07.css").read_text(encoding="utf-8")
+    + "\n"
+    + (STATIC_DIR / "style-v07.css").read_text(encoding="utf-8")
 )
 
 
@@ -61,24 +74,132 @@ async def lifespan(app: FastAPI):
     )
     raw_store = RawStore(settings.raw_dir)
     intake_service = IntakeService(settings, provider, raw_store, media_store)
+    editorial_service = ReaderFirstEditorialService(settings)
+    writing_service = MultiAgentWritingService(settings, editorial_service)
+    signal_service = SignalStudioService(settings, provider, raw_store, editorial_service)
     job_engine = JobEngine(intake_service)
+
+    async def scan_target_handler(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
+        result = await signal_service.scan_target(db, str(payload["target_id"]))
+        auto_l1 = {item.strip() for item in settings.auto_l1_grades.split(",") if item.strip()}
+        auto_l2 = {item.strip() for item in settings.auto_l2_grades.split(",") if item.strip()}
+        queued: list[dict[str, str]] = []
+        today_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        l2_count = int(
+            db.scalar(
+                select(func.count(ContentAnalysis.id)).where(
+                    ContentAnalysis.level == "l2",
+                    ContentAnalysis.created_at >= today_start,
+                )
+            )
+            or 0
+        )
+        for item in result.get("scored", []):
+            grade = str(item.get("grade") or "")
+            candidate_id = str(item.get("candidate_id") or "")
+            if not candidate_id:
+                continue
+            if grade in auto_l1:
+                job_engine.enqueue(
+                    db,
+                    kind="signal.analyze",
+                    payload={"candidate_id": candidate_id, "level": "l1"},
+                    priority=95,
+                    max_attempts=2,
+                    dedupe_key=f"signal.analyze:{candidate_id}:l1",
+                )
+                queued.append({"candidate_id": candidate_id, "level": "l1"})
+            if (
+                grade in auto_l2
+                and settings.auto_l2_daily_limit > 0
+                and l2_count < settings.auto_l2_daily_limit
+            ):
+                job_engine.enqueue(
+                    db,
+                    kind="signal.analyze",
+                    payload={"candidate_id": candidate_id, "level": "l2"},
+                    priority=90,
+                    max_attempts=2,
+                    dedupe_key=f"signal.analyze:{candidate_id}:l2",
+                )
+                queued.append({"candidate_id": candidate_id, "level": "l2"})
+                l2_count += 1
+        result["analysis_jobs"] = queued
+        return result
+
+    async def analyze_handler(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
+        analysis = await signal_service.analyze_candidate(
+            db,
+            candidate_id=str(payload["candidate_id"]),
+            level=str(payload.get("level") or "l1"),
+        )
+        return {
+            "analysis_id": analysis.id,
+            "candidate_id": analysis.candidate_id,
+            "level": analysis.level,
+            "status": analysis.status,
+        }
+
+    async def writing_handler(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
+        project = db.get(WritingProject, str(payload["project_id"]))
+        if project is None:
+            raise ValueError("写作项目不存在")
+        artifacts = (
+            await writing_service.run_until_gate(db, project)
+            if bool(payload.get("continuous", True))
+            else [await writing_service.run_next(db, project)]
+        )
+        return {
+            "project_id": project.id,
+            "state": project.state,
+            "current_stage": project.current_stage,
+            "artifact_ids": [artifact.id for artifact in artifacts],
+        }
+
+    async def style_training_handler(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
+        profile = await writing_service.train_style(
+            db,
+            name=str(payload["name"]),
+            description=str(payload.get("description") or ""),
+            original_samples=[str(item) for item in payload.get("original_samples") or []],
+            held_out_samples=[str(item) for item in payload.get("held_out_samples") or []],
+            author_feedback=[str(item) for item in payload.get("author_feedback") or []],
+        )
+        return {
+            "style_profile_id": profile.id,
+            "name": profile.name,
+            "version": profile.version,
+        }
+
+    job_engine.register("signal.scan_target", scan_target_handler)
+    job_engine.register("signal.analyze", analyze_handler)
+    job_engine.register("writing.advance", writing_handler)
+    job_engine.register("writing.train_style", style_training_handler)
+    scheduler = StudioScheduler(settings, job_engine, signal_service)
+
     app.state.provider = provider
     app.state.media_store = media_store
     app.state.intake_service = intake_service
     app.state.discovery_service = DiscoveryService(provider, raw_store)
     app.state.job_engine = job_engine
-    app.state.editorial_service = ReaderFirstEditorialService(settings)
+    app.state.editorial_service = editorial_service
+    app.state.writing_service = writing_service
+    app.state.signal_service = signal_service
+    app.state.scheduler = scheduler
     app.state.card_service = CardService(settings)
     app.state.publish_service = PublishService(settings)
     app.state.x2pdf_import_service = X2PDFImportService(raw_store)
+
     await job_engine.start()
+    scheduler.start()
     yield
+    scheduler.stop()
     await job_engine.stop()
     await provider.close()
     await media_store.close()
 
 
-app = FastAPI(title="X2RED", version="0.6.1", lifespan=lifespan)
+app = FastAPI(title="X2RED", version="0.7.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=r"^(chrome-extension://[a-z]{32}|http://(?:127\.0\.0\.1|localhost)(?::\d+)?)$",
@@ -88,6 +209,8 @@ app.add_middleware(
 )
 app.include_router(jobs.router)
 app.include_router(discovery.router)
+app.include_router(signals.router)
+app.include_router(writing.router)
 app.include_router(intake.router)
 app.include_router(integrations.router)
 app.include_router(assets.router)
@@ -116,9 +239,14 @@ def health() -> dict:
         "version": app.version,
         "model_configured": model_configured,
         "model_name": settings.model_name if model_configured else "",
-        "editorial_pipeline": "reader-first-skill-pipeline"
+        "editorial_pipeline": "multi-agent-signal-to-story"
         if model_configured
-        else "reader-first-fallback",
+        else "multi-agent-structured-fallback",
+        "intelligence_pipeline": "monitor-score-l1-l2",
+        "writing_pipeline": "editor-research-outline-writer-three-reviews-chief-editor",
+        "style_pipeline": "original-samples-held-out-feedback",
+        "scheduler_enabled": settings.scheduler_enabled,
+        "sqlite_wal": settings.database_url.startswith("sqlite"),
         "x2pdf_bridge": "/api/integrations/x2pdf/documents",
         "card_renderer": "html-playwright",
     }
@@ -144,9 +272,20 @@ def ready() -> dict:
             status_code=503,
             detail=f"required directories are not ready: {', '.join(missing)}",
         )
-    return {"ok": True, "database": "ready", "directories": sorted(required_dirs)}
+    return {
+        "ok": True,
+        "database": "ready",
+        "directories": sorted(required_dirs),
+        "scheduler": "enabled" if settings.scheduler_enabled else "disabled",
+    }
 
 
 @app.get("/", include_in_schema=False)
-def index() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
+def index() -> HTMLResponse:
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    scripts = (
+        '<script src="/static/studio-v07.js"></script>'
+        '<script src="/static/style-v07.js"></script>'
+    )
+    html = html.replace("</body>", f"{scripts}</body>")
+    return HTMLResponse(html)
