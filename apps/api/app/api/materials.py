@@ -12,7 +12,8 @@ from app.domain.models import SourceItem
 from app.domain.schemas import SourceListItem
 from app.services.market_material_harvester import MarketMaterialHarvester
 from app.services.material_harvester import MaterialHarvesterError
-from app.services.material_search_providers import MaterialSearchEngine, MaterialSearchError
+from app.services.material_search_providers import MaterialSearchError
+from app.services.resilient_material_search import ResilientMaterialSearchEngine
 
 router = APIRouter(prefix="/api/materials", tags=["materials"])
 
@@ -57,8 +58,8 @@ def _service() -> MarketMaterialHarvester:
     return MarketMaterialHarvester(get_settings())
 
 
-def _engine() -> MaterialSearchEngine:
-    return MaterialSearchEngine(get_settings())
+def _engine() -> ResilientMaterialSearchEngine:
+    return ResilientMaterialSearchEngine(get_settings())
 
 
 @router.get("/providers")
