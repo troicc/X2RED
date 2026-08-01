@@ -28,14 +28,20 @@ class NativeDeckRenderer:
         output_dir.mkdir(parents=True, exist_ok=True)
         paths: list[str] = []
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=True)
+            browser = playwright.chromium.launch(
+                headless=True,
+                args=["--use-angle=swiftshader", "--enable-unsafe-swiftshader"],
+            )
             page = browser.new_page(
                 viewport={"width": 2400, "height": 2000},
                 device_scale_factor=1,
             )
-            page.goto(html_path.resolve().as_uri(), wait_until="networkidle")
-            page.evaluate("document.fonts && document.fonts.ready")
-            page.wait_for_timeout(350)
+            page.goto(html_path.resolve().as_uri(), wait_until="load", timeout=90_000)
+            try:
+                page.evaluate("document.fonts && document.fonts.ready")
+            except Exception:
+                pass
+            page.wait_for_timeout(1200)
             posters = page.locator(".poster.xhs")
             if posters.count() == 0:
                 posters = page.locator(".poster")
