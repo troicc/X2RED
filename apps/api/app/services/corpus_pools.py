@@ -7,7 +7,7 @@ from collections import Counter
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
@@ -106,14 +106,12 @@ class CorpusPoolService:
             .where(CorpusPoolSource.pool_id == pool.id)
             .order_by(CorpusPoolSource.added_at.desc())
         ).all()
-        batches = list(
-            db.scalars(
-                select(CorpusBatch)
-                .where(CorpusBatch.pool_id == pool.id)
-                .order_by(CorpusBatch.sequence.desc())
-                .limit(20)
-            ).all()
-        )
+        batches = db.scalars(
+            select(CorpusBatch)
+            .where(CorpusBatch.pool_id == pool.id)
+            .order_by(CorpusBatch.sequence.desc())
+            .limit(20)
+        ).all()
         return {
             **self._pool_dict(pool),
             "members": [
@@ -144,11 +142,12 @@ class CorpusPoolService:
         )
         db.add(pool)
         db.flush()
-        for source in sources:
-            db.add(CorpusPoolSource(pool_id=pool.id, source_id=source.id))
+        db.add_all(
+            CorpusPoolSource(pool_id=pool.id, source_id=source.id)
+            for source in sources
+        )
         db.flush()
-        self.compile_pool(db, pool)
-        return pool
+        return self.compile_pool(db, pool)
 
     def update_pool(
         self,
@@ -201,16 +200,16 @@ class CorpusPoolService:
                 )
             ).all()
         )
-        added = 0
-        for source in sources:
-            if source.id in existing:
-                continue
-            db.add(CorpusPoolSource(pool_id=pool.id, source_id=source.id))
-            added += 1
+        additions = [
+            CorpusPoolSource(pool_id=pool.id, source_id=source.id)
+            for source in sources
+            if source.id not in existing
+        ]
+        db.add_all(additions)
         db.flush()
-        if added:
+        if additions:
             self.compile_pool(db, pool)
-        return added
+        return len(additions)
 
     def remove_source(self, db: Session, pool: CorpusPool, source_id: str) -> None:
         member = db.scalar(
@@ -250,8 +249,8 @@ class CorpusPoolService:
             .order_by(CorpusPoolSource.added_at.asc())
         ).all()
         keyword_counter: Counter[str] = Counter()
-        memory_rows: list[dict[str, str]] = []
         platform_counter: Counter[str] = Counter()
+        memory_rows: list[dict[str, str]] = []
         total_chars = 0
 
         for member, source in rows:
@@ -265,15 +264,17 @@ class CorpusPoolService:
                 keyword_counter[keyword] += max(1, 12 - rank)
             memory_rows.append(
                 {
+                    "id": source.id,
                     "title": title,
                     "summary": summary,
                     "platform": source.platform or source.provider,
                     "author": source.author_name or source.author_handle,
+                    "keywords": "、".join(keywords[:5]),
                 }
             )
 
         keywords = self._dedupe_keywords(
-            [item for item, _ in keyword_counter.most_common(24)]
+            [item for item, _ in keyword_counter.most_common(30)]
         )[:12]
         if not pool.name_locked:
             pool.name = self._auto_name(keywords, memory_rows)
@@ -308,16 +309,15 @@ class CorpusPoolService:
             focus=focus,
             sequence=sequence,
         )
+        source_ids = [source.id for _, source in rows]
         return {
             "id": "",
             "pool_id": pool.id,
             "sequence": sequence,
             "focus": focus.strip(),
-            "source_ids": [source.id for _, source in rows],
+            "source_ids": source_ids,
             "sources": [self._source_dict(source) for _, source in rows],
-            "source_fingerprint": self._fingerprint(
-                [source.id for _, source in rows]
-            ),
+            "source_fingerprint": self._fingerprint(source_ids),
             "profile_revision": pool.revision,
             "anchor_source_id": None,
             "draft_id": "",
@@ -388,8 +388,8 @@ class CorpusPoolService:
                 ensure_ascii=False,
             ),
             editor_note=(
-                "这是语料池的全局语义记忆，只用于发现跨来源关系、共识、差异和选题角度。"
-                "具体事实、数字、引语和因果必须来自本批次关联的详细来源，不能只引用本锚点。"
+                "全池语义记忆只用于发现跨来源关系、共识、差异和选题角度。"
+                "具体事实、数字、引语和因果必须来自本批次关联的详细来源。"
             ),
             rights_status=RightsStatus.needs_review.value,
             rights_note="批次继承多个来源的权利状态，发布前必须逐条复核。",
@@ -397,15 +397,15 @@ class CorpusPoolService:
         db.add(anchor)
         db.flush()
         batch.anchor_source_id = anchor.id
-        for position, source in enumerate(batch_sources, start=1):
-            db.add(
-                SourceRelation(
-                    from_source_id=anchor.id,
-                    to_source_id=source.id,
-                    relation_type="corpus_batch",
-                    position=position,
-                )
+        db.add_all(
+            SourceRelation(
+                from_source_id=anchor.id,
+                to_source_id=source.id,
+                relation_type="corpus_batch",
+                position=position,
             )
+            for position, source in enumerate(batch_sources, start=1)
+        )
         pool.updated_at = now
         db.flush()
         return batch, anchor, batch_sources
@@ -472,17 +472,19 @@ class CorpusPoolService:
         remaining = list(rows)
 
         while remaining and len(selected) < size:
-            def row_key(row: tuple[CorpusPoolSource, SourceItem]) -> tuple[Any, ...]:
+
+            def row_key(
+                row: tuple[CorpusPoolSource, SourceItem],
+            ) -> tuple[Any, ...]:
                 member, source = row
                 keywords = self._json_list(member.keywords_json)
-                keyword_set = set(keywords)
                 focus_match = bool(
                     not focus_text
                     or focus_text in member.normalized_text.lower()
-                    or focus_terms.intersection(keyword_set)
+                    or focus_terms.intersection(keywords)
                 )
-                overlap = sum(keyword_counts[item] for item in keywords[:8])
                 platform = source.platform or source.provider
+                overlap = sum(keyword_counts[item] for item in keywords[:8])
                 last_used = (
                     member.last_used_at.timestamp()
                     if isinstance(member.last_used_at, datetime)
@@ -490,7 +492,7 @@ class CorpusPoolService:
                 )
                 jitter = int(
                     hashlib.sha256(
-                        f"{pool.id}:{sequence}:{source.id}".encode("utf-8")
+                        f"{pool.id}:{sequence}:{source.id}".encode()
                     ).hexdigest()[:10],
                     16,
                 )
@@ -524,16 +526,17 @@ class CorpusPoolService:
             "【本批次任务】",
             f"批次：第 {batch.sequence} 批",
             f"详细来源数：{len(rows)}",
-            f"本批聚焦：{batch.focus or '由模型从全池记忆与本批来源中选择新的角度'}",
-            "全池记忆只用于理解主题版图；可发布事实必须回到下面关联的本批详细来源。",
+            f"本批聚焦：{batch.focus or '从全池记忆与本批来源中寻找新的角度'}",
+            "全池记忆用于理解主题版图；可发布事实必须回到本批详细来源。",
             "",
             "【本批次来源索引】",
         ]
         for index, (member, source) in enumerate(rows, start=1):
-            title = self._source_title(source)
             lines.append(
-                f"{index}. {title}｜{source.platform or source.provider}｜"
-                f"{source.author_name or source.author_handle or '未知作者'}｜{member.summary}"
+                f"{index}. {self._source_title(source)}｜"
+                f"{source.platform or source.provider}｜"
+                f"{source.author_name or source.author_handle or '未知作者'}｜"
+                f"{member.summary}"
             )
         return "\n".join(lines)[:18000]
 
@@ -550,7 +553,7 @@ class CorpusPoolService:
                 f"【全池语义记忆】\n主题：{pool.name}\n来源数：0\n"
                 "当前为空，加入来源后会自动完成清洗、摘要、主题命名和批次规划。"
             )
-        platform_text = "、".join(
+        platforms = "、".join(
             f"{name} {count} 条" for name, count in platform_counter.most_common()
         )
         lines = [
@@ -559,7 +562,7 @@ class CorpusPoolService:
             f"来源数：{len(memory_rows)}",
             f"语料字符：{pool.total_chars}",
             f"主题关键词：{'、'.join(keywords) or '待整理'}",
-            f"平台分布：{platform_text or '未知'}",
+            f"平台分布：{platforms or '未知'}",
         ]
         if pool.description:
             lines.append(f"工作区说明：{pool.description}")
@@ -567,23 +570,26 @@ class CorpusPoolService:
             [
                 "",
                 "【使用规则】",
-                "下面是全池每条来源的压缩记忆，让任意小批次都能看见其他内容的主题位置。",
-                "它用于发现共识、矛盾、互补角度和选题空缺，不可替代本批详细来源的事实核对。",
+                "每条来源都在下面保留一个压缩记忆位置。来源越多，每条压缩越短，但不会从全池视野消失。",
+                "全池记忆用于发现共识、矛盾、互补角度与选题空缺；事实核对仍以本批详细来源为准。",
                 "",
                 "【全池来源记忆】",
             ]
         )
-        budget = 10500
+
+        memory_budget = 12000
+        overhead = sum(len(line) + 1 for line in lines)
+        available = max(2000, memory_budget - overhead)
+        per_source = max(14, available // max(1, len(memory_rows)) - 10)
         for index, row in enumerate(memory_rows, start=1):
-            item = (
-                f"{index}. [{row['platform']}] {row['title']}｜"
-                f"{row['author'] or '未知作者'}｜{row['summary']}"
-            )
-            if sum(len(line) for line in lines) + len(item) > budget:
-                remaining = len(memory_rows) - index + 1
-                lines.append(f"……其余 {remaining} 条已完成语料化，但未展开到本次全局记忆文本。")
-                break
-            lines.append(item)
+            prefix = f"{index}. [{row['platform']}] "
+            title_budget = max(5, min(56, per_source // 3))
+            title = row["title"][:title_budget]
+            remainder = max(4, per_source - len(title))
+            summary = (row["summary"] or row["keywords"] or row["author"])[
+                :remainder
+            ]
+            lines.append(f"{prefix}{title}｜{summary}")
         return "\n".join(lines)
 
     def _convert_source(
@@ -595,17 +601,19 @@ class CorpusPoolService:
         metadata = self._json_object(source.structured_content_json)
         discovery_keyword = self._metadata_value(metadata, "discovery_keyword")
         summary = self._summary(body or title)
-        normalized_parts = [
+        parts = [
             f"标题：{title}",
             f"平台：{source.platform or source.provider}",
             f"作者：{source.author_name or source.author_handle or '未知作者'}",
         ]
         if discovery_keyword:
-            normalized_parts.append(f"发现关键词：{discovery_keyword}")
+            parts.append(f"发现关键词：{discovery_keyword}")
         if source.editor_note.strip():
-            normalized_parts.append(f"编辑备注：{self._normalize_text(source.editor_note)[:1200]}")
-        normalized_parts.append(f"正文：{body}")
-        normalized = "\n".join(normalized_parts)[:80000]
+            parts.append(
+                f"编辑备注：{self._normalize_text(source.editor_note)[:1200]}"
+            )
+        parts.append(f"正文：{body}")
+        normalized = "\n".join(parts)[:80000]
         keywords = self._rank_keywords(
             [
                 (title, 7),
@@ -621,8 +629,9 @@ class CorpusPoolService:
     def _source_title(self, source: SourceItem) -> str:
         metadata = self._json_object(source.structured_content_json)
         title = self._metadata_value(metadata, "title")
-        if not title and isinstance(metadata.get("metadata"), dict):
-            title = str(metadata["metadata"].get("title") or "")
+        nested = metadata.get("metadata")
+        if not title and isinstance(nested, dict):
+            title = str(nested.get("title") or "")
         title = self._normalize_text(title)
         if title:
             return title[:120]
@@ -670,11 +679,10 @@ class CorpusPoolService:
                         counter[piece] += weight * 2
                     elif len(piece) > 8:
                         for width in (4, 3, 2):
-                            for index in range(0, len(piece) - width + 1):
+                            for index in range(len(piece) - width + 1):
                                 token = piece[index : index + width]
-                                if token in _STOP_TERMS:
-                                    continue
-                                counter[token] += weight
+                                if token not in _STOP_TERMS:
+                                    counter[token] += weight
         ranked = [
             token
             for token, score in counter.most_common(80)
@@ -689,7 +697,10 @@ class CorpusPoolService:
             value = raw.strip("_- ，。！？；：")
             if len(value) < 2 or value in _STOP_TERMS:
                 continue
-            if any(value == item or (value in item and len(value) <= 3) for item in output):
+            if any(
+                value == item or (value in item and len(value) <= 3)
+                for item in output
+            ):
                 continue
             output.append(value)
         return output
@@ -715,11 +726,10 @@ class CorpusPoolService:
         missing = [source_id for source_id in source_ids if source_id not in found]
         if missing:
             raise CorpusPoolError(f"有 {len(missing)} 条来源不存在")
-        visible = [source for source in sources if source.provider != "corpus_pool"]
-        if len(visible) != len(sources):
+        if any(source.provider == "corpus_pool" for source in sources):
             raise CorpusPoolError("批次锚点不能再次加入语料池")
-        order = {source_id: index for index, source_id in enumerate(source_ids)}
-        return sorted(visible, key=lambda source: order[source.id])
+        rank = {source_id: index for index, source_id in enumerate(source_ids)}
+        return sorted(sources, key=lambda source: rank[source.id])
 
     @staticmethod
     def _unique_ids(source_ids: list[str]) -> list[str]:
@@ -739,7 +749,7 @@ class CorpusPoolService:
 
     @staticmethod
     def _fingerprint(source_ids: list[str]) -> str:
-        payload = "|".join(sorted(source_ids)).encode("utf-8")
+        payload = "|".join(sorted(source_ids)).encode()
         return hashlib.sha256(payload).hexdigest()
 
     def _pool_dict(self, pool: CorpusPool) -> dict[str, Any]:
@@ -779,9 +789,9 @@ class CorpusPoolService:
 
     def _batch_dict(self, db: Session, batch: CorpusBatch) -> dict[str, Any]:
         source_ids = self._json_list(batch.source_ids_json)
-        sources = list(
-            db.scalars(select(SourceItem).where(SourceItem.id.in_(source_ids))).all()
-        )
+        sources = db.scalars(
+            select(SourceItem).where(SourceItem.id.in_(source_ids))
+        ).all()
         source_map = {source.id: source for source in sources}
         draft = db.get(DraftRevision, batch.draft_id) if batch.draft_id else None
         return {
@@ -858,7 +868,9 @@ class CorpusPoolService:
     @staticmethod
     def _metadata_value(metadata: dict[str, Any], key: str) -> str:
         value = metadata.get(key)
-        return str(value or "").strip() if not isinstance(value, (dict, list)) else ""
+        if isinstance(value, (dict, list)):
+            return ""
+        return str(value or "").strip()
 
     @staticmethod
     def _json_object(value: str) -> dict[str, Any]:
