@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import html
 import json
-from pathlib import Path
 
 from sqlalchemy.orm import Session
 
@@ -44,12 +43,30 @@ class RichHtmlCardRenderer(HtmlCardRenderer):
             bg, panel, fg, accent, soft = self._palette_map["neutral"]
         dark = palette_name == "neon" or template == "tech_minimal"
         if template == "tech_minimal" and palette_name in {"auto", "neutral"}:
-            bg, panel, fg, accent, soft = "#070A11", "#111827", "#F8FAFC", "#7DD3FC", "#1E293B"
+            bg, panel, fg, accent, soft = (
+                "#070A11",
+                "#111827",
+                "#F8FAFC",
+                "#7DD3FC",
+                "#1E293B",
+            )
             dark = True
         elif template == "warm_note" and palette_name in {"auto", "neutral"}:
-            bg, panel, fg, accent, soft = "#F7F0E8", "#FFFAF4", "#2A211D", "#E86D4C", "#F1E1D5"
+            bg, panel, fg, accent, soft = (
+                "#F7F0E8",
+                "#FFFAF4",
+                "#2A211D",
+                "#E86D4C",
+                "#F1E1D5",
+            )
         elif template == "clean_news" and palette_name in {"auto", "neutral"}:
-            bg, panel, fg, accent, soft = "#EEF2F7", "#FFFFFF", "#10213B", "#316FF6", "#E4EBF5"
+            bg, panel, fg, accent, soft = (
+                "#EEF2F7",
+                "#FFFFFF",
+                "#10213B",
+                "#316FF6",
+                "#E4EBF5",
+            )
 
         kind = html.escape(str(spec.get("kind") or "content"))
         title = html.escape(str(spec.get("title") or ""))
@@ -72,8 +89,15 @@ class RichHtmlCardRenderer(HtmlCardRenderer):
             "bold": ("18px", "-.01em", "uppercase", "sans"),
             "minimal": ("42px", ".04em", "uppercase", "sans"),
         }
-        radius, tracking, transform, family = style_values.get(visual_style, style_values["editorial"])
-        font_family = "Georgia,'Songti SC','Noto Serif CJK SC',serif" if family == "serif" else "Inter,-apple-system,BlinkMacSystemFont,'PingFang SC','Noto Sans CJK SC',sans-serif"
+        radius, tracking, transform, family = style_values.get(
+            visual_style,
+            style_values["editorial"],
+        )
+        font_family = (
+            "Georgia,'Songti SC','Noto Serif CJK SC',serif"
+            if family == "serif"
+            else "Inter,-apple-system,BlinkMacSystemFont,'PingFang SC','Noto Sans CJK SC',sans-serif"
+        )
         layout_values = {
             "sparse": (104, 46, 2, 104),
             "balanced": (82, 38, 4, 76),
@@ -107,17 +131,28 @@ class RichHtmlCardRenderer(HtmlCardRenderer):
             else ""
         )
         decorative = {
-            "poster": "repeating-linear-gradient(90deg,transparent 0 22px," + accent + "18 22px 24px)",
-            "notebook": "repeating-linear-gradient(0deg,transparent 0 62px," + accent + "18 62px 64px)",
+            "poster": (
+                "repeating-linear-gradient(90deg,transparent 0 22px,"
+                + accent
+                + "18 22px 24px)"
+            ),
+            "notebook": (
+                "repeating-linear-gradient(0deg,transparent 0 62px,"
+                + accent
+                + "18 62px 64px)"
+            ),
             "swiss": "linear-gradient(115deg," + accent + "16,transparent 46%)",
-        }.get(visual_style, "radial-gradient(circle at 92% 4%," + accent + "22,transparent 28%)")
+        }.get(
+            visual_style,
+            "radial-gradient(circle at 92% 4%," + accent + "22,transparent 28%)",
+        )
         return f"""<!doctype html><html><head><meta charset="utf-8"><style>
 *{{box-sizing:border-box}}html,body{{margin:0;width:{self.width}px;height:{self.height}px;overflow:hidden}}body{{font-family:{font_family};background:{bg};color:{fg}}}
 .card{{position:relative;width:100%;height:100%;padding:72px;background:{decorative},{bg}}}
 .frame{{position:relative;height:100%;padding:72px 70px 62px;background:{panel};border:1px solid {soft};border-radius:{radius};overflow:hidden;box-shadow:0 26px 70px #00000018}}
-.frame:before{{content:'';position:absolute;left:0;top:0;width:{'24px' if visual_style in {'poster','bold'} else '12px'};height:100%;background:{accent}}}
+.frame:before{{content:'';position:absolute;left:0;top:0;width:{'24px' if visual_style in {'poster', 'bold'} else '12px'};height:100%;background:{accent}}}
 .top{{display:flex;align-items:center;justify-content:space-between;position:relative;z-index:3}}.kicker{{font-size:23px;font-weight:850;letter-spacing:.17em;text-transform:{transform};color:{accent}}}.counter{{font-size:23px;font-weight:750;color:{fg}88}}
-h1{{position:relative;z-index:3;margin:{title_margin}px 0 30px;max-width:990px;font-size:{title_size}px;line-height:1.11;letter-spacing:{tracking};font-weight:{'900' if visual_style in {'poster','bold'} else '780'}}}.rule{{position:relative;z-index:3;width:{'220px' if visual_style == 'swiss' else '110px'};height:{'6px' if visual_style == 'minimal' else '10px'};border-radius:8px;background:{accent};margin-bottom:36px}}
+h1{{position:relative;z-index:3;margin:{title_margin}px 0 30px;max-width:990px;font-size:{title_size}px;line-height:1.11;letter-spacing:{tracking};font-weight:{'900' if visual_style in {'poster', 'bold'} else '780'}}}.rule{{position:relative;z-index:3;width:{'220px' if visual_style == 'swiss' else '110px'};height:{'6px' if visual_style == 'minimal' else '10px'};border-radius:8px;background:{accent};margin-bottom:36px}}
 .body{{position:relative;z-index:3;max-width:980px;color:{fg}e8;font-size:{body_size}px;line-height:{'1.55' if layout == 'dense' else '1.68'};letter-spacing:-.01em}}
 .hero{{position:absolute;z-index:1;left:70px;right:70px;bottom:220px;height:500px;border-radius:28px;overflow:hidden;box-shadow:0 18px 48px #0003}}.hero img{{display:block;width:100%;height:100%;object-fit:cover}}.hero i{{position:absolute;inset:0;background:linear-gradient(180deg,transparent 40%,{panel}AA)}}
 ul.items{{position:relative;z-index:3;list-style:none;padding:0;margin:26px 0 0;display:grid;gap:20px}}ul.items li{{display:grid;grid-template-columns:68px 1fr;gap:20px;align-items:start;padding:23px 25px;border-radius:22px;background:{soft}}}ul.items li span{{width:54px;height:54px;border-radius:16px;display:grid;place-items:center;background:{accent};color:{marker_color};font-size:21px;font-weight:850}}ul.items li p{{margin:1px 0 0;font-size:{body_size - 3}px;line-height:1.5}}
@@ -155,7 +190,9 @@ class RichCardService(CardService):
             resolved_template = "clean_news"
         resolved_style = self._style(draft, visual_style, resolved_template)
         resolved_layout = layout if layout != "auto" else self._layout(draft)
-        resolved_palette = palette if palette != "auto" else self._palette(resolved_style, resolved_template)
+        resolved_palette = (
+            palette if palette != "auto" else self._palette(resolved_style, resolved_template)
+        )
         resolved_material = material_strategy
         if not layout_binding.enabled:
             resolved_layout = "balanced"
@@ -164,12 +201,20 @@ class RichCardService(CardService):
         if not material_binding.enabled:
             resolved_material = "text_only"
 
-        render = CardRender(draft_id=draft.id, template=resolved_template, status="rendering")
+        render = CardRender(
+            draft_id=draft.id,
+            template=resolved_template,
+            status="rendering",
+        )
         db.add(render)
         db.flush()
         output_dir = self.settings.media_dir / "cards" / render.id
         output_dir.mkdir(parents=True, exist_ok=True)
-        specs = self._build_specs(draft, max_cards=max_cards, use_analysis=storyboard.enabled)
+        specs = self._build_specs(
+            draft,
+            max_cards=max_cards,
+            use_analysis=storyboard.enabled,
+        )
         for index, spec in enumerate(specs, start=1):
             spec["page"] = index
             spec["total"] = len(specs)
@@ -183,7 +228,11 @@ class RichCardService(CardService):
                 spec["hero_image"] = ""
 
         try:
-            output_paths = self.html_renderer.render_many(output_dir, specs, resolved_template)
+            output_paths = self.html_renderer.render_many(
+                output_dir,
+                specs,
+                resolved_template,
+            )
             renderer = "html-playwright-rich"
             if len(output_paths) != len(specs):
                 output_paths = []
@@ -232,7 +281,11 @@ class RichCardService(CardService):
             return "dense"
         if any(token in body for token in ("对比", "而不是", "相比", "vs", "VS")):
             return "comparison"
-        if sum(1 for line in body.splitlines() if line.strip().startswith(("1.", "2.", "3.", "- "))) >= 3:
+        if sum(
+            1
+            for line in body.splitlines()
+            if line.strip().startswith(("1.", "2.", "3.", "- "))
+        ) >= 3:
             return "list"
         return "balanced"
 
