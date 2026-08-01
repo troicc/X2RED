@@ -117,6 +117,16 @@ def test_mediacrawler_rejects_cross_platform_url(tmp_path: Path) -> None:
         bridge._validate_platform_url("xhs", "https://www.zhihu.com/question/1")
 
 
+def test_mediacrawler_setup_uses_uv_without_editable_build() -> None:
+    script = (
+        Path(__file__).resolve().parents[3] / "scripts" / "setup-mediacrawler.sh"
+    ).read_text(encoding="utf-8")
+    assert "uv.lock" in script
+    assert "--frozen" in script
+    assert "--no-install-project" in script
+    assert 'pip install -e "$MEDIACRAWLER_ROOT"' not in script
+
+
 def test_native_skill_definitions_are_pinned_and_licensed(tmp_path: Path) -> None:
     manager = NativeSkillManager(settings(tmp_path))
     guizang = NATIVE_SKILLS["guizang-social-card-skill"]
