@@ -113,7 +113,7 @@ def test_mediacrawler_status_and_xhs_normalization(tmp_path: Path) -> None:
 
 def test_mediacrawler_rejects_cross_platform_url(tmp_path: Path) -> None:
     bridge = MediaCrawlerBridge(settings(tmp_path))
-    with pytest.raises(MediaCrawlerError, match="不属于小红书"):
+    with pytest.raises(MediaCrawlerError, match=r"不属于\s*小红书"):
         bridge._validate_platform_url("xhs", "https://www.zhihu.com/question/1")
 
 
