@@ -34,7 +34,6 @@ from app.db.base import Base
 from app.db.session import engine
 from app.domain.studio import ContentAnalysis, WritingProject
 from app.providers.fxtwitter import FxTwitterProvider
-from app.services.cards import CardService
 from app.services.discovery import DiscoveryService
 from app.services.intake import IntakeService
 from app.services.jobs import JobEngine
@@ -42,8 +41,9 @@ from app.services.media_store import MediaStore
 from app.services.platform_studio import PlatformStudioService
 from app.services.publisher import PublishService
 from app.services.raw_store import RawStore
-from app.services.reader_editorial import ReaderFirstEditorialService
+from app.services.rich_cards import RichCardService
 from app.services.signal_studio import SignalStudioService
+from app.services.skill_pack_editorial import SkillPackEditorialService
 from app.services.studio_scheduler import StudioScheduler
 from app.services.writing_studio import MultiAgentWritingService
 from app.services.x2pdf_import import X2PDFImportService
@@ -78,7 +78,7 @@ async def lifespan(app: FastAPI):
     )
     raw_store = RawStore(settings.raw_dir)
     intake_service = IntakeService(settings, provider, raw_store, media_store)
-    editorial_service = ReaderFirstEditorialService(settings)
+    editorial_service = SkillPackEditorialService(settings)
     writing_service = MultiAgentWritingService(settings, editorial_service)
     signal_service = SignalStudioService(settings, provider, raw_store, editorial_service)
     platform_service = PlatformStudioService(settings, editorial_service)
@@ -192,7 +192,7 @@ async def lifespan(app: FastAPI):
     app.state.signal_service = signal_service
     app.state.platform_service = platform_service
     app.state.scheduler = scheduler
-    app.state.card_service = CardService(settings)
+    app.state.card_service = RichCardService(settings)
     app.state.publish_service = PublishService(settings)
     app.state.x2pdf_import_service = X2PDFImportService(raw_store)
 
@@ -246,7 +246,7 @@ def health() -> dict:
         "version": app.version,
         "model_configured": model_configured,
         "model_name": settings.model_name if model_configured else "",
-        "editorial_pipeline": "multi-agent-signal-to-story"
+        "editorial_pipeline": "multi-agent-signal-to-story-plus-platform-skill-packs"
         if model_configured
         else "multi-agent-structured-fallback",
         "intelligence_pipeline": "monitor-score-l1-l2",
@@ -259,7 +259,7 @@ def health() -> dict:
         "scheduler_enabled": settings.scheduler_enabled,
         "sqlite_wal": settings.database_url.startswith("sqlite"),
         "x2pdf_bridge": "/api/integrations/x2pdf/documents",
-        "card_renderer": "html-playwright",
+        "card_renderer": "style-layout-palette-material-html-playwright",
         "wechat_renderer": "inline-html-plus-cover-pair",
     }
 
@@ -300,6 +300,7 @@ def index() -> HTMLResponse:
         '<script src="/static/style-v07.js"></script>'
         '<script src="/static/studio-navigation-v071.js"></script>'
         '<script src="/static/platform-v08.js"></script>'
+        '<script src="/static/card-skill-v08.js"></script>'
     )
     html = html.replace("</body>", f"{scripts}</body>")
     return HTMLResponse(html)
