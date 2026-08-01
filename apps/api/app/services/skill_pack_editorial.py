@@ -101,7 +101,17 @@ class SkillPackEditorialService(ReaderFirstEditorialService):
                 reasoning_effort=strongest.reasoning_effort,
                 model_name=strongest.model_name,
             )
-        except (httpx.HTTPError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        except (
+            httpx.HTTPError,
+            KeyError,
+            TypeError,
+            ValueError,
+            RuntimeError,
+            json.JSONDecodeError,
+        ):
+            # This is an optional final enhancement pass. The reader-first draft
+            # has already been generated and must remain usable when the model,
+            # a gateway, or a test double cannot serve one more request.
             return draft
 
         generated = self._sanitize_generated(
