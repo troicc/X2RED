@@ -1,61 +1,81 @@
-# Simplified-Chinese material search providers
+# Simplified-Chinese material discovery and extraction
 
-X2RED's material library uses a provider chain rather than treating RSS as the primary discovery mechanism.
+X2RED's **原料库** treats search and article extraction as two independent,
+replaceable provider chains. RSS, Atom and sitemap inputs remain available only
+through the deprecated compatibility API; they are not shown in the primary UI.
 
-## Auto priority
+## Search provider auto priority
 
 1. `serpapi_baidu`
 2. `dataforseo_baidu`
-3. `tavily`
+3. `firecrawl`
 4. `brave`
-5. `gdelt`
+5. `jina`
+6. `tavily`
+7. `gdelt`
 
-Only configured providers are called. Every attempt is returned to the UI as `skipped`, `failed`, `empty` or `ok` so provider fallback is visible rather than silent.
+Only configured commercial providers are called. Every attempt is returned as
+`skipped`, `failed`, `empty` or `ok`, so failover is visible in the material UI.
+GDELT requires no key and is deliberately last because it is a Chinese-news
+index, not a general Simplified-Chinese web index.
 
-## SerpApi Baidu
-
-```env
-X2RED_SERPAPI_API_KEY=your-key
-```
-
-The adapter calls the Baidu engine with Simplified-Chinese filtering and up to 50 organic results.
-
-## DataForSEO Baidu
+## Search configuration
 
 ```env
-X2RED_DATAFORSEO_LOGIN=your-login
-X2RED_DATAFORSEO_PASSWORD=your-password
+X2RED_MATERIAL_SEARCH_PROVIDER=auto
+
+X2RED_SERPAPI_API_KEY=
+X2RED_DATAFORSEO_LOGIN=
+X2RED_DATAFORSEO_PASSWORD=
+
+X2RED_FIRECRAWL_API_KEY=
+X2RED_BRAVE_SEARCH_API_KEY=
+X2RED_JINA_API_KEY=
+X2RED_TAVILY_API_KEY=
 ```
 
-The adapter uses the live advanced Baidu organic endpoint, `zh_CN`, China location code `2156`, desktop/macOS and `get_website_url=true`. DataForSEO documents that direct URL resolution materially increases the task price, so this provider is second in the default order.
+SerpApi and DataForSEO use Baidu results. Firecrawl Search, Brave Search, Jina
+Search and Tavily provide independent commercial fallbacks with Chinese queries
+and China-region preferences where their APIs support them.
 
-## Tavily
+## Article extraction auto priority
+
+1. Firecrawl Scrape, when `X2RED_FIRECRAWL_API_KEY` is configured;
+2. Jina Reader;
+3. ordinary public HTML plus Trafilatura;
+4. local Playwright only when explicitly enabled.
 
 ```env
-X2RED_TAVILY_API_KEY=your-key
-X2RED_TAVILY_SEARCH_DEPTH=basic
+X2RED_MATERIAL_EXTRACT_PROVIDER=auto
+X2RED_FIRECRAWL_API_KEY=
+X2RED_FIRECRAWL_BASE_URL=https://api.firecrawl.dev
+X2RED_JINA_API_KEY=
+X2RED_JINA_READER_BASE_URL=https://r.jina.ai
 ```
 
-The adapter uses the China country preference, general topic and optional day/week/month/year time range.
+Jina Reader can be used at its unauthenticated low-rate limit. Supplying a Jina
+key raises the provider limit. Firecrawl is skipped automatically when no key is
+configured.
 
-## Brave Search
+The local Playwright fallback is retained only for compatibility and is disabled
+by default:
 
 ```env
-X2RED_BRAVE_SEARCH_API_KEY=your-key
+X2RED_MATERIAL_BROWSER_ENABLED=false
 ```
 
-The adapter requests China-region results with Simplified-Chinese search and interface language.
+## Safety and provenance
 
-## Browser extraction fallback
+Before any extractor is called, X2RED:
 
-```env
-X2RED_MATERIAL_BROWSER_ENABLED=true
-X2RED_MATERIAL_BROWSER_TIMEOUT_SECONDS=40
-X2RED_MATERIAL_BROWSER_WAIT_MS=1800
-```
+- permits only public HTTP/HTTPS URLs;
+- rejects localhost, private, link-local and reserved addresses;
+- checks the target site's `robots.txt`;
+- applies a per-host request interval.
 
-Article import first uses ordinary HTTP and Trafilatura. When the extracted article body is too short, X2RED starts a new headless Chromium context with no saved login state or cookies, renders the public page, and extracts again.
+Provider-reported final URLs and image URLs are validated again before storage.
+Imported records keep the canonical URL, extraction engine, failed/successful
+attempts, capture time and a default `limited_quote` rights state.
 
-Every browser request is checked against the public-address gate. Navigation to localhost, private, link-local or reserved networks is aborted. Article navigation also uses the hardened robots redirect checks.
-
-The browser fallback does not solve login walls, paywalls or CAPTCHAs. Those pages remain unimportable unless the publisher exposes a public article URL.
+The extraction chain does not attempt to solve login walls, paywalls or
+CAPTCHAs and does not reuse a personal browser session.
