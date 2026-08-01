@@ -215,7 +215,7 @@ async def lifespan(app: FastAPI):
     await media_store.close()
 
 
-app = FastAPI(title="X2RED", version="0.9.0", lifespan=lifespan)
+app = FastAPI(title="X2RED", version="0.10.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=r"^(chrome-extension://[a-z]{32}|http://(?:127\.0\.0\.1|localhost)(?::\d+)?)$",
@@ -265,7 +265,9 @@ def health() -> dict:
         "style_pipeline": "original-samples-held-out-feedback",
         "platform_pipeline": "reviewable-artifacts-shared-evidence-platform-variants",
         "review_pipeline": "storyboard-module-tree-cover-brief-versioned-approval",
-        "light_content_pipeline": "recipe-short-copy-zine-prompts-three-to-six-posters",
+        "light_content_pipeline": "corpus-grounded-multi-agent-candidates-independent-reviews-human-gate",
+        "light_content_lab": True,
+        "light_content_source_fit_gate": True,
         "signal_to_studio": True,
         "platforms": ["xiaohongshu", "wechat"],
         "wechat_workbench": True,
@@ -277,7 +279,7 @@ def health() -> dict:
         "x2pdf_bridge": "/api/integrations/x2pdf/documents",
         "card_renderer": "reviewed-semantic-playwright",
         "wechat_renderer": "reviewed-module-tree-plus-cover-brief",
-        "light_content_renderer": "x2red-minimal-zine-pillow",
+        "light_content_renderer": "six-route-distinct-visual-v12",
     }
 
 
