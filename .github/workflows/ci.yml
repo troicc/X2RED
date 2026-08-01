@@ -44,6 +44,7 @@ jobs:
       - run: node --check apps/api/app/static/light-content-lab-v12.js
       - run: node --check apps/api/app/static/signal-to-studio-v10.js
       - run: node --check apps/api/app/static/materials-v11.js
+      - run: node --check apps/api/app/static/corpus-pools-v13.js
       - run: node --check apps/api/app/static/native-skills-v11.js
       - run: node --check apps/api/extensions/wechat-publisher-assistant/popup.js
       - run: node --check apps/api/extensions/wechat-publisher-assistant/content.js
