@@ -1,0 +1,36 @@
+name: Remove unused Guizang import
+
+on:
+  push:
+    branches: ["agent/material-harvester-native-skills-v11"]
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    if: github.event.head_commit.message != 'Remove unused Guizang html import'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/material-harvester-native-skills-v11
+      - name: Remove exact unused import
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("apps/api/app/services/guizang_native.py")
+          text = path.read_text(encoding="utf-8")
+          needle = "import html\n"
+          if text.count(needle) != 1:
+              raise SystemExit("expected exactly one unused html import")
+          path.write_text(text.replace(needle, "", 1), encoding="utf-8")
+          PY
+      - name: Commit cleanup
+        run: |
+          git config user.name "x2red-ci"
+          git config user.email "x2red-ci@users.noreply.github.com"
+          git add apps/api/app/services/guizang_native.py
+          git commit -m "Remove unused Guizang html import"
+          git push origin HEAD:agent/material-harvester-native-skills-v11
