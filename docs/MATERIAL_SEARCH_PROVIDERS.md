@@ -1,69 +1,78 @@
-# Simplified-Chinese material discovery and extraction
+# 原料库：MediaCrawler 接入
 
-X2RED's **原料库** separates web discovery from article extraction. Each layer
-uses a replaceable provider chain. RSS, Atom and sitemap inputs remain available
-only through a deprecated compatibility endpoint and are not shown in the main
-material-library interface.
+原料库的简中平台发现只使用 [NanmiCoder/MediaCrawler](https://github.com/NanmiCoder/MediaCrawler) 的实际运行方式，不再把搜索 API 聚合器作为自动发现链。
 
-## Search provider priority
+## 固定上游版本
 
-1. `serpapi_baidu`
-2. `dataforseo_baidu`
-3. `firecrawl`
-4. `brave`
-5. `jina`
-6. `tavily`
-7. `gdelt`
+X2RED 固定使用 MediaCrawler 提交：
 
-Configured providers are called in order. Jina Search can also run without a key
-at its public low-rate limit. Each attempt is returned to the UI as `skipped`,
-`failed`, `empty` or `ok`. GDELT remains last because it is a Chinese-news index,
-not a general Simplified-Chinese web index.
+`1779dde9725f6b7ef42e29022c0054b3e678f1af`
 
-## Search configuration
+`./scripts/start.sh` 会调用 `scripts/setup-mediacrawler.sh`，把该版本克隆到被 Git 忽略的 `.vendor/MediaCrawler`，并在独立虚拟环境中安装依赖。X2RED 不复制或修改 MediaCrawler 源码。
+
+MediaCrawler 使用 NON-COMMERCIAL LEARNING LICENSE 1.1。该能力仅限学习、研究、低频采集和人工有限引用，不得用于商业用途、大规模抓取或干扰平台运行。
+
+## 工作方式
+
+1. X2RED 检查 `.vendor/MediaCrawler` 和其独立 Python 环境。
+2. 用户在本机 Chrome 开启远程调试。
+3. X2RED 通过独立运行器设置 MediaCrawler 的 CDP 模式。
+4. MediaCrawler 复用真实 Chrome 的 Cookie、扩展和登录状态。
+5. MediaCrawler 按平台执行 `search`，保存 JSONL。
+6. X2RED 读取 JSONL、统一字段并展示候选。
+7. 用户点击“收录”后，候选正文、指标、图片地址、来源和原始快照进入来源箱。
+
+支持平台：
+
+- 小红书 `xhs`
+- 抖音 `dy`
+- 快手 `ks`
+- 哔哩哔哩 `bili`
+- 微博 `wb`
+- 百度贴吧 `tieba`
+- 知乎 `zhihu`
+
+## Chrome CDP
+
+MediaCrawler 默认连接用户已经打开的 Chrome：
+
+1. 打开 `chrome://inspect/#remote-debugging`。
+2. 启用 **Allow remote debugging for this browser instance**。
+3. 确认页面显示 `127.0.0.1:9222`。
+4. 保持 Chrome 运行，再从 X2RED 原料库执行搜索。
+
+首次访问某个平台时，MediaCrawler 可能要求扫码登录、手机号验证或完成滑块。X2RED 不破解验证码，也不绕过平台验证。
+
+## 配置
 
 ```env
-X2RED_MATERIAL_SEARCH_PROVIDER=auto
-X2RED_SERPAPI_API_KEY=
-X2RED_DATAFORSEO_LOGIN=
-X2RED_DATAFORSEO_PASSWORD=
-X2RED_FIRECRAWL_API_KEY=
-X2RED_BRAVE_SEARCH_API_KEY=
-X2RED_JINA_API_KEY=
-X2RED_TAVILY_API_KEY=
+X2RED_MATERIAL_SEARCH_PROVIDER=mediacrawler
+X2RED_MEDIACRAWLER_ROOT=./.vendor/MediaCrawler
+X2RED_MEDIACRAWLER_REVISION=1779dde9725f6b7ef42e29022c0054b3e678f1af
+X2RED_MEDIACRAWLER_PLATFORM=xhs
+X2RED_MEDIACRAWLER_LOGIN_TYPE=qrcode
+X2RED_MEDIACRAWLER_CONNECT_EXISTING=true
+X2RED_MEDIACRAWLER_CDP_PORT=9222
+X2RED_MEDIACRAWLER_TIMEOUT_SECONDS=600
+X2RED_MEDIACRAWLER_MAX_RESULTS=30
 ```
 
-SerpApi and DataForSEO use Baidu results. Firecrawl, Brave, Jina and Tavily add
-independent discovery sources with Chinese queries and regional preferences.
+跳过自动安装：
 
-## Article extraction priority
-
-1. Firecrawl Scrape when its key is configured;
-2. Jina Reader;
-3. public HTML plus Trafilatura;
-4. local Playwright only when explicitly enabled.
-
-```env
-X2RED_MATERIAL_EXTRACT_PROVIDER=auto
-X2RED_FIRECRAWL_API_KEY=
-X2RED_FIRECRAWL_BASE_URL=https://api.firecrawl.dev
-X2RED_JINA_API_KEY=
-X2RED_JINA_READER_BASE_URL=https://r.jina.ai
-X2RED_MATERIAL_BROWSER_ENABLED=false
+```bash
+X2RED_SKIP_MEDIACRAWLER_INSTALL=1 ./scripts/start.sh
 ```
 
-Jina Reader can run at its public low-rate limit. A key increases the available
-quota. Firecrawl is skipped automatically when its key is absent. The local
-Playwright compatibility adapter is disabled by default.
+手工安装或修复：
 
-## Validation and provenance
+```bash
+sh scripts/setup-mediacrawler.sh .venv/bin/python
+```
 
-Before calling an extractor, X2RED permits only public HTTP/HTTPS targets,
-rejects local and private network addresses, checks `robots.txt`, and applies a
-per-host request interval. Provider-reported final URLs and image URLs are
-validated again before storage.
+## 数据边界
 
-Imported records retain the canonical URL, extraction engine, attempt history,
-capture time and the default `limited_quote` rights state. The provider chain is
-limited to publicly accessible pages and does not reuse a personal browser
-session.
+- 搜索默认关闭评论、二级评论、媒体下载和高并发。
+- 默认并发为 1，抓取间隔至少 2 秒。
+- Cookie、`xsec_token`、`sec_uid` 等敏感运行字段不会进入浏览器候选数据。
+- 收录项标记为 `limited_quote`，发布前必须人工复核版权、隐私和平台条款。
+- 普通公开网页的手工收录仍可选择本地 HTTP + Trafilatura 或本地 Playwright；它不参与平台搜索。
