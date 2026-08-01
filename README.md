@@ -13,8 +13,8 @@ The current application can:
 5. Run L1 candidate analysis, limited L2 deep decomposition and reusable pattern extraction.
 6. Generate content through either a quick editorial pipeline or an artifact-driven multi-Agent writing studio.
 7. Train personal style profiles from authorized samples, held-out samples and author feedback.
-8. Discover public Simplified-Chinese material through GDELT, RSS/Atom and sitemaps.
-9. Import selected public article pages with robots.txt checks, per-host rate limits, provenance and a default `limited_quote` rights state.
+8. Discover Simplified-Chinese web material through Baidu search providers, Tavily, Brave Search and a GDELT fallback.
+9. Import selected public article pages through ordinary HTTP or a clean Playwright browser fallback, with provenance and a default `limited_quote` rights state.
 10. Create immutable platform-specific versions from the same source and evidence base.
 11. Render Xiaohongshu cards with the existing fast renderer or the complete upstream Guizang Editorial/Swiss runtime.
 12. Generate Minimal Zine posters through the complete upstream Prompt Compiler and an explicitly configured image model.
@@ -80,7 +80,7 @@ X2RED_IMAGE_SIZE=1024x1536
 
 When `IMAGE_BASE_URL` or `IMAGE_API_KEY` is empty, X2RED reuses the corresponding text-provider setting. Without `X2RED_IMAGE_MODEL`, the application keeps the reviewed prompt but does not falsely label a local placeholder as an original Skill render.
 
-## Public material research
+## Simplified-Chinese material research
 
 Open **原料库** and choose the intended use:
 
@@ -90,24 +90,42 @@ Open **原料库** and choose the intended use:
 - 照片叙事
 - 一句短评
 
-Discovery supports:
+The primary discovery chain is:
 
-- GDELT DOC Chinese-language article candidates;
-- public RSS and Atom feeds;
-- public sitemaps;
-- direct public article URLs.
+1. SerpApi Baidu;
+2. DataForSEO Baidu;
+3. Tavily with a China preference;
+4. Brave Search with Simplified-Chinese settings;
+5. GDELT Chinese-news fallback.
+
+Only providers with configured credentials are called. The UI shows which provider was used and every skipped, failed, empty or successful fallback attempt. RSS, Atom and sitemaps remain available as supplemental inputs rather than the primary workflow.
+
+Configure any supported commercial provider in `.env`, for example:
+
+```env
+X2RED_MATERIAL_SEARCH_PROVIDER=auto
+X2RED_SERPAPI_API_KEY=
+X2RED_DATAFORSEO_LOGIN=
+X2RED_DATAFORSEO_PASSWORD=
+X2RED_TAVILY_API_KEY=
+X2RED_BRAVE_SEARCH_API_KEY=
+```
 
 The importer:
 
 - allows only public HTTP/HTTPS URLs;
 - rejects localhost, private, link-local and reserved addresses;
 - validates every article and robots.txt redirect;
-- respects robots.txt;
 - rate-limits requests by host;
 - caps page size;
+- first extracts ordinary public HTML with Trafilatura;
+- starts a new no-login, no-cookie Playwright context when the public HTML does not contain enough article text;
+- validates browser navigation and subresources against the same public-address gate;
 - does not bypass authentication, paywalls, CAPTCHAs or access controls;
-- retains canonical URL, site/author, capture time and extraction metadata;
+- retains canonical URL, site/author, capture time, discovery source and extraction method;
 - marks imported pages as `limited_quote` by default.
+
+Detailed provider and browser settings are documented in [docs/MATERIAL_SEARCH_PROVIDERS.md](docs/MATERIAL_SEARCH_PROVIDERS.md).
 
 A public page being readable does not automatically grant republication rights. Publication and image reuse still require human review.
 
@@ -183,7 +201,7 @@ X2RED_AUTO_L2_DAILY_LIMIT=5
 
 - The API binds to localhost in documented commands.
 - No X account cookie is required or stored.
-- Public-web research does not bypass access controls.
+- Public-web research does not reuse a personal browser session or bypass access controls.
 - Imported web material defaults to limited quotation rather than unrestricted reuse.
 - Xiaohongshu automation never clicks the final publish button.
 - WeChat output defaults to local package generation and manual publishing.

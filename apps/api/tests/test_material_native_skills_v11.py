@@ -1,28 +1,38 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from app.core.config import Settings
 from app.domain.schemas import CardGenerateRequest
 from app.services.guizang_native_full import FullGuizangNativeService
+from app.services.market_material_harvester import MarketMaterialHarvester
 from app.services.material_harvester import MaterialHarvester, MaterialHarvesterError
+from app.services.material_search_providers import (
+    MaterialSearchEngine,
+    MaterialSearchError,
+    SearchCandidate,
+)
 from app.services.minimal_zine_native import MinimalZineNativeService
 from app.services.native_deck_renderer import NativeDeckRenderer
 from app.services.native_skill_manager import NATIVE_SKILLS, NativeSkillManager
+from app.services.resilient_material_search import ResilientMaterialSearchEngine
 
 
-def settings(tmp_path: Path) -> Settings:
-    return Settings(
-        database_url=f"sqlite:///{tmp_path / 'test.db'}",
-        media_dir=tmp_path / "assets",
-        raw_dir=tmp_path / "raw",
-        export_dir=tmp_path / "exports",
-        browser_profile_dir=tmp_path / "profile",
-        native_skill_dir=tmp_path / "native-skills",
-        scheduler_enabled=False,
-    )
+def settings(tmp_path: Path, **overrides: Any) -> Settings:
+    values: dict[str, Any] = {
+        "database_url": f"sqlite:///{tmp_path / 'test.db'}",
+        "media_dir": tmp_path / "assets",
+        "raw_dir": tmp_path / "raw",
+        "export_dir": tmp_path / "exports",
+        "browser_profile_dir": tmp_path / "profile",
+        "native_skill_dir": tmp_path / "native-skills",
+        "scheduler_enabled": False,
+    }
+    values.update(overrides)
+    return Settings(**values)
 
 
 def test_material_fit_and_private_network_gate(tmp_path: Path) -> None:
@@ -47,6 +57,53 @@ def test_material_fit_and_private_network_gate(tmp_path: Path) -> None:
     ):
         with pytest.raises(MaterialHarvesterError):
             service.validate_public_url(url, resolve_dns=False)
+
+
+def test_market_discovery_query_defaults_to_chinese_terms(tmp_path: Path) -> None:
+    service = MarketMaterialHarvester(settings(tmp_path))
+    query = service.discovery_query(category="mature_life")
+    assert "退休" in query
+    assert "社区" in query
+    assert service.discovery_query(category="mature_life", query="  社区食堂 老朋友  ") == "社区食堂 老朋友"
+
+
+def test_search_provider_status_and_auto_failover(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = ResilientMaterialSearchEngine(settings(tmp_path, tavily_api_key="tvly-test"))
+    statuses = {item["id"]: item for item in engine.statuses()}
+    assert statuses["tavily"]["configured"] is True
+    assert statuses["serpapi_baidu"]["configured"] is False
+    assert statuses["gdelt"]["configured"] is True
+
+    calls: list[str] = []
+
+    def fake_search_one(provider: str, **_: Any) -> list[SearchCandidate]:
+        calls.append(provider)
+        if provider == "tavily":
+            raise AttributeError("malformed provider response")
+        if provider == "gdelt":
+            return [
+                SearchCandidate(
+                    url="https://example.com/life",
+                    title="社区食堂里的晚饭",
+                    discovery_source="gdelt-doc-2",
+                )
+            ]
+        return []
+
+    monkeypatch.setattr(engine, "_search_one", fake_search_one)
+    result = engine.search(provider="auto", query="退休 社区", max_results=10)
+    assert result["provider"] == "gdelt"
+    assert calls == ["tavily", "gdelt"]
+    assert any(item["status"] == "failed" for item in result["attempts"])
+
+
+def test_explicit_unconfigured_provider_fails_cleanly(tmp_path: Path) -> None:
+    engine = MaterialSearchEngine(settings(tmp_path))
+    with pytest.raises(MaterialSearchError, match="所有搜索供应商"):
+        engine.search(provider="serpapi_baidu", query="退休生活")
 
 
 def test_native_skill_definitions_are_pinned_and_licensed(tmp_path: Path) -> None:
