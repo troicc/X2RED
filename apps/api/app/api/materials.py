@@ -25,7 +25,6 @@ MaterialCategory = Literal[
 ]
 MediaPlatform = Literal["xhs", "dy", "ks", "bili", "wb", "tieba", "zhihu"]
 LoginType = Literal["qrcode", "phone", "cookie"]
-MaterialExtractor = Literal["direct", "playwright"]
 
 
 class MaterialDiscoverRequest(BaseModel):
@@ -39,7 +38,6 @@ class MaterialDiscoverRequest(BaseModel):
 class MaterialImportRequest(BaseModel):
     url: str = Field(default="", max_length=2000)
     category: MaterialCategory
-    extractor: MaterialExtractor = "direct"
     editor_note: str = Field(default="", max_length=6000)
     candidate: dict[str, Any] | None = None
 
@@ -67,17 +65,11 @@ def material_providers() -> dict[str, Any]:
         "search_providers": crawler.statuses(),
         "extractors": [
             {
-                "id": "direct",
-                "label": "HTTP + Trafilatura",
+                "id": "local",
+                "label": "本地 HTTP / Playwright",
                 "configured": True,
                 "description": "仅用于手工粘贴普通公开网页",
-            },
-            {
-                "id": "playwright",
-                "label": "本地 Playwright",
-                "configured": settings.material_browser_enabled,
-                "description": "仅用于手工粘贴普通公开网页",
-            },
+            }
         ],
     }
 
@@ -143,7 +135,6 @@ def import_material(
                 db,
                 url=url,
                 category=body.category,
-                extractor=body.extractor,
                 editor_note=body.editor_note,
             )
         db.commit()
