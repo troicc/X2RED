@@ -24,6 +24,7 @@ from app.api import (
     jobs,
     platforms,
     publish,
+    reviews,
     settings as settings_api,
     signals,
     sources,
@@ -32,6 +33,7 @@ from app.api import (
 from app.core.config import get_settings
 from app.db.base import Base
 from app.db.session import engine
+from app.domain import review_artifacts as review_artifact_models  # noqa: F401
 from app.domain.studio import ContentAnalysis, WritingProject
 from app.providers.fxtwitter import FxTwitterProvider
 from app.services.discovery import DiscoveryService
@@ -41,6 +43,7 @@ from app.services.media_store import MediaStore
 from app.services.platform_studio import PlatformStudioService
 from app.services.publisher import PublishService
 from app.services.raw_store import RawStore
+from app.services.review_flow import ReviewFlowService
 from app.services.rich_cards import RichCardService
 from app.services.signal_studio import SignalStudioService
 from app.services.skill_pack_editorial import SkillPackEditorialService
@@ -82,6 +85,12 @@ async def lifespan(app: FastAPI):
     writing_service = MultiAgentWritingService(settings, editorial_service)
     signal_service = SignalStudioService(settings, provider, raw_store, editorial_service)
     platform_service = PlatformStudioService(settings, editorial_service)
+    card_service = RichCardService(settings)
+    review_flow_service = ReviewFlowService(
+        settings,
+        card_service,
+        platform_service,
+    )
     job_engine = JobEngine(intake_service)
 
     async def scan_target_handler(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
@@ -191,8 +200,9 @@ async def lifespan(app: FastAPI):
     app.state.writing_service = writing_service
     app.state.signal_service = signal_service
     app.state.platform_service = platform_service
+    app.state.review_flow_service = review_flow_service
     app.state.scheduler = scheduler
-    app.state.card_service = RichCardService(settings)
+    app.state.card_service = card_service
     app.state.publish_service = PublishService(settings)
     app.state.x2pdf_import_service = X2PDFImportService(raw_store)
 
@@ -205,7 +215,7 @@ async def lifespan(app: FastAPI):
     await media_store.close()
 
 
-app = FastAPI(title="X2RED", version="0.8.1", lifespan=lifespan)
+app = FastAPI(title="X2RED", version="0.9.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=r"^(chrome-extension://[a-z]{32}|http://(?:127\.0\.0\.1|localhost)(?::\d+)?)$",
@@ -218,6 +228,7 @@ app.include_router(discovery.router)
 app.include_router(signals.router)
 app.include_router(writing.router)
 app.include_router(platforms.router)
+app.include_router(reviews.router)
 app.include_router(intake.router)
 app.include_router(integrations.router)
 app.include_router(assets.router)
@@ -252,15 +263,17 @@ def health() -> dict:
         "intelligence_pipeline": "monitor-score-l1-l2",
         "writing_pipeline": "editor-research-outline-writer-three-reviews-chief-editor",
         "style_pipeline": "original-samples-held-out-feedback",
-        "platform_pipeline": "shared-evidence-platform-variants",
+        "platform_pipeline": "reviewable-artifacts-shared-evidence-platform-variants",
+        "review_pipeline": "storyboard-module-tree-cover-brief-versioned-approval",
         "platforms": ["xiaohongshu", "wechat"],
         "wechat_workbench": True,
+        "wechat_publisher_assistant": True,
         "skill_pack_registry": True,
         "scheduler_enabled": settings.scheduler_enabled,
         "sqlite_wal": settings.database_url.startswith("sqlite"),
         "x2pdf_bridge": "/api/integrations/x2pdf/documents",
-        "card_renderer": "public-safe-skill-storyboard-semantic-html",
-        "wechat_renderer": "public-safe-inline-html-cover-pair",
+        "card_renderer": "reviewed-semantic-playwright",
+        "wechat_renderer": "reviewed-module-tree-plus-cover-brief",
     }
 
 
@@ -301,6 +314,8 @@ def index() -> HTMLResponse:
         '<script src="/static/studio-navigation-v071.js"></script>'
         '<script src="/static/platform-v08.js"></script>'
         '<script src="/static/card-skill-v08.js"></script>'
+        '<script src="/static/review-v09.js"></script>'
+        '<script src="/static/review-bridge-v09.js"></script>'
     )
     html = html.replace("</body>", f"{scripts}</body>")
     return HTMLResponse(html)

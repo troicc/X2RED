@@ -194,15 +194,19 @@ def test_platform_frontend_and_health_contracts() -> None:
     root = Path(__file__).resolve().parents[3]
     platform_js = (root / "apps/api/app/static/platform-v08.js").read_text(encoding="utf-8")
     card_js = (root / "apps/api/app/static/card-skill-v08.js").read_text(encoding="utf-8")
+    review_js = (root / "apps/api/app/static/review-v09.js").read_text(encoding="utf-8")
     main_py = (root / "apps/api/app/main.py").read_text(encoding="utf-8")
     notices = (root / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
     assert "公众号工作台" in platform_js
     assert "skill-packs" in platform_js
     assert "去公众号" in platform_js
     assert "card-visual-style" in card_js
-    assert 'version="0.8.1"' in main_py
-    assert "public-safe-skill-storyboard-semantic-html" in main_py
-    assert "public-safe-inline-html-cover-pair" in main_py
-    assert "platform-v08.js" in main_py
-    assert "card-skill-v08.js" in main_py
+    assert "审阅故事板" in review_js
+    assert "模块 Review" in review_js
+    assert "发布助手" in review_js
+    assert 'version="0.9.0"' in main_py
+    assert "reviewed-semantic-playwright" in main_py
+    assert "reviewed-module-tree-plus-cover-brief" in main_py
+    assert "review-v09.js" in main_py
+    assert "review-bridge-v09.js" in main_py
     assert "No upstream code" in notices

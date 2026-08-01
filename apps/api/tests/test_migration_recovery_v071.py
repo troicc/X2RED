@@ -19,13 +19,7 @@ def _config() -> Config:
 
 
 def _restore_historical_0005_jobs_schema(engine: sa.Engine) -> None:
-    """Replace the mutable-model replay with the schema users actually had.
-
-    Migration 0003 historically created the jobs table from application
-    metadata. Replaying it today therefore sees future model columns that did
-    not exist in databases created before 0006. This helper pins the real 0005
-    table shape so the regression test reproduces the production failure.
-    """
+    """Replace the mutable-model replay with the schema users actually had."""
 
     with engine.begin() as connection:
         connection.exec_driver_sql("DROP TABLE jobs")
@@ -98,9 +92,6 @@ def test_sqlite_0006_upgrade_recovers_without_losing_jobs(
     with engine.begin() as connection:
         _insert_existing_job(connection)
         if partially_applied:
-            # Reproduce the exact state left by the original migration: SQLite
-            # committed the first three ALTER TABLE statements, then rejected
-            # available_at because CURRENT_TIMESTAMP is not a constant default.
             connection.exec_driver_sql(
                 "ALTER TABLE jobs ADD COLUMN max_attempts INTEGER DEFAULT 3 NOT NULL"
             )
@@ -124,6 +115,7 @@ def test_sqlite_0006_upgrade_recovers_without_losing_jobs(
         "locked_by",
     }.issubset(column_names)
     assert "platform_variants" in inspector.get_table_names()
+    assert "review_artifacts" in inspector.get_table_names()
 
     index_names = {index["name"] for index in inspector.get_indexes("jobs")}
     assert {
@@ -139,7 +131,9 @@ def test_sqlite_0006_upgrade_recovers_without_losing_jobs(
                 "locked_by, created_at FROM jobs WHERE id = 'job_existing'"
             )
         ).mappings().one()
-        revision = connection.execute(sa.text("SELECT version_num FROM alembic_version")).scalar_one()
+        revision = connection.execute(
+            sa.text("SELECT version_num FROM alembic_version")
+        ).scalar_one()
 
     assert row["id"] == "job_existing"
     assert row["max_attempts"] == 3
@@ -149,8 +143,7 @@ def test_sqlite_0006_upgrade_recovers_without_losing_jobs(
     assert row["available_at"] is not None
     assert str(row["available_at"]).startswith("2026-01-02 03:04:05")
     assert str(row["created_at"]).startswith("2026-01-02 03:04:05")
-    assert revision == "0008"
+    assert revision == "0009"
 
-    # A second startup must be a no-op rather than repeating ALTER TABLE.
     get_settings.cache_clear()
     command.upgrade(config, "head")

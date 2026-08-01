@@ -22,6 +22,9 @@ def test_wechat_cover_is_publish_ready_by_default() -> None:
         subtitle="从盲发指令到边看边改",
         theme_id="editorial_blue",
         hero_image="",
+        series_label="",
+        cover_style="auto",
+        emphasis="",
     )
     assert "视觉反馈闭环如何改变 3D 创作" in document
     assert "WECHAT / X2RED" not in document

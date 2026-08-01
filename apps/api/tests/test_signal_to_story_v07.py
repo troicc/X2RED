@@ -117,7 +117,11 @@ def test_signal_monitor_and_multi_agent_writing_studio(
                         },
                     }
                 )
-            return {"code": 200, "results": results[:count], "cursor": {"bottom": cursor or "next"}}
+            return {
+                "code": 200,
+                "results": results[:count],
+                "cursor": {"bottom": cursor or "next"},
+            }
 
         async def search(self, *args, **kwargs) -> dict:
             return {"code": 200, "results": [], "cursor": {}}
@@ -265,7 +269,11 @@ def test_signal_monitor_and_multi_agent_writing_studio(
         assert wait_for_job(client, studio_run.json()["id"])["state"] == "succeeded"
         gated = client.get(f"/api/writing/projects/{studio_project['id']}").json()
         assert gated["state"] == "awaiting_brief_approval"
-        brief = next(item for item in gated["artifacts"] if item["artifact_type"] == "editorial_brief")
+        brief = next(
+            item
+            for item in gated["artifacts"]
+            if item["artifact_type"] == "editorial_brief"
+        )
         approved = client.post(
             f"/api/writing/projects/{gated['id']}/artifacts/{brief['id']}/approve",
             json={"approved": True, "note": "主线确认"},
@@ -274,8 +282,13 @@ def test_signal_monitor_and_multi_agent_writing_studio(
         assert approved.json()["state"] == "researching"
 
         health = client.get("/health").json()
-        assert health["version"] == "0.8.1"
+        assert health["version"] == "0.9.0"
         assert health["intelligence_pipeline"] == "monitor-score-l1-l2"
         assert "three-reviews" in health["writing_pipeline"]
-        assert health["platform_pipeline"] == "shared-evidence-platform-variants"
+        assert health["platform_pipeline"] == (
+            "reviewable-artifacts-shared-evidence-platform-variants"
+        )
+        assert health["review_pipeline"] == (
+            "storyboard-module-tree-cover-brief-versioned-approval"
+        )
         assert health["sqlite_wal"] is True
