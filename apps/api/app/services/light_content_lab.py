@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import html
 import json
-import re
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path

@@ -214,7 +214,6 @@ class LightVisualRenderer:
                 wave = math.sin((x / 170) + layer) * 70
                 points.append((x, base_y + wave + rng.randint(-55, 55)))
             points.extend([(self.width, self.height)])
-            shade = 22 + layer * 7
             w.polygon(points, fill=(28, 31, 29, max(12, 48 - layer * 5)))
         for _ in range(8):
             cx = rng.randint(80, 1120)
