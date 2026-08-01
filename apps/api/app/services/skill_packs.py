@@ -93,6 +93,29 @@ PACKS: tuple[SkillPackDefinition, ...] = (
         notes="首版输出可复用的配图 brief；真实生图后端可继续独立接入。",
     ),
     SkillPackDefinition(
+        id="wechat-light-zine",
+        label="公众号少字照片与极简杂志图组",
+        platform="wechat",
+        description="把一句话、情绪、照片、短评或节气主题制作成少字、大片留白、旧纸张质感的 3:5 图组。",
+        source_repositories=("LiamGvchi/gc-minimal-zine-poster",),
+        licenses=("MIT",),
+        integration_mode="native-adaptation",
+        skills=(
+            "wechat.title_summary",
+            "visual.art_direction",
+            "article.illustration_plan",
+            "visual.material_intake",
+        ),
+        external_skill_names=(
+            "gc-minimal-zine-poster-v0-1",
+            "gc-minimal-zine-poster",
+        ),
+        notes=(
+            "适配其 3:5 旧纸张、70%-90% 留白、单一视觉锚点、短句与复古印刷方法；"
+            "X2RED 使用自有数据模型、提示编译器和 Pillow 渲染器，并增加中老年与时令内容安全约束。"
+        ),
+    ),
+    SkillPackDefinition(
         id="wechat-editorial-adapter",
         label="公众号长文编辑适配",
         platform="wechat",
