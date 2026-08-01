@@ -22,6 +22,8 @@ PY
 )"
 
 MARKER="$MEDIACRAWLER_ROOT/.x2red-revision"
+INSTALL_SCHEMA="uv-no-install-project-v1"
+EXPECTED_MARKER="$MEDIACRAWLER_REVISION|$INSTALL_SCHEMA"
 mkdir -p "$(dirname -- "$MEDIACRAWLER_ROOT")"
 
 if [ ! -d "$MEDIACRAWLER_ROOT/.git" ]; then
@@ -39,25 +41,50 @@ if [ "$CURRENT_REVISION" != "$MEDIACRAWLER_REVISION" ]; then
   git -C "$MEDIACRAWLER_ROOT" checkout --detach "$MEDIACRAWLER_REVISION"
 fi
 
+# MediaCrawler documents uv as its supported installer. Its pinned pyproject
+# contains a non-standard `project.author` field that recent setuptools rejects
+# during `pip install -e`. `--no-install-project` installs the locked runtime
+# dependencies without building MediaCrawler itself; X2RED runs its source tree
+# directly through scripts/run-mediacrawler.py.
+if command -v uv >/dev/null 2>&1; then
+  UV_BIN=$(command -v uv)
+elif [ -x "$REPO_ROOT/.venv/bin/uv" ]; then
+  UV_BIN="$REPO_ROOT/.venv/bin/uv"
+elif [ -x "$REPO_ROOT/.venv/Scripts/uv.exe" ]; then
+  UV_BIN="$REPO_ROOT/.venv/Scripts/uv.exe"
+else
+  echo "Installing uv for MediaCrawler dependency synchronization"
+  "$HOST_PYTHON" -m pip install "uv>=0.8,<1"
+  if [ -x "$REPO_ROOT/.venv/bin/uv" ]; then
+    UV_BIN="$REPO_ROOT/.venv/bin/uv"
+  elif [ -x "$REPO_ROOT/.venv/Scripts/uv.exe" ]; then
+    UV_BIN="$REPO_ROOT/.venv/Scripts/uv.exe"
+  else
+    echo "uv was installed but its executable could not be located." >&2
+    exit 1
+  fi
+fi
+
+INSTALLED_MARKER=$(cat "$MARKER" 2>/dev/null || true)
+if [ "$INSTALLED_MARKER" != "$EXPECTED_MARKER" ]; then
+  echo "Synchronizing MediaCrawler dependencies from uv.lock"
+  "$UV_BIN" sync \
+    --project "$MEDIACRAWLER_ROOT" \
+    --frozen \
+    --no-install-project \
+    --python "$HOST_PYTHON"
+  printf '%s\n' "$EXPECTED_MARKER" > "$MARKER"
+fi
+
 if [ -x "$MEDIACRAWLER_ROOT/.venv/bin/python" ]; then
   CRAWLER_PYTHON="$MEDIACRAWLER_ROOT/.venv/bin/python"
 elif [ -x "$MEDIACRAWLER_ROOT/.venv/Scripts/python.exe" ]; then
   CRAWLER_PYTHON="$MEDIACRAWLER_ROOT/.venv/Scripts/python.exe"
 else
-  "$HOST_PYTHON" -m venv "$MEDIACRAWLER_ROOT/.venv"
-  if [ -x "$MEDIACRAWLER_ROOT/.venv/bin/python" ]; then
-    CRAWLER_PYTHON="$MEDIACRAWLER_ROOT/.venv/bin/python"
-  else
-    CRAWLER_PYTHON="$MEDIACRAWLER_ROOT/.venv/Scripts/python.exe"
-  fi
+  echo "MediaCrawler environment was not created successfully." >&2
+  exit 1
 fi
 
-INSTALLED_REVISION=$(cat "$MARKER" 2>/dev/null || true)
-if [ "$INSTALLED_REVISION" != "$MEDIACRAWLER_REVISION" ]; then
-  "$CRAWLER_PYTHON" -m ensurepip --upgrade
-  "$CRAWLER_PYTHON" -m pip install --upgrade pip setuptools wheel
-  "$CRAWLER_PYTHON" -m pip install -e "$MEDIACRAWLER_ROOT"
-  printf '%s\n' "$MEDIACRAWLER_REVISION" > "$MARKER"
-fi
+"$CRAWLER_PYTHON" -c 'import playwright, httpx, typer' >/dev/null
 
 echo "MediaCrawler ready: $MEDIACRAWLER_ROOT ($MEDIACRAWLER_REVISION)"
