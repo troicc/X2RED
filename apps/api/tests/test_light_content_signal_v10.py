@@ -135,7 +135,9 @@ def test_signal_promotion_and_light_series(
 
         fresh = client.get(f"/api/platforms/variants/{variant['id']}").json()
         fresh_metadata = json.loads(fresh["metadata_json"])
-        assert all("Tall 3:5 aged-paper" in spec["final_prompt"] for spec in fresh_metadata["poster_specs"])
+        assert fresh_metadata["render_engine"] == "x2red-distinct-light-visual-v12"
+        assert all(spec["final_prompt"].strip() for spec in fresh_metadata["poster_specs"])
+        assert all(spec["visual_style"] for spec in fresh_metadata["poster_specs"])
 
         catalog = client.get("/api/platforms/catalog").json()
         assert any(pack["id"] == "wechat-light-zine" for pack in catalog["skill_packs"])

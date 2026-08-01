@@ -38,6 +38,7 @@ jobs:
       - run: node --check apps/api/app/static/review-v09.js
       - run: node --check apps/api/app/static/review-bridge-v09.js
       - run: node --check apps/api/app/static/light-content-v10.js
+      - run: node --check apps/api/app/static/light-content-lab-v12.js
       - run: node --check apps/api/app/static/signal-to-studio-v10.js
       - run: node --check apps/api/extensions/wechat-publisher-assistant/popup.js
       - run: node --check apps/api/extensions/wechat-publisher-assistant/content.js

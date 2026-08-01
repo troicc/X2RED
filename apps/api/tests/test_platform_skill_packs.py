@@ -195,6 +195,7 @@ def test_platform_frontend_and_health_contracts() -> None:
     platform_js = (root / "apps/api/app/static/platform-v08.js").read_text(encoding="utf-8")
     card_js = (root / "apps/api/app/static/card-skill-v08.js").read_text(encoding="utf-8")
     review_js = (root / "apps/api/app/static/review-v09.js").read_text(encoding="utf-8")
+    light_lab_js = (root / "apps/api/app/static/light-content-lab-v12.js").read_text(encoding="utf-8")
     main_py = (root / "apps/api/app/main.py").read_text(encoding="utf-8")
     notices = (root / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
     assert "公众号工作台" in platform_js
@@ -204,9 +205,14 @@ def test_platform_frontend_and_health_contracts() -> None:
     assert "审阅故事板" in review_js
     assert "模块 Review" in review_js
     assert "发布助手" in review_js
-    assert 'version="0.9.0"' in main_py
+    assert "长文编辑" in light_lab_js
+    assert "轻内容图组" in light_lab_js
+    assert "多 Agent 生成 3 个候选" in light_lab_js
+    assert "批准并加入优质语料" in light_lab_js
+    assert 'version="0.10.0"' in main_py
     assert "reviewed-semantic-playwright" in main_py
     assert "reviewed-module-tree-plus-cover-brief" in main_py
+    assert "six-route-distinct-visual-v12" in main_py
     assert "review-v09.js" in main_py
     assert "review-bridge-v09.js" in main_py
     assert "No upstream code" in notices
