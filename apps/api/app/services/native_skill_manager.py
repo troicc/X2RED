@@ -49,12 +49,7 @@ NATIVE_SKILLS: dict[str, NativeSkillDefinition] = {
 
 
 class NativeSkillManager:
-    """Install exact, pinned upstream Skills outside the X2RED source tree.
-
-    The upstream repositories remain intact Git checkouts under data/native-skills.
-    X2RED communicates with them through files and subprocesses, preserving their
-    licenses and avoiding a misleading partial reimplementation.
-    """
+    """Install exact, pinned upstream Skills outside the X2RED source tree."""
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
@@ -80,16 +75,10 @@ class NativeSkillManager:
         clean = False
         if installed and (path / ".git").is_dir() and shutil.which("git"):
             current_commit = self._run(
-                ["git", "rev-parse", "HEAD"],
-                cwd=path,
-                timeout=30,
-                check=False,
+                ["git", "rev-parse", "HEAD"], cwd=path, timeout=30, check=False
             ).stdout.strip()
             dirty = self._run(
-                ["git", "status", "--porcelain"],
-                cwd=path,
-                timeout=30,
-                check=False,
+                ["git", "status", "--porcelain"], cwd=path, timeout=30, check=False
             ).stdout.strip()
             clean = not dirty
         validator_ready = False
@@ -201,10 +190,19 @@ class NativeSkillManager:
             "integration": "separate pinned checkout; file and subprocess adapter",
             "modified_upstream_checkout": False,
         }
-        (target / "X2RED-INTEGRATION.json").write_text(
+        notice_path = target / "X2RED-INTEGRATION.json"
+        notice_path.write_text(
             json.dumps(notice, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        exclude = target / ".git" / "info" / "exclude"
+        if exclude.parent.is_dir():
+            current = exclude.read_text(encoding="utf-8") if exclude.is_file() else ""
+            if "X2RED-INTEGRATION.json" not in current.splitlines():
+                exclude.write_text(
+                    current.rstrip() + "\nX2RED-INTEGRATION.json\n",
+                    encoding="utf-8",
+                )
 
     @staticmethod
     def _run(
