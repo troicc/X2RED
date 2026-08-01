@@ -54,6 +54,13 @@ X2RED remains licensed under the MIT License. The platform Skill Pack registry r
 - Research concepts: WeChat inline-style constraints, chapter numbering, restrained keyword marking, preview/copy workflow, and deterministic HTML validation.
 - No upstream code, templates, components, styles, scripts, assets, or prompt text are copied into X2RED. X2RED's themes and renderer are original implementations.
 
+### pmlaowangba-lab/obsidian-wx-open-source
+
+- License: GNU Affero General Public License v3.0 or later.
+- Upstream: https://github.com/pmlaowangba-lab/obsidian-wx-open-source
+- Research concepts: write both `text/html` and `text/plain` clipboard flavors for manual WeChat pasting, keep API draft publishing separate from browser DOM automation, and upload images through the WeChat publishing path rather than assuming browser HTML injection is stable.
+- No upstream TypeScript, bundled JavaScript, proxy code, themes, or publishing implementation is copied into X2RED. X2RED's browser assistant is an independent implementation with field-collision guards, title/body verification, a page-world bridge for the editor's own API, and a manual rich-clipboard fallback.
+
 ## External Skill Pack detection
 
 X2RED may report whether a named skill directory exists under common local skill roots such as `~/.claude/skills`, `~/.codex/skills`, or `~/.openclaw/skills`. Detection is read-only. It does not import, run, modify, or redistribute the detected project.
