@@ -28,6 +28,8 @@ jobs:
           cache: pip
       - run: python -m pip install -e '.[dev]'
       - run: python -m compileall -q apps/api/app
+      - run: python -m py_compile scripts/run-mediacrawler.py
+      - run: sh -n scripts/start.sh scripts/setup-mediacrawler.sh
       - run: x2red migrate
       - run: node --check apps/api/app/static/app.js
       - run: node --check apps/api/app/static/studio-v07.js
