@@ -9,17 +9,11 @@ from app.core.config import Settings
 from app.domain.schemas import CardGenerateRequest
 from app.services.guizang_native_full import FullGuizangNativeService
 from app.services.market_material_harvester import MarketMaterialHarvester
-from app.services.material_extraction_providers import MaterialExtractionProviders
 from app.services.material_harvester import MaterialHarvester, MaterialHarvesterError
-from app.services.material_search_providers import (
-    MaterialSearchEngine,
-    MaterialSearchError,
-    SearchCandidate,
-)
+from app.services.mediacrawler_bridge import MediaCrawlerBridge, MediaCrawlerError
 from app.services.minimal_zine_native import MinimalZineNativeService
 from app.services.native_deck_renderer import NativeDeckRenderer
 from app.services.native_skill_manager import NATIVE_SKILLS, NativeSkillManager
-from app.services.resilient_material_search import ResilientMaterialSearchEngine
 
 
 def settings(tmp_path: Path, **overrides: Any) -> Settings:
@@ -74,81 +68,53 @@ def test_market_discovery_query_defaults_to_chinese_terms(tmp_path: Path) -> Non
     )
 
 
-def test_search_provider_status_and_auto_failover(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    engine = ResilientMaterialSearchEngine(
+def test_mediacrawler_status_and_xhs_normalization(tmp_path: Path) -> None:
+    root = tmp_path / "MediaCrawler"
+    (root / ".venv" / "bin").mkdir(parents=True)
+    (root / "main.py").write_text("", encoding="utf-8")
+    (root / ".venv" / "bin" / "python").write_text("", encoding="utf-8")
+    bridge = MediaCrawlerBridge(
         settings(
             tmp_path,
-            firecrawl_api_key="fc-test",
-            tavily_api_key="tvly-test",
+            mediacrawler_root=root,
+            mediacrawler_connect_existing=False,
         )
     )
-    statuses = {item["id"]: item for item in engine.statuses()}
-    assert statuses["firecrawl"]["configured"] is True
-    assert statuses["jina"]["configured"] is True
-    assert statuses["tavily"]["configured"] is True
-    assert statuses["serpapi_baidu"]["configured"] is False
-    assert statuses["gdelt"]["configured"] is True
+    statuses = {item["id"]: item for item in bridge.statuses()}
+    assert statuses["xhs"]["configured"] is True
+    assert statuses["xhs"]["ready"] is True
+    assert statuses["zhihu"]["configured"] is True
 
-    calls: list[str] = []
-
-    def fake_search_one(provider: str, **_: Any) -> list[SearchCandidate]:
-        calls.append(provider)
-        if provider == "firecrawl":
-            raise AttributeError("malformed provider response")
-        if provider == "tavily":
-            return [
-                SearchCandidate(
-                    url="https://example.com/life",
-                    title="社区食堂里的晚饭",
-                    discovery_source="tavily-china",
-                )
-            ]
-        return []
-
-    monkeypatch.setattr(engine, "_search_one", fake_search_one)
-    result = engine.search(provider="auto", query="退休 社区", max_results=10)
-    assert result["provider"] == "tavily"
-    assert calls == ["firecrawl", "jina", "tavily"]
-    assert any(item["status"] == "failed" for item in result["attempts"])
-
-
-def test_explicit_unconfigured_provider_fails_cleanly(tmp_path: Path) -> None:
-    engine = MaterialSearchEngine(settings(tmp_path))
-    with pytest.raises(MaterialSearchError, match="所有搜索供应商"):
-        engine.search(provider="serpapi_baidu", query="退休生活")
-
-
-def test_market_extractors_prefer_vendor_services(tmp_path: Path) -> None:
-    service = MarketMaterialHarvester(
-        settings(tmp_path, firecrawl_api_key="fc-test")
+    normalized = bridge.normalize_item(
+        platform="xhs",
+        query="退休生活",
+        item={
+            "note_id": "abc123",
+            "title": "退休后的社区晚饭",
+            "desc": "每天傍晚和老朋友一起吃饭。",
+            "note_url": "https://www.xiaohongshu.com/explore/abc123",
+            "nickname": "张阿姨",
+            "time": 1_700_000_000_000,
+            "image_list": "https://example.com/a.jpg,https://example.com/b.jpg",
+            "liked_count": "88",
+            "xsec_token": "secret",
+        },
     )
-    statuses = {item["id"]: item for item in service.extractor_statuses()}
-    assert statuses["firecrawl"]["configured"] is True
-    assert statuses["jina"]["configured"] is True
-    assert statuses["direct"]["configured"] is True
-    assert statuses["playwright"]["configured"] is False
+    assert normalized["provider"] == "mediacrawler"
+    assert normalized["platform"] == "xhs"
+    assert normalized["external_id"] == "abc123"
+    assert normalized["title"] == "退休后的社区晚饭"
+    assert normalized["image_urls"] == [
+        "https://example.com/a.jpg",
+        "https://example.com/b.jpg",
+    ]
+    assert "xsec_token" not in normalized["crawler_payload"]
 
 
-def test_jina_plain_text_and_markdown_cleanup() -> None:
-    metadata, markdown = MaterialExtractionProviders.parse_jina_text(
-        "Title: 社区晚饭\n"
-        "URL Source: https://example.com/a\n"
-        "Published Time: 2026-08-01\n"
-        "Markdown Content:\n"
-        "# 社区晚饭\n\n"
-        "- 老人们每天傍晚来吃饭\n"
-        "[原文](https://example.com/source)"
-    )
-    assert metadata["Title"] == "社区晚饭"
-    assert metadata["URL Source"] == "https://example.com/a"
-    cleaned = MaterialExtractionProviders.markdown_to_text(markdown)
-    assert "# " not in cleaned
-    assert "老人们每天傍晚来吃饭" in cleaned
-    assert "原文" in cleaned
-    assert "https://example.com/source" not in cleaned
+def test_mediacrawler_rejects_cross_platform_url(tmp_path: Path) -> None:
+    bridge = MediaCrawlerBridge(settings(tmp_path))
+    with pytest.raises(MediaCrawlerError, match="不属于小红书"):
+        bridge._validate_platform_url("xhs", "https://www.zhihu.com/question/1")
 
 
 def test_native_skill_definitions_are_pinned_and_licensed(tmp_path: Path) -> None:
