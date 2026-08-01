@@ -123,6 +123,7 @@ def test_sqlite_0006_upgrade_recovers_without_losing_jobs(
         "available_at",
         "locked_by",
     }.issubset(column_names)
+    assert "platform_variants" in inspector.get_table_names()
 
     index_names = {index["name"] for index in inspector.get_indexes("jobs")}
     assert {
@@ -148,7 +149,7 @@ def test_sqlite_0006_upgrade_recovers_without_losing_jobs(
     assert row["available_at"] is not None
     assert str(row["available_at"]).startswith("2026-01-02 03:04:05")
     assert str(row["created_at"]).startswith("2026-01-02 03:04:05")
-    assert revision == "0007"
+    assert revision == "0008"
 
     # A second startup must be a no-op rather than repeating ALTER TABLE.
     get_settings.cache_clear()

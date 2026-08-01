@@ -15,6 +15,7 @@ class SkillDefinition:
     category: str
     description: str
     default_effort: str = "medium"
+    default_enabled: bool = True
 
 
 SKILLS: tuple[SkillDefinition, ...] = (
@@ -145,6 +146,34 @@ SKILLS: tuple[SkillDefinition, ...] = (
         "medium",
     ),
     SkillDefinition(
+        "xhs.selling_points",
+        "卖点优先级",
+        "小红书适配",
+        "按稀缺性、实用性和可感知性排序，只保留一到两个真正值得上封面的点。",
+        "medium",
+    ),
+    SkillDefinition(
+        "xhs.title_formulas",
+        "小红书标题公式",
+        "小红书适配",
+        "按痛点、提问、发现、热点和身份共鸣生成候选标题，再以事实边界过滤。",
+        "medium",
+    ),
+    SkillDefinition(
+        "xhs.caption_hashtags",
+        "Caption 与标签",
+        "小红书适配",
+        "从卡片组提炼发布配文和高相关标签，不把 caption 当成长文正文。",
+        "low",
+    ),
+    SkillDefinition(
+        "xhs.viral_structure",
+        "对标结构与钩子",
+        "小红书适配",
+        "把信号台和历史模式库中的高表现结构用于选题，而不是照搬具体文案。",
+        "high",
+    ),
+    SkillDefinition(
         "visual.storyboard",
         "卡片故事板",
         "视觉表达",
@@ -155,8 +184,107 @@ SKILLS: tuple[SkillDefinition, ...] = (
         "visual.art_direction",
         "视觉风格选择",
         "视觉表达",
-        "根据内容类型选择 Editorial、Tech、News 或 Warm 模板家族。",
+        "根据内容类型选择 Editorial、Swiss、Knowledge、News 或 Warm 视觉系统。",
         "low",
+    ),
+    SkillDefinition(
+        "visual.material_intake",
+        "真实素材盘点",
+        "视觉表达",
+        "识别对比图、产品截图、数据图和氛围图，优先使用能够证明内容的真实素材。",
+        "low",
+    ),
+    SkillDefinition(
+        "visual.layout_selector",
+        "Style × Layout 选择",
+        "视觉表达",
+        "在稀疏、均衡、密集、清单、对比、流程、矩阵等布局中选择最合适结构。",
+        "medium",
+    ),
+    SkillDefinition(
+        "visual.palette_selector",
+        "配色系统选择",
+        "视觉表达",
+        "按内容语气选择稳定色板，不让每次生成随机漂移。",
+        "low",
+    ),
+    SkillDefinition(
+        "visual.screenshot_treatment",
+        "截图与设备框处理",
+        "视觉表达",
+        "对产品截图使用浏览器框、设备框、裁切和留白，而不是简单铺满画布。",
+        "low",
+    ),
+    SkillDefinition(
+        "visual.subject_safe_zone",
+        "主体避让与安全区",
+        "视觉表达",
+        "规划图片主体与文字的安全区域，避免标题压住人脸、产品和关键界面。",
+        "medium",
+    ),
+    SkillDefinition(
+        "article.illustration_plan",
+        "长文配图规划",
+        "跨平台配图",
+        "识别真正需要视觉解释的位置，并输出信息图、流程图、对比图或场景图提示。",
+        "medium",
+    ),
+    SkillDefinition(
+        "wechat.adapt_longform",
+        "公众号长文适配",
+        "公众号写作",
+        "把同一份证据和终稿重构为公众号长文，不把小红书 caption 直接放大。",
+        "high",
+    ),
+    SkillDefinition(
+        "wechat.title_summary",
+        "公众号标题与摘要",
+        "公众号写作",
+        "生成适合公众号列表页和转发场景的标题、摘要与短分享标题。",
+        "medium",
+    ),
+    SkillDefinition(
+        "wechat.citations",
+        "外链与来源整理",
+        "公众号写作",
+        "把外部来源整理为文末引用，保留原始 X 链接和证据归属。",
+        "low",
+    ),
+    SkillDefinition(
+        "wechat.format_article",
+        "公众号内联排版",
+        "公众号排版",
+        "把 Markdown 转成可复制到公众号编辑器的全内联 HTML。",
+        "low",
+    ),
+    SkillDefinition(
+        "wechat.keyword_marking",
+        "章节与关键词标记",
+        "公众号排版",
+        "自动编号章节，并对每段一到三个真正重要的短语做克制强调。",
+        "medium",
+    ),
+    SkillDefinition(
+        "wechat.cover_pair",
+        "公众号封面对",
+        "公众号视觉",
+        "生成视觉一致的 21:9 主封面和 1:1 分享封面。",
+        "medium",
+    ),
+    SkillDefinition(
+        "wechat.qa",
+        "公众号 HTML 质量门",
+        "公众号排版",
+        "确定性检查禁用标签、危险样式、空内容、图片和标题密度。",
+        "low",
+    ),
+    SkillDefinition(
+        "wechat.publish_draft",
+        "发布到公众号草稿箱",
+        "公众号发布",
+        "通过可选的 API 或浏览器适配器写入草稿箱；始终保留人工最终发布。",
+        "low",
+        False,
     ),
 )
 
@@ -171,7 +299,7 @@ def ensure_bindings(db: Session, default_model_name: str) -> list[SkillBinding]:
             continue
         binding = SkillBinding(
             skill_name=definition.name,
-            enabled=True,
+            enabled=definition.default_enabled,
             model_name=default_model_name,
             reasoning_effort=definition.default_effort,
             prompt_version="v1",
@@ -192,7 +320,7 @@ def binding_for(db: Session, skill_name: str, default_model_name: str) -> SkillB
         definition = _SKILL_MAP[skill_name]
         binding = SkillBinding(
             skill_name=skill_name,
-            enabled=True,
+            enabled=definition.default_enabled,
             model_name=default_model_name,
             reasoning_effort=definition.default_effort,
             prompt_version="v1",

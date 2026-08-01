@@ -32,6 +32,10 @@ def generate_cards(
             db,
             draft,
             template=body.template,
+            visual_style=body.visual_style,
+            layout=body.layout,
+            palette=body.palette,
+            material_strategy=body.material_strategy,
             max_cards=body.max_cards,
         )
         db.commit()

@@ -22,6 +22,7 @@ from app.api import (
     intake,
     integrations,
     jobs,
+    platforms,
     publish,
     settings as settings_api,
     signals,
@@ -33,15 +34,16 @@ from app.db.base import Base
 from app.db.session import engine
 from app.domain.studio import ContentAnalysis, WritingProject
 from app.providers.fxtwitter import FxTwitterProvider
-from app.services.cards import CardService
 from app.services.discovery import DiscoveryService
 from app.services.intake import IntakeService
 from app.services.jobs import JobEngine
 from app.services.media_store import MediaStore
+from app.services.platform_studio import PlatformStudioService
 from app.services.publisher import PublishService
 from app.services.raw_store import RawStore
-from app.services.reader_editorial import ReaderFirstEditorialService
+from app.services.rich_cards import RichCardService
 from app.services.signal_studio import SignalStudioService
+from app.services.skill_pack_editorial import SkillPackEditorialService
 from app.services.studio_scheduler import StudioScheduler
 from app.services.writing_studio import MultiAgentWritingService
 from app.services.x2pdf_import import X2PDFImportService
@@ -57,6 +59,8 @@ STYLESHEET = (
     + (STATIC_DIR / "studio-v07.css").read_text(encoding="utf-8")
     + "\n"
     + (STATIC_DIR / "style-v07.css").read_text(encoding="utf-8")
+    + "\n"
+    + (STATIC_DIR / "platform-v08.css").read_text(encoding="utf-8")
 )
 
 
@@ -74,9 +78,10 @@ async def lifespan(app: FastAPI):
     )
     raw_store = RawStore(settings.raw_dir)
     intake_service = IntakeService(settings, provider, raw_store, media_store)
-    editorial_service = ReaderFirstEditorialService(settings)
+    editorial_service = SkillPackEditorialService(settings)
     writing_service = MultiAgentWritingService(settings, editorial_service)
     signal_service = SignalStudioService(settings, provider, raw_store, editorial_service)
+    platform_service = PlatformStudioService(settings, editorial_service)
     job_engine = JobEngine(intake_service)
 
     async def scan_target_handler(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
@@ -185,8 +190,9 @@ async def lifespan(app: FastAPI):
     app.state.editorial_service = editorial_service
     app.state.writing_service = writing_service
     app.state.signal_service = signal_service
+    app.state.platform_service = platform_service
     app.state.scheduler = scheduler
-    app.state.card_service = CardService(settings)
+    app.state.card_service = RichCardService(settings)
     app.state.publish_service = PublishService(settings)
     app.state.x2pdf_import_service = X2PDFImportService(raw_store)
 
@@ -199,7 +205,7 @@ async def lifespan(app: FastAPI):
     await media_store.close()
 
 
-app = FastAPI(title="X2RED", version="0.7.0", lifespan=lifespan)
+app = FastAPI(title="X2RED", version="0.8.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=r"^(chrome-extension://[a-z]{32}|http://(?:127\.0\.0\.1|localhost)(?::\d+)?)$",
@@ -211,6 +217,7 @@ app.include_router(jobs.router)
 app.include_router(discovery.router)
 app.include_router(signals.router)
 app.include_router(writing.router)
+app.include_router(platforms.router)
 app.include_router(intake.router)
 app.include_router(integrations.router)
 app.include_router(assets.router)
@@ -239,16 +246,21 @@ def health() -> dict:
         "version": app.version,
         "model_configured": model_configured,
         "model_name": settings.model_name if model_configured else "",
-        "editorial_pipeline": "multi-agent-signal-to-story"
+        "editorial_pipeline": "multi-agent-signal-to-story-plus-platform-skill-packs"
         if model_configured
         else "multi-agent-structured-fallback",
         "intelligence_pipeline": "monitor-score-l1-l2",
         "writing_pipeline": "editor-research-outline-writer-three-reviews-chief-editor",
         "style_pipeline": "original-samples-held-out-feedback",
+        "platform_pipeline": "shared-evidence-platform-variants",
+        "platforms": ["xiaohongshu", "wechat"],
+        "wechat_workbench": True,
+        "skill_pack_registry": True,
         "scheduler_enabled": settings.scheduler_enabled,
         "sqlite_wal": settings.database_url.startswith("sqlite"),
         "x2pdf_bridge": "/api/integrations/x2pdf/documents",
-        "card_renderer": "html-playwright",
+        "card_renderer": "style-layout-palette-material-html-playwright",
+        "wechat_renderer": "inline-html-plus-cover-pair",
     }
 
 
@@ -287,6 +299,8 @@ def index() -> HTMLResponse:
         '<script src="/static/studio-v07.js"></script>'
         '<script src="/static/style-v07.js"></script>'
         '<script src="/static/studio-navigation-v071.js"></script>'
+        '<script src="/static/platform-v08.js"></script>'
+        '<script src="/static/card-skill-v08.js"></script>'
     )
     html = html.replace("</body>", f"{scripts}</body>")
     return HTMLResponse(html)

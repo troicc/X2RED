@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "x2red"
-version = "0.7.0"
-description = "Local-first X signal intelligence and multi-agent editorial studio"
+version = "0.8.0"
+description = "Local-first X signal intelligence and multi-platform editorial studio"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -48,21 +48,3 @@ testpaths = ["apps/api/tests"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py312"
-src = ["apps/api"]
-
-[tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP", "ASYNC", "BLE", "S"]
-ignore = ["E501", "UP035", "UP042", "B008"]
-
-[tool.ruff.lint.flake8-bugbear]
-extend-immutable-calls = ["fastapi.Depends", "fastapi.params.Depends"]
-
-[tool.ruff.lint.per-file-ignores]
-"apps/api/app/services/intake.py" = ["BLE001"]
-"apps/api/app/services/jobs.py" = ["BLE001"]
-"apps/api/app/services/signal_analysis.py" = ["BLE001"]
-"apps/api/app/services/signal_monitor.py" = ["BLE001"]
-"apps/api/app/services/writing_agents.py" = ["BLE001"]
-"apps/api/app/services/xhs_preview_worker.py" = ["BLE001", "S112"]
-"apps/api/tests/*" = ["I001", "S101", "S105", "S106", "S108"]

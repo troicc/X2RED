@@ -33,6 +33,8 @@ jobs:
       - run: node --check apps/api/app/static/studio-ux-v072.js
       - run: node --check apps/api/app/static/style-v07.js
       - run: node --check apps/api/app/static/studio-navigation-v071.js
+      - run: node --check apps/api/app/static/platform-v08.js
+      - run: node --check apps/api/app/static/card-skill-v08.js
       - run: pytest -q
       # FastAPI requires Depends(...) defaults. E701/E702 only enforce line
       # layout; compileall and tests remain the semantic gate for these services.

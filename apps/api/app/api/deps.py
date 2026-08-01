@@ -8,6 +8,7 @@ from app.services.discovery import DiscoveryService
 from app.services.editorial import EditorialService
 from app.services.intake import IntakeService
 from app.services.jobs import JobEngine
+from app.services.platform_studio import PlatformStudioService
 from app.services.publisher import PublishService
 from app.services.signal_studio import SignalStudioService
 from app.services.writing_studio import MultiAgentWritingService
@@ -47,3 +48,7 @@ def get_signal_service(request: Request) -> SignalStudioService:
 
 def get_writing_service(request: Request) -> MultiAgentWritingService:
     return request.app.state.writing_service
+
+
+def get_platform_service(request: Request) -> PlatformStudioService:
+    return request.app.state.platform_service
