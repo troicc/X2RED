@@ -4,13 +4,11 @@ from typing import Any
 
 import httpx
 
-from app.services.material_search_providers import (
-    MaterialSearchEngine,
-    MaterialSearchError,
-)
+from app.services.market_material_search import MarketMaterialSearchEngine
+from app.services.material_search_providers import MaterialSearchError
 
 
-class ResilientMaterialSearchEngine(MaterialSearchEngine):
+class ResilientMaterialSearchEngine(MarketMaterialSearchEngine):
     """Keep automatic provider failover alive when a vendor returns malformed JSON."""
 
     def search(
@@ -66,6 +64,7 @@ class ResilientMaterialSearchEngine(MaterialSearchEngine):
                     "attempts": attempts,
                 }
         details = "；".join(
-            f"{item['provider']}={item['status']}({item['detail']})" for item in attempts
+            f"{item['provider']}={item['status']}({item['detail']})"
+            for item in attempts
         )
         raise MaterialSearchError(f"所有搜索供应商均不可用或无结果：{details}")
