@@ -18,6 +18,7 @@ from app.services.material_search_providers import (
 from app.services.minimal_zine_native import MinimalZineNativeService
 from app.services.native_deck_renderer import NativeDeckRenderer
 from app.services.native_skill_manager import NATIVE_SKILLS, NativeSkillManager
+from app.services.resilient_material_search import ResilientMaterialSearchEngine
 
 
 def settings(tmp_path: Path, **overrides: Any) -> Settings:
@@ -70,7 +71,7 @@ def test_search_provider_status_and_auto_failover(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    engine = MaterialSearchEngine(settings(tmp_path, tavily_api_key="tvly-test"))
+    engine = ResilientMaterialSearchEngine(settings(tmp_path, tavily_api_key="tvly-test"))
     statuses = {item["id"]: item for item in engine.statuses()}
     assert statuses["tavily"]["configured"] is True
     assert statuses["serpapi_baidu"]["configured"] is False
@@ -81,7 +82,7 @@ def test_search_provider_status_and_auto_failover(
     def fake_search_one(provider: str, **_: Any) -> list[SearchCandidate]:
         calls.append(provider)
         if provider == "tavily":
-            raise MaterialSearchError("temporary provider failure")
+            raise AttributeError("malformed provider response")
         if provider == "gdelt":
             return [
                 SearchCandidate(
