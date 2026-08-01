@@ -6,7 +6,7 @@ import pytest
 
 from app.core.config import Settings
 from app.domain.schemas import CardGenerateRequest
-from app.services.guizang_native import GuizangNativeService
+from app.services.guizang_native_full import FullGuizangNativeService
 from app.services.material_harvester import MaterialHarvester, MaterialHarvesterError
 from app.services.minimal_zine_native import MinimalZineNativeService
 from app.services.native_deck_renderer import NativeDeckRenderer
@@ -67,15 +67,11 @@ def test_guizang_seed_replacement_removes_placeholder_demo() -> None:
 <!-- POSTERS_HERE --><section class="poster xhs" id="placeholder"></section>
 </main><script></script></body></html>"""
     posters = (
+        '<!-- X2RED_UPSTREAM_THEME:forest-ink -->'
         '<section class="poster xhs" id="xhs-01"></section>'
         '<section class="poster xhs" id="xhs-02"></section>'
     )
-    document = GuizangNativeService._assemble_document(
-        seed,
-        posters,
-        max_cards=6,
-        theme="forest-ink",
-    )
+    document = FullGuizangNativeService._assemble_document(seed, posters, max_cards=6)
     assert "placeholder" not in document
     assert NativeDeckRenderer.poster_count(document) == 2
     assert 'data-theme="forest-ink"' in document
