@@ -22,6 +22,8 @@ from app.api import (
     intake,
     integrations,
     jobs,
+    materials,
+    native_skills,
     platforms,
     publish,
     reviews,
@@ -40,11 +42,11 @@ from app.services.discovery import DiscoveryService
 from app.services.intake import IntakeService
 from app.services.jobs import JobEngine
 from app.services.media_store import MediaStore
+from app.services.native_cards import NativeAwareCardService
 from app.services.platform_studio import PlatformStudioService
 from app.services.publisher import PublishService
 from app.services.raw_store import RawStore
 from app.services.review_flow import ReviewFlowService
-from app.services.rich_cards import RichCardService
 from app.services.signal_studio import SignalStudioService
 from app.services.skill_pack_editorial import SkillPackEditorialService
 from app.services.studio_scheduler import StudioScheduler
@@ -85,7 +87,7 @@ async def lifespan(app: FastAPI):
     writing_service = MultiAgentWritingService(settings, editorial_service)
     signal_service = SignalStudioService(settings, provider, raw_store, editorial_service)
     platform_service = PlatformStudioService(settings, editorial_service)
-    card_service = RichCardService(settings)
+    card_service = NativeAwareCardService(settings)
     review_flow_service = ReviewFlowService(
         settings,
         card_service,
@@ -215,7 +217,7 @@ async def lifespan(app: FastAPI):
     await media_store.close()
 
 
-app = FastAPI(title="X2RED", version="0.10.0", lifespan=lifespan)
+app = FastAPI(title="X2RED", version="0.11.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=r"^(chrome-extension://[a-z]{32}|http://(?:127\.0\.0\.1|localhost)(?::\d+)?)$",
@@ -231,6 +233,8 @@ app.include_router(platforms.router)
 app.include_router(reviews.router)
 app.include_router(intake.router)
 app.include_router(integrations.router)
+app.include_router(materials.router)
+app.include_router(native_skills.router)
 app.include_router(assets.router)
 app.include_router(sources.router)
 app.include_router(drafts.router)
@@ -277,9 +281,15 @@ def health() -> dict:
         "scheduler_enabled": settings.scheduler_enabled,
         "sqlite_wal": settings.database_url.startswith("sqlite"),
         "x2pdf_bridge": "/api/integrations/x2pdf/documents",
-        "card_renderer": "reviewed-semantic-playwright",
+        "card_renderer": "guizang-native-upstream-or-reviewed-semantic-playwright",
         "wechat_renderer": "reviewed-module-tree-plus-cover-brief",
-        "light_content_renderer": "six-route-distinct-visual-v12",
+        "light_content_renderer": "six-route-or-native-minimal-zine-image",
+        "material_pipeline": "gdelt-rss-sitemap-robots-trafilatura-limited-quote",
+        "native_skill_runtime": True,
+        "native_skill_source_available": True,
+        "image_generation_configured": bool(
+            settings.image_model and (settings.image_base_url or settings.model_base_url)
+        ),
     }
 
 
@@ -296,6 +306,7 @@ def ready() -> dict:
         "raw": settings.raw_dir,
         "exports": settings.export_dir,
         "browser_profile": settings.browser_profile_dir,
+        "native_skills": settings.native_skill_dir,
     }
     missing = [name for name, path in required_dirs.items() if not path.is_dir()]
     if missing:
@@ -324,6 +335,8 @@ def index() -> HTMLResponse:
         '<script src="/static/review-bridge-v09.js"></script>'
         '<script src="/static/light-content-v10.js"></script>'
         '<script src="/static/signal-to-studio-v10.js"></script>'
+        '<script src="/static/materials-v11.js"></script>'
+        '<script src="/static/native-skills-v11.js"></script>'
     )
     html = html.replace("</body>", f"{scripts}</body>")
     return HTMLResponse(html)
