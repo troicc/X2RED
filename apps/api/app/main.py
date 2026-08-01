@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.api import (
     assets,
     cards,
+    corpus_pools,
     discovery,
     drafts,
     extension,
@@ -234,6 +235,7 @@ app.include_router(reviews.router)
 app.include_router(intake.router)
 app.include_router(integrations.router)
 app.include_router(materials.router)
+app.include_router(corpus_pools.router)
 app.include_router(native_skills.router)
 app.include_router(assets.router)
 app.include_router(sources.router)
@@ -270,6 +272,8 @@ def health() -> dict:
         "platform_pipeline": "reviewable-artifacts-shared-evidence-platform-variants",
         "review_pipeline": "storyboard-module-tree-cover-brief-versioned-approval",
         "light_content_pipeline": "corpus-grounded-multi-agent-candidates-independent-reviews-human-gate",
+        "corpus_pool_pipeline": "compiled-global-memory-plus-rotating-detailed-batches",
+        "corpus_pools": True,
         "light_content_lab": True,
         "light_content_source_fit_gate": True,
         "signal_to_studio": True,
@@ -285,7 +289,7 @@ def health() -> dict:
         "native_card_renderer": "guizang-native-upstream-seed-playwright",
         "wechat_renderer": "reviewed-module-tree-plus-cover-brief",
         "light_content_renderer": "six-route-distinct-visual-v12-or-native-minimal-zine-image",
-        "material_pipeline": "gdelt-rss-sitemap-robots-trafilatura-limited-quote",
+        "material_pipeline": "mediacrawler-cdp-jsonl-limited-quote",
         "native_skill_runtime": True,
         "native_skill_source_available": True,
         "image_generation_configured": bool(
@@ -337,6 +341,7 @@ def index() -> HTMLResponse:
         '<script src="/static/light-content-v10.js"></script>'
         '<script src="/static/signal-to-studio-v10.js"></script>'
         '<script src="/static/materials-v11.js"></script>'
+        '<script src="/static/corpus-pools-v13.js"></script>'
         '<script src="/static/native-skills-v11.js"></script>'
     )
     html = html.replace("</body>", f"{scripts}</body>")
