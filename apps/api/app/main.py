@@ -260,13 +260,16 @@ def health() -> dict:
         "editorial_pipeline": "multi-agent-signal-to-story-plus-platform-skill-packs"
         if model_configured
         else "multi-agent-structured-fallback",
-        "intelligence_pipeline": "monitor-score-l1-l2",
+        "intelligence_pipeline": "monitor-score-l1-l2-to-writing-project",
         "writing_pipeline": "editor-research-outline-writer-three-reviews-chief-editor",
         "style_pipeline": "original-samples-held-out-feedback",
         "platform_pipeline": "reviewable-artifacts-shared-evidence-platform-variants",
         "review_pipeline": "storyboard-module-tree-cover-brief-versioned-approval",
+        "light_content_pipeline": "recipe-short-copy-zine-prompts-three-to-six-posters",
+        "signal_to_studio": True,
         "platforms": ["xiaohongshu", "wechat"],
         "wechat_workbench": True,
+        "wechat_light_series": True,
         "wechat_publisher_assistant": True,
         "skill_pack_registry": True,
         "scheduler_enabled": settings.scheduler_enabled,
@@ -274,6 +277,7 @@ def health() -> dict:
         "x2pdf_bridge": "/api/integrations/x2pdf/documents",
         "card_renderer": "reviewed-semantic-playwright",
         "wechat_renderer": "reviewed-module-tree-plus-cover-brief",
+        "light_content_renderer": "x2red-minimal-zine-pillow",
     }
 
 
@@ -316,6 +320,8 @@ def index() -> HTMLResponse:
         '<script src="/static/card-skill-v08.js"></script>'
         '<script src="/static/review-v09.js"></script>'
         '<script src="/static/review-bridge-v09.js"></script>'
+        '<script src="/static/light-content-v10.js"></script>'
+        '<script src="/static/signal-to-studio-v10.js"></script>'
     )
     html = html.replace("</body>", f"{scripts}</body>")
     return HTMLResponse(html)
