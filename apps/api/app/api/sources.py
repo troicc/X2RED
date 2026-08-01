@@ -4,14 +4,24 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.config import get_settings
 from app.db.session import get_db
-from app.domain.models import Asset, SourceItem, SourceRelation, WorkspaceState, utcnow
+from app.domain.models import (
+    Asset,
+    CorpusPool,
+    CorpusPoolSource,
+    SourceItem,
+    SourceRelation,
+    WorkspaceState,
+    utcnow,
+)
 from app.domain.schemas import (
     RightsUpdateRequest,
     SourceDetail,
     SourceListItem,
     SourceNoteUpdateRequest,
 )
+from app.services.corpus_pools import CorpusPoolService
 from app.services.source_graph import connected_sources
 
 router = APIRouter(prefix="/api/sources", tags=["sources"])
@@ -55,6 +65,26 @@ def _source_detail(db: Session, source_id: str) -> SourceDetail:
     )
 
 
+def _pool_ids_for_source(db: Session, source_id: str) -> list[str]:
+    return list(
+        db.scalars(
+            select(CorpusPoolSource.pool_id).where(
+                CorpusPoolSource.source_id == source_id
+            )
+        ).all()
+    )
+
+
+def _recompile_pools(db: Session, pool_ids: list[str]) -> None:
+    if not pool_ids:
+        return
+    service = CorpusPoolService(get_settings())
+    for pool_id in dict.fromkeys(pool_ids):
+        pool = db.get(CorpusPool, pool_id)
+        if pool is not None:
+            service.compile_pool(db, pool)
+
+
 @router.get("", response_model=list[SourceListItem])
 def list_sources(
     workspace_state: str = Query(default=WorkspaceState.active.value),
@@ -67,7 +97,10 @@ def list_sources(
         .limit(500)
     )
     if workspace_state != "all":
-        if workspace_state not in {WorkspaceState.active.value, WorkspaceState.archived.value}:
+        if workspace_state not in {
+            WorkspaceState.active.value,
+            WorkspaceState.archived.value,
+        }:
             raise HTTPException(status_code=400, detail="未知的来源箱状态")
         query = query.where(SourceItem.workspace_state == workspace_state)
     return list(db.scalars(query).all())
@@ -87,7 +120,10 @@ def update_editor_note(
     source = db.get(SourceItem, source_id)
     if source is None:
         raise HTTPException(status_code=404, detail="来源不存在")
+    pool_ids = _pool_ids_for_source(db, source_id)
     source.editor_note = body.editor_note.strip()
+    db.flush()
+    _recompile_pools(db, pool_ids)
     db.commit()
     return _source_detail(db, source_id)
 
@@ -119,6 +155,10 @@ def delete_source(source_id: str, db: Session = Depends(get_db)) -> None:
     source = db.get(SourceItem, source_id)
     if source is None:
         raise HTTPException(status_code=404, detail="来源不存在")
+    pool_ids = _pool_ids_for_source(db, source_id)
+    db.execute(
+        delete(CorpusPoolSource).where(CorpusPoolSource.source_id == source_id)
+    )
     db.execute(
         delete(SourceRelation).where(
             or_(
@@ -128,6 +168,8 @@ def delete_source(source_id: str, db: Session = Depends(get_db)) -> None:
         )
     )
     db.delete(source)
+    db.flush()
+    _recompile_pools(db, pool_ids)
     db.commit()
 
 
