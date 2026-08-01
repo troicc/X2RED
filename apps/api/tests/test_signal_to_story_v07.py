@@ -274,7 +274,8 @@ def test_signal_monitor_and_multi_agent_writing_studio(
         assert approved.json()["state"] == "researching"
 
         health = client.get("/health").json()
-        assert health["version"] == "0.7.0"
+        assert health["version"] == "0.8.0"
         assert health["intelligence_pipeline"] == "monitor-score-l1-l2"
         assert "three-reviews" in health["writing_pipeline"]
+        assert health["platform_pipeline"] == "shared-evidence-platform-variants"
         assert health["sqlite_wal"] is True
