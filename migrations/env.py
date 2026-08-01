@@ -7,7 +7,15 @@ from sqlalchemy import engine_from_config, pool
 
 from app.core.config import get_settings
 from app.db.base import Base
-from app.domain import discovery, jobs, models, platforms, studio, style_snapshot  # noqa: F401
+from app.domain import (  # noqa: F401
+    discovery,
+    jobs,
+    models,
+    platforms,
+    review_artifacts,
+    studio,
+    style_snapshot,
+)
 
 config = context.config
 if config.config_file_name is not None:
