@@ -260,7 +260,7 @@ def health() -> dict:
         "editorial_pipeline": "multi-agent-signal-to-story-plus-platform-skill-packs"
         if model_configured
         else "multi-agent-structured-fallback",
-        "intelligence_pipeline": "monitor-score-l1-l2-to-writing-project",
+        "intelligence_pipeline": "monitor-score-l1-l2",
         "writing_pipeline": "editor-research-outline-writer-three-reviews-chief-editor",
         "style_pipeline": "original-samples-held-out-feedback",
         "platform_pipeline": "reviewable-artifacts-shared-evidence-platform-variants",
