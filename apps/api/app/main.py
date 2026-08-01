@@ -283,7 +283,7 @@ def health() -> dict:
         "x2pdf_bridge": "/api/integrations/x2pdf/documents",
         "card_renderer": "guizang-native-upstream-or-reviewed-semantic-playwright",
         "wechat_renderer": "reviewed-module-tree-plus-cover-brief",
-        "light_content_renderer": "six-route-or-native-minimal-zine-image",
+        "light_content_renderer": "six-route-distinct-visual-v12-or-native-minimal-zine-image",
         "material_pipeline": "gdelt-rss-sitemap-robots-trafilatura-limited-quote",
         "native_skill_runtime": True,
         "native_skill_source_available": True,
