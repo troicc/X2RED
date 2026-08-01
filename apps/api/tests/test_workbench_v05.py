@@ -155,11 +155,14 @@ def test_skill_pipeline_transform_and_storyboard(
         render = cards.json()
         specs = json.loads(render["spec_json"])
         kinds = [spec["kind"] for spec in specs]
-        assert kinds[0] == "cover"
-        assert "thesis" in kinds
-        assert "facts" in kinds
-        assert kinds[-1] == "source"
-        assert specs[0]["renderer"] in {"html-playwright-rich", "pillow-fallback"}
+        assert kinds[0] == "hero_cover"
+        assert "key_result" in kinds
+        assert any(kind in kinds for kind in ("concept_diagram", "workflow_flow", "key_takeaways"))
+        assert kinds[-1] == "opinion_close"
+        assert all(spec["visibility_mode"] == "public" for spec in specs)
+        assert all(not spec.get("source") and not spec.get("footer") for spec in specs)
+        assert "X2RED" not in json.dumps(specs, ensure_ascii=False)
+        assert specs[0]["renderer"] in {"html-playwright-semantic", "pillow-fallback"}
         assert specs[0]["visual_style"]
         assert specs[0]["layout"] == "sparse"
         paths = json.loads(render["output_paths_json"])
