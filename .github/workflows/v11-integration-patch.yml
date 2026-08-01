@@ -3,13 +3,15 @@ name: Apply v11 integration patch
 on:
   push:
     branches: ["agent/material-harvester-native-skills-v11"]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: write
 
 jobs:
   patch:
-    if: github.event.head_commit.message != 'Wire v11 material and native Skill runtime'
+    if: github.event_name == 'pull_request' || github.event.head_commit.message != 'Wire v11 material and native Skill runtime'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,14 +30,11 @@ jobs:
                   raise SystemExit(f"expected block not found in {path}: {old[:80]!r}")
               p.write_text(text.replace(old, new, count), encoding="utf-8")
 
-          # Card API schema: expose the two actual upstream visual systems.
           replace(
               "apps/api/app/domain/schemas.py",
               '        "editorial",\n        "swiss",\n        "knowledge",',
               '        "editorial",\n        "swiss",\n        "guizang_editorial",\n        "guizang_swiss",\n        "knowledge",',
           )
-
-          # Application wiring.
           replace(
               "apps/api/app/main.py",
               "    integrations,\n    jobs,",
@@ -71,15 +70,12 @@ jobs:
               '        \'<script src="/static/signal-to-studio-v10.js"></script>\'\n',
               '        \'<script src="/static/signal-to-studio-v10.js"></script>\'\n        \'<script src="/static/materials-v11.js"></script>\'\n        \'<script src="/static/native-skills-v11.js"></script>\'\n',
           )
-
-          # CI syntax gates.
           replace(
               ".github/workflows/ci.yml",
               "      - run: node --check apps/api/app/static/signal-to-studio-v10.js\n",
               "      - run: node --check apps/api/app/static/signal-to-studio-v10.js\n      - run: node --check apps/api/app/static/materials-v11.js\n      - run: node --check apps/api/app/static/native-skills-v11.js\n",
           )
 
-          # Keep integration notice in the checkout while retaining a clean Git state.
           manager = Path("apps/api/app/services/native_skill_manager.py")
           text = manager.read_text(encoding="utf-8")
           marker = '''        (target / "X2RED-INTEGRATION.json").write_text(
@@ -97,7 +93,6 @@ jobs:
               raise SystemExit("native skill notice block not found")
           manager.write_text(text.replace(marker, addition, 1), encoding="utf-8")
 
-          # Use the actual seed body, upstream assets and selected upstream theme.
           guizang = Path("apps/api/app/services/guizang_native.py")
           text = guizang.read_text(encoding="utf-8")
           text = text.replace("import html\n", "", 1)
@@ -159,7 +154,6 @@ jobs:
               raise SystemExit("guizang assemble function not replaced")
           guizang.write_text(text, encoding="utf-8")
 
-          # Update historical version assertions only; behavior expectations stay intact.
           for path in Path("apps/api/tests").glob("test_*.py"):
               test = path.read_text(encoding="utf-8")
               updated = test.replace('"0.10.0"', '"0.11.0"').replace('version="0.10.0"', 'version="0.11.0"')
