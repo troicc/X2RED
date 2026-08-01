@@ -172,11 +172,15 @@ def test_x2pdf_bridge_lifecycle_skills_and_publish_archive(
         assert client.get(f"/api/sources/{source_id}").status_code == 404
 
         health = client.get("/health").json()
-        assert health["version"] == "0.8.1"
+        assert health["version"] == "0.9.0"
         assert health["editorial_pipeline"] == (
             "multi-agent-signal-to-story-plus-platform-skill-packs"
         )
         assert health["writing_pipeline"].endswith("chief-editor")
         assert health["platforms"] == ["xiaohongshu", "wechat"]
         assert health["wechat_workbench"] is True
+        assert health["review_pipeline"] == (
+            "storyboard-module-tree-cover-brief-versioned-approval"
+        )
+        assert health["wechat_publisher_assistant"] is True
         assert health["x2pdf_bridge"] == "/api/integrations/x2pdf/documents"
