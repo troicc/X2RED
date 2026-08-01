@@ -28,9 +28,18 @@ MaterialProvider = Literal[
     "auto",
     "serpapi_baidu",
     "dataforseo_baidu",
-    "tavily",
+    "firecrawl",
     "brave",
+    "jina",
+    "tavily",
     "gdelt",
+]
+MaterialExtractor = Literal[
+    "auto",
+    "firecrawl",
+    "jina",
+    "direct",
+    "playwright",
 ]
 
 
@@ -51,6 +60,7 @@ class MaterialFeedRequest(BaseModel):
 class MaterialImportRequest(BaseModel):
     url: str = Field(max_length=2000)
     category: MaterialCategory
+    extractor: MaterialExtractor = "auto"
     editor_note: str = Field(default="", max_length=6000)
 
 
@@ -64,22 +74,24 @@ def _engine() -> ResilientMaterialSearchEngine:
 
 @router.get("/providers")
 def material_providers() -> dict[str, Any]:
-    engine = _engine()
     settings = get_settings()
+    search_providers = _engine().statuses()
+    extractors = _service().extractor_statuses()
     return {
-        "default": settings.material_search_provider,
-        "browser_fallback": settings.material_browser_enabled,
-        "providers": engine.statuses(),
+        "default_search": settings.material_search_provider,
+        "default_extractor": settings.material_extract_provider,
+        "search_providers": search_providers,
+        "extractors": extractors,
+        "providers": search_providers,
     }
 
 
 @router.post("/discover")
 def discover_materials(body: MaterialDiscoverRequest) -> dict[str, Any]:
     service = _service()
-    engine = _engine()
     search_query = service.discovery_query(category=body.category, query=body.query)
     try:
-        result = engine.search(
+        result = _engine().search(
             provider=body.provider,
             query=search_query,
             max_results=body.max_records,
@@ -88,7 +100,10 @@ def discover_materials(body: MaterialDiscoverRequest) -> dict[str, Any]:
     except MaterialSearchError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"搜索供应商请求失败：{str(exc)[:500]}") from exc
+        raise HTTPException(
+            status_code=502,
+            detail=f"搜索供应商请求失败：{str(exc)[:500]}",
+        ) from exc
 
     items: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -128,8 +143,9 @@ def discover_materials(body: MaterialDiscoverRequest) -> dict[str, Any]:
     }
 
 
-@router.post("/discover-feed")
+@router.post("/discover-feed", deprecated=True)
 def discover_feed(body: MaterialFeedRequest) -> dict[str, Any]:
+    """Compatibility endpoint; feeds are no longer part of the primary material UI."""
     try:
         items = _service().discover_feed(
             url=body.url,
@@ -139,11 +155,23 @@ def discover_feed(body: MaterialFeedRequest) -> dict[str, Any]:
     except MaterialHarvesterError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Feed 查询失败：{str(exc)[:500]}") from exc
-    return {"category": body.category, "count": len(items), "items": items}
+        raise HTTPException(
+            status_code=502,
+            detail=f"Feed 查询失败：{str(exc)[:500]}",
+        ) from exc
+    return {
+        "category": body.category,
+        "count": len(items),
+        "items": items,
+        "deprecated": True,
+    }
 
 
-@router.post("/import", response_model=SourceListItem, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/import",
+    response_model=SourceListItem,
+    status_code=status.HTTP_201_CREATED,
+)
 def import_material(
     body: MaterialImportRequest,
     db: Session = Depends(get_db),
@@ -153,6 +181,7 @@ def import_material(
             db,
             url=body.url,
             category=body.category,
+            extractor=body.extractor,
             editor_note=body.editor_note,
         )
         db.commit()
@@ -163,4 +192,7 @@ def import_material(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         db.rollback()
-        raise HTTPException(status_code=502, detail=f"公开网页收录失败：{str(exc)[:500]}") from exc
+        raise HTTPException(
+            status_code=502,
+            detail=f"公开网页收录失败：{str(exc)[:500]}",
+        ) from exc
