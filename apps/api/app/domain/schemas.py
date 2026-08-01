@@ -183,6 +183,35 @@ class CardGenerateRequest(BaseModel):
         "warm_editorial",
         "dark_tech",
     ] = "editorial_minimal"
+    visual_style: Literal[
+        "auto",
+        "editorial",
+        "swiss",
+        "knowledge",
+        "poster",
+        "notebook",
+        "bold",
+        "minimal",
+    ] = "auto"
+    layout: Literal[
+        "auto",
+        "sparse",
+        "balanced",
+        "dense",
+        "list",
+        "comparison",
+        "flow",
+        "quadrant",
+    ] = "auto"
+    palette: Literal[
+        "auto",
+        "neutral",
+        "macaron",
+        "warm",
+        "neon",
+        "monochrome",
+    ] = "auto"
+    material_strategy: Literal["auto", "source_first", "text_only"] = "auto"
     max_cards: int = Field(default=6, ge=2, le=9)
 
 
