@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import enum
+from datetime import datetime
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
@@ -45,7 +46,7 @@ class PlatformVariant(Base):
     )
     error: Mapped[str] = mapped_column(Text, default="")
     created_by: Mapped[str] = mapped_column(String(40), default="system")
-    created_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=utcnow)
-    updated_at: Mapped[object] = mapped_column(
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
