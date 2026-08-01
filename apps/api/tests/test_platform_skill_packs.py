@@ -188,7 +188,7 @@ def test_rich_cards_store_style_layout_palette_and_material(tmp_path: Path) -> N
 
 
 def test_platform_frontend_and_health_contracts() -> None:
-    root = Path(__file__).resolve().parents[4]
+    root = Path(__file__).resolve().parents[3]
     platform_js = (root / "apps/api/app/static/platform-v08.js").read_text(encoding="utf-8")
     card_js = (root / "apps/api/app/static/card-skill-v08.js").read_text(encoding="utf-8")
     main_py = (root / "apps/api/app/main.py").read_text(encoding="utf-8")
