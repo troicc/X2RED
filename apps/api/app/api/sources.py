@@ -30,6 +30,7 @@ def _source_detail(db: Session, source_id: str) -> SourceDetail:
     return SourceDetail(
         id=source.id,
         provider=source.provider,
+        platform=source.platform,
         external_id=source.external_id,
         canonical_url=source.canonical_url,
         author_handle=source.author_handle,
@@ -59,7 +60,12 @@ def list_sources(
     workspace_state: str = Query(default=WorkspaceState.active.value),
     db: Session = Depends(get_db),
 ) -> list[SourceItem]:
-    query = select(SourceItem).order_by(SourceItem.captured_at.desc()).limit(300)
+    query = (
+        select(SourceItem)
+        .where(SourceItem.provider != "corpus_pool")
+        .order_by(SourceItem.captured_at.desc())
+        .limit(500)
+    )
     if workspace_state != "all":
         if workspace_state not in {WorkspaceState.active.value, WorkspaceState.archived.value}:
             raise HTTPException(status_code=400, detail="未知的来源箱状态")
