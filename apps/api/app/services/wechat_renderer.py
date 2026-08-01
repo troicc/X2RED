@@ -165,7 +165,7 @@ async function copyArticle(){{const box=document.getElementById('article-fragmen
         if theme.heading_style == "minimal":
             style = f"margin:38px 0 18px;padding:0 0 10px;border-bottom:1px solid {theme.rule};"
         elif theme.heading_style == "serif":
-            style = f"margin:42px 0 20px;padding:0;text-align:center;"
+            style = "margin:42px 0 20px;padding:0;text-align:center;"
         elif theme.heading_style == "ticket":
             style = f"margin:38px 0 18px;padding:12px 14px;border:1px solid {theme.rule};border-radius:8px;background:{theme.accent_soft};"
         else:
@@ -389,7 +389,9 @@ async function copyArticle(){{const box=document.getElementById('article-fragmen
         for raw_line in lines:
             line = raw_line.rstrip()
             if line.strip().startswith("```"):
-                flush_paragraph(); flush_list(); flush_table()
+                flush_paragraph()
+                flush_list()
+                flush_table()
                 if in_code:
                     blocks.append(("code", "\n".join(code).rstrip()))
                     code = []
@@ -402,26 +404,35 @@ async function copyArticle(){{const box=document.getElementById('article-fragmen
                 continue
             stripped = line.strip()
             if not stripped:
-                flush_paragraph(); flush_list(); flush_table()
+                flush_paragraph()
+                flush_list()
+                flush_table()
                 continue
             image = re.fullmatch(r"!\[([^\]]*)\]\(([^)]+)\)", stripped)
             if image:
-                flush_paragraph(); flush_list(); flush_table()
+                flush_paragraph()
+                flush_list()
+                flush_table()
                 blocks.append(("image", (image.group(1), image.group(2))))
                 continue
             heading = re.match(r"^(#{1,3})\s+(.+)$", stripped)
             if heading:
-                flush_paragraph(); flush_list(); flush_table()
+                flush_paragraph()
+                flush_list()
+                flush_table()
                 blocks.append((f"h{len(heading.group(1))}", heading.group(2).strip()))
                 continue
             if stripped.startswith(">"):
-                flush_paragraph(); flush_list(); flush_table()
+                flush_paragraph()
+                flush_list()
+                flush_table()
                 blocks.append(("quote", stripped.lstrip("> ").strip()))
                 continue
             unordered = re.match(r"^[-*+]\s+(.+)$", stripped)
             ordered = re.match(r"^\d+[.)]\s+(.+)$", stripped)
             if unordered or ordered:
-                flush_paragraph(); flush_table()
+                flush_paragraph()
+                flush_table()
                 kind = "ol" if ordered else "ul"
                 if list_kind and list_kind != kind:
                     flush_list()
@@ -429,17 +440,21 @@ async function copyArticle(){{const box=document.getElementById('article-fragmen
                 list_items.append((ordered or unordered).group(1).strip())
                 continue
             if stripped.startswith("|") and stripped.endswith("|"):
-                flush_paragraph(); flush_list()
+                flush_paragraph()
+                flush_list()
                 cells = [cell.strip() for cell in stripped.strip("|").split("|")]
                 if all(re.fullmatch(r":?-{3,}:?", cell) for cell in cells):
                     continue
                 table_rows.append(cells)
                 continue
-            flush_list(); flush_table()
+            flush_list()
+            flush_table()
             paragraph.append(stripped)
         if in_code and code:
             blocks.append(("code", "\n".join(code).rstrip()))
-        flush_paragraph(); flush_list(); flush_table()
+        flush_paragraph()
+        flush_list()
+        flush_table()
         return blocks
 
     @staticmethod
