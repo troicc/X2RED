@@ -38,11 +38,11 @@ class MarketMaterialHarvester(SafeMaterialHarvester):
         if "html" not in content_type and "xhtml" not in content_type:
             raise MaterialHarvesterError("当前原料收录器只支持公开 HTML 文章页")
 
-        document, text = self._extract(markup, final_url)
+        document, text, extracted_length = self._extract(markup, final_url)
         browser_used = False
-        if len(text) < 120 and self.settings.material_browser_enabled:
+        if extracted_length < 120 and self.settings.material_browser_enabled:
             final_url, markup = self.fetch_browser_public(final_url)
-            document, text = self._extract(markup, final_url)
+            document, text, extracted_length = self._extract(markup, final_url)
             browser_used = True
         if len(text) < 120:
             raise MaterialHarvesterError(
@@ -202,7 +202,7 @@ class MarketMaterialHarvester(SafeMaterialHarvester):
             raise MaterialHarvesterError("动态页面跳转到了本机、内网或非公开资源")
         return final_url, markup
 
-    def _extract(self, markup: str, final_url: str) -> tuple[dict[str, Any], str]:
+    def _extract(self, markup: str, final_url: str) -> tuple[dict[str, Any], str, int]:
         extracted = trafilatura.bare_extraction(
             markup,
             url=final_url,
@@ -219,11 +219,10 @@ class MarketMaterialHarvester(SafeMaterialHarvester):
         )
         if not isinstance(document, dict):
             document = {}
-        text = self._clean(
+        primary_text = self._clean(
             str(document.get("text") or ""),
             60_000,
             preserve_paragraphs=True,
         )
-        if len(text) < 120:
-            text = self._fallback_text(markup)
-        return document, text
+        text = primary_text if len(primary_text) >= 120 else self._fallback_text(markup)
+        return document, text, len(primary_text)
