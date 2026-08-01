@@ -22,6 +22,16 @@ LightContentRecipe = Literal[
     "photo_quote",
     "short_commentary",
 ]
+LightVisualStyle = Literal[
+    "auto",
+    "minimal_zine",
+    "photo_editorial",
+    "classical_ink",
+    "dark_contemplative",
+    "seasonal_folk",
+    "old_newspaper",
+]
+LightQualityMode = Literal["fast", "studio"]
 
 
 class WeChatVariantCreate(BaseModel):
@@ -41,9 +51,33 @@ class LightContentVariantCreate(BaseModel):
     image_count: int = Field(default=4, ge=3, le=6)
     seasonal_topic: str = Field(default="", max_length=120)
     audience: str = Field(default="", max_length=500)
-    tone: str = Field(default="安静、克制、有生活感", max_length=300)
+    tone: str = Field(default="自然、具体、克制", max_length=300)
     theme: WechatTheme = "zen"
     author: str = Field(default="", max_length=80)
+    visual_style: LightVisualStyle = "auto"
+    quality_mode: LightQualityMode = "studio"
+    feedback: str = Field(default="", max_length=3000)
+
+
+class LightContentIterateRequest(BaseModel):
+    feedback: str = Field(min_length=1, max_length=3000)
+    quality_mode: LightQualityMode = "studio"
+
+
+class LightContentCandidateSelect(BaseModel):
+    candidate_index: int = Field(ge=0, le=2)
+
+
+class LightContentApproval(BaseModel):
+    note: str = Field(default="", max_length=3000)
+
+
+class LightCorpusCreate(BaseModel):
+    recipe: LightContentRecipe
+    title: str = Field(default="", max_length=160)
+    body_markdown: str = Field(default="", max_length=8000)
+    visual_style: LightVisualStyle = "auto"
+    note: str = Field(default="", max_length=3000)
 
 
 class PlatformVariantUpdate(BaseModel):
