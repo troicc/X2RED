@@ -24,6 +24,14 @@ X2RED remains licensed under the MIT License. The platform Skill Pack registry r
 - Adapted concepts: Style × Layout × Palette separation, long-form illustration planning, Markdown-to-WeChat workflow boundaries, cover metadata, and optional draft publishing adapters.
 - X2RED implementation does not embed Baoyu's scripts. Installed upstream skills are detected only to inform the user; they are never executed without an explicit future adapter and user action.
 
+### LiamGvchi/gc-minimal-zine-poster
+
+- License: MIT
+- Upstream: https://github.com/LiamGvchi/gc-minimal-zine-poster
+- Adapted concepts: 3:5 aged-paper posters, 70%-90% negative space, a single small visual anchor, sparse serif/typewriter typography, one visible saturated color anchor, and xerox/risograph/scanned-paper texture.
+- X2RED implementation: a native light-content workflow and original Pillow renderer for WeChat photo-plus-short-text series. It also adds recipe-specific safeguards for older audiences, seasonal food content, medical claims, and human review.
+- X2RED stores the final image prompt with every rendered poster so a future image-model adapter can consume the same reviewed visual brief.
+
 ### doocs/md
 
 - License: WTFPL 2.0
