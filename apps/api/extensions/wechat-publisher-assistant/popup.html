@@ -5,24 +5,30 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>X2RED 公众号发布助手</title>
   <style>
-    *{box-sizing:border-box}body{width:380px;margin:0;padding:18px;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;background:#f5f7fb;color:#151821}
+    *{box-sizing:border-box}body{width:390px;margin:0;padding:18px;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;background:#f5f7fb;color:#151821}
     .card{padding:16px;border:1px solid #dfe4ec;border-radius:16px;background:#fff;box-shadow:0 10px 30px rgba(20,28,45,.08)}
     h1{margin:0 0 6px;font-size:18px}p{margin:0 0 14px;color:#667085;font-size:13px;line-height:1.55}
     label{display:grid;gap:7px;margin:12px 0;font-size:12px;font-weight:750;color:#4d5668}select,button{width:100%;min-height:42px;border-radius:10px;font:inherit}
     select{padding:0 11px;border:1px solid #d9deea;background:#fff}button{border:0;background:#315efb;color:#fff;font-weight:800;cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}
-    .secondary{margin-top:8px;background:#edf1ff;color:#284dcf}.status{min-height:38px;margin-top:12px;padding:10px 11px;border-radius:10px;background:#f0f3f8;color:#536078;font-size:12px;line-height:1.5}.status.ok{background:#e9f9f0;color:#16734a}.status.error{background:#fff0f0;color:#b42318}
-    .meta{display:flex;justify-content:space-between;gap:10px;margin-top:9px;color:#8a94a6;font-size:11px}
+    .copy-grid{display:grid;grid-template-columns:1fr 1.35fr;gap:8px;margin-top:8px}.secondary{background:#edf1ff;color:#284dcf}.refresh{margin-top:8px;background:#f2f4f7;color:#475467}
+    .status{min-height:38px;margin-top:12px;padding:10px 11px;border-radius:10px;background:#f0f3f8;color:#536078;font-size:12px;line-height:1.5}.status.ok{background:#e9f9f0;color:#16734a}.status.error{background:#fff0f0;color:#b42318}
+    .safe-note{margin-top:10px;padding:9px 10px;border-left:3px solid #f0a000;background:#fff8e8;color:#76520b;font-size:11px;line-height:1.5}.meta{display:flex;justify-content:space-between;gap:10px;margin-top:9px;color:#8a94a6;font-size:11px}
   </style>
 </head>
 <body>
   <section class="card">
     <h1>公众号发布助手</h1>
-    <p>先在 X2RED 完成正文与封面审阅，再打开公众号图文编辑器。助手会分别写入标题、作者和富文本正文。</p>
+    <p>自动写入会优先使用微信编辑器 API，并分别校验标题和正文。无法可靠识别时会停止操作，不再盲目粘贴。</p>
     <label>公众号版本<select id="variant"></select></label>
-    <button id="fill" type="button">写入当前公众号编辑器</button>
-    <button id="refresh" class="secondary" type="button">刷新版本列表</button>
+    <button id="fill" type="button">安全写入当前公众号编辑器</button>
+    <div class="copy-grid">
+      <button id="copy-title" class="secondary" type="button">复制标题</button>
+      <button id="copy-body" class="secondary" type="button">复制富文本正文</button>
+    </div>
+    <button id="refresh" class="refresh" type="button">刷新版本列表</button>
+    <div class="safe-note">公众号页面结构变化频繁。看到识别失败提示时，使用“复制标题”和“复制富文本正文”，分别点击对应区域后按 Command+V。</div>
     <div id="status" class="status">正在连接本机 X2RED…</div>
-    <div class="meta"><span>仅访问 127.0.0.1</span><span>发布前人工确认</span></div>
+    <div class="meta"><span>仅访问 127.0.0.1</span><span>不会点击发布</span></div>
   </section>
   <script src="popup.js"></script>
 </body>
