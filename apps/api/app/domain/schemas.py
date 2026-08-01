@@ -187,6 +187,8 @@ class CardGenerateRequest(BaseModel):
         "auto",
         "editorial",
         "swiss",
+        "guizang_editorial",
+        "guizang_swiss",
         "knowledge",
         "poster",
         "notebook",

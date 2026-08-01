@@ -18,6 +18,7 @@ jobs:
       X2RED_RAW_DIR: ./ci-data/raw
       X2RED_EXPORT_DIR: ./ci-data/exports
       X2RED_BROWSER_PROFILE_DIR: ./ci-data/profile
+      X2RED_NATIVE_SKILL_DIR: ./ci-data/native-skills
       X2RED_SCHEDULER_ENABLED: "false"
     steps:
       - uses: actions/checkout@v4
@@ -40,6 +41,8 @@ jobs:
       - run: node --check apps/api/app/static/light-content-v10.js
       - run: node --check apps/api/app/static/light-content-lab-v12.js
       - run: node --check apps/api/app/static/signal-to-studio-v10.js
+      - run: node --check apps/api/app/static/materials-v11.js
+      - run: node --check apps/api/app/static/native-skills-v11.js
       - run: node --check apps/api/extensions/wechat-publisher-assistant/popup.js
       - run: node --check apps/api/extensions/wechat-publisher-assistant/content.js
       - run: node --check apps/api/extensions/wechat-publisher-assistant/page-bridge.js
