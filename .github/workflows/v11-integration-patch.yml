@@ -1,0 +1,175 @@
+name: Apply v11 integration patch
+
+on:
+  push:
+    branches: ["agent/material-harvester-native-skills-v11"]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message != 'Wire v11 material and native Skill runtime'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/material-harvester-native-skills-v11
+      - name: Apply exact integration changes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          def replace(path, old, new, count=1):
+              p = Path(path)
+              text = p.read_text(encoding="utf-8")
+              if old not in text:
+                  raise SystemExit(f"expected block not found in {path}: {old[:80]!r}")
+              p.write_text(text.replace(old, new, count), encoding="utf-8")
+
+          # Card API schema: expose the two actual upstream visual systems.
+          replace(
+              "apps/api/app/domain/schemas.py",
+              '        "editorial",\n        "swiss",\n        "knowledge",',
+              '        "editorial",\n        "swiss",\n        "guizang_editorial",\n        "guizang_swiss",\n        "knowledge",',
+          )
+
+          # Application wiring.
+          replace(
+              "apps/api/app/main.py",
+              "    integrations,\n    jobs,",
+              "    integrations,\n    materials,\n    native_skills,\n    jobs,",
+          )
+          replace(
+              "apps/api/app/main.py",
+              "from app.services.rich_cards import RichCardService\n",
+              "from app.services.native_cards import NativeAwareCardService\n",
+          )
+          replace(
+              "apps/api/app/main.py",
+              "    card_service = RichCardService(settings)\n",
+              "    card_service = NativeAwareCardService(settings)\n",
+          )
+          replace(
+              "apps/api/app/main.py",
+              'app = FastAPI(title="X2RED", version="0.10.0", lifespan=lifespan)',
+              'app = FastAPI(title="X2RED", version="0.11.0", lifespan=lifespan)',
+          )
+          replace(
+              "apps/api/app/main.py",
+              "app.include_router(integrations.router)\napp.include_router(assets.router)",
+              "app.include_router(integrations.router)\napp.include_router(materials.router)\napp.include_router(native_skills.router)\napp.include_router(assets.router)",
+          )
+          replace(
+              "apps/api/app/main.py",
+              '        "card_renderer": "reviewed-semantic-playwright",\n        "wechat_renderer": "reviewed-module-tree-plus-cover-brief",\n        "light_content_renderer": "six-route-distinct-visual-v12",',
+              '        "card_renderer": "guizang-native-upstream-or-reviewed-semantic-playwright",\n        "wechat_renderer": "reviewed-module-tree-plus-cover-brief",\n        "light_content_renderer": "six-route-or-native-minimal-zine-image",\n        "material_pipeline": "gdelt-rss-sitemap-robots-trafilatura-limited-quote",\n        "native_skill_runtime": True,\n        "native_skill_source_available": True,\n        "image_generation_configured": bool(settings.image_model and (settings.image_base_url or settings.model_base_url)),',
+          )
+          replace(
+              "apps/api/app/main.py",
+              '        \'<script src="/static/signal-to-studio-v10.js"></script>\'\n',
+              '        \'<script src="/static/signal-to-studio-v10.js"></script>\'\n        \'<script src="/static/materials-v11.js"></script>\'\n        \'<script src="/static/native-skills-v11.js"></script>\'\n',
+          )
+
+          # CI syntax gates.
+          replace(
+              ".github/workflows/ci.yml",
+              "      - run: node --check apps/api/app/static/signal-to-studio-v10.js\n",
+              "      - run: node --check apps/api/app/static/signal-to-studio-v10.js\n      - run: node --check apps/api/app/static/materials-v11.js\n      - run: node --check apps/api/app/static/native-skills-v11.js\n",
+          )
+
+          # Keep integration notice in the checkout while retaining a clean Git state.
+          manager = Path("apps/api/app/services/native_skill_manager.py")
+          text = manager.read_text(encoding="utf-8")
+          marker = '''        (target / "X2RED-INTEGRATION.json").write_text(
+            json.dumps(notice, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+'''
+          addition = marker + '''        exclude = target / ".git" / "info" / "exclude"
+        if exclude.parent.is_dir():
+            current = exclude.read_text(encoding="utf-8") if exclude.is_file() else ""
+            if "X2RED-INTEGRATION.json" not in current.splitlines():
+                exclude.write_text(current.rstrip() + "\\nX2RED-INTEGRATION.json\\n", encoding="utf-8")
+'''
+          if marker not in text:
+              raise SystemExit("native skill notice block not found")
+          manager.write_text(text.replace(marker, addition, 1), encoding="utf-8")
+
+          # Use the actual seed body, upstream assets and selected upstream theme.
+          guizang = Path("apps/api/app/services/guizang_native.py")
+          text = guizang.read_text(encoding="utf-8")
+          text = text.replace("import html\n", "", 1)
+          text = text.replace(
+              "            skill_dir = self.manager.ensure_installed(self.skill_name, install_runtime=True)\n            input_assets = self._copy_input_assets(draft, task_dir)",
+              "            skill_dir = self.manager.ensure_installed(self.skill_name, install_runtime=True)\n            self._copy_runtime_assets(skill_dir, task_dir)\n            input_assets = self._copy_input_assets(draft, task_dir)",
+              1,
+          )
+          text = text.replace(
+              "document = self._assemble_document(seed, posters_html, max_cards=max_cards)",
+              "document = self._assemble_document(\n                seed,\n                posters_html,\n                max_cards=max_cards,\n                theme=str(plan.get(\"theme\") or \"\"),\n            )",
+          )
+          asset_marker = "    def _copy_input_assets(self, draft: DraftRevision, task_dir: Path) -> list[dict[str, str]]:\n"
+          asset_method = '''    @staticmethod
+    def _copy_runtime_assets(skill_dir: Path, task_dir: Path) -> None:
+        source = skill_dir / "assets"
+        if not source.is_dir():
+            raise NativeSkillError("Guizang 上游 assets 目录不完整")
+        shutil.copytree(source, task_dir / "assets", dirs_exist_ok=True)
+
+'''
+          if asset_marker not in text:
+              raise SystemExit("guizang asset insertion point not found")
+          text = text.replace(asset_marker, asset_method + asset_marker, 1)
+          pattern = re.compile(
+              r'''    @staticmethod\n    def _assemble_document\(seed: str, posters_html: str, \*, max_cards: int\) -> str:\n.*?\n    @staticmethod\n    def _clean_html''',
+              re.S,
+          )
+          replacement = '''    @staticmethod
+    def _assemble_document(
+        seed: str,
+        posters_html: str,
+        *,
+        max_cards: int,
+        theme: str = "",
+    ) -> str:
+        sheet = re.compile(r'<main class="sheet">.*?</main>', re.S)
+        if not sheet.search(seed):
+            raise CardRenderError("Guizang 种子模板缺少 sheet 主体")
+        document = sheet.sub(f'<main class="sheet">\\n{posters_html}\\n</main>', seed, count=1)
+        editorial_themes = {
+            "ink-classic", "indigo-porcelain", "forest-ink",
+            "kraft-paper", "dune", "midnight-ink",
+        }
+        swiss_accents = {"ikb", "lemon-yellow", "lemon-green", "safety-orange"}
+        if theme in editorial_themes and "data-theme=" in document:
+            document = re.sub(r'data-theme="[^"]+"', f'data-theme="{theme}"', document, count=1)
+        elif theme in swiss_accents and "data-accent=" in document:
+            document = re.sub(r'data-accent="[^"]+"', f'data-accent="{theme}"', document, count=1)
+        count = NativeDeckRenderer.poster_count(document)
+        if count < 2 or count > max_cards:
+            raise CardRenderError(f"组装后的 Guizang 页面数量异常：{count}")
+        return document
+
+    @staticmethod
+    def _clean_html'''
+          text, changed = pattern.subn(replacement, text, count=1)
+          if changed != 1:
+              raise SystemExit("guizang assemble function not replaced")
+          guizang.write_text(text, encoding="utf-8")
+
+          # Update historical version assertions only; behavior expectations stay intact.
+          for path in Path("apps/api/tests").glob("test_*.py"):
+              test = path.read_text(encoding="utf-8")
+              updated = test.replace('"0.10.0"', '"0.11.0"').replace('version="0.10.0"', 'version="0.11.0"')
+              if updated != test:
+                  path.write_text(updated, encoding="utf-8")
+          PY
+      - name: Commit integration
+        run: |
+          git config user.name "x2red-ci"
+          git config user.email "x2red-ci@users.noreply.github.com"
+          git add apps/api .github/workflows/ci.yml
+          git commit -m "Wire v11 material and native Skill runtime"
+          git push origin HEAD:agent/material-harvester-native-skills-v11
