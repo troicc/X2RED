@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -174,6 +175,16 @@ class NativeSkillManager:
         lock = target / "package-lock.json"
         command = ["npm", "ci"] if lock.is_file() else ["npm", "install"]
         self._run(command, cwd=target, timeout=600)
+        node_playwright = target / "node_modules" / ".bin" / "playwright"
+        if not node_playwright.is_file():
+            raise NativeSkillError("Guizang 上游 Node Playwright 安装不完整")
+        self._run([str(node_playwright), "install", "chromium"], cwd=target, timeout=900)
+        self._run(
+            [sys.executable, "-m", "playwright", "install", "chromium"],
+            cwd=target,
+            timeout=900,
+        )
+        self._exclude_runtime_files(target)
 
     def _write_integration_notice(
         self,
@@ -195,14 +206,19 @@ class NativeSkillManager:
             json.dumps(notice, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        self._exclude_runtime_files(target)
+
+    @staticmethod
+    def _exclude_runtime_files(target: Path) -> None:
         exclude = target / ".git" / "info" / "exclude"
-        if exclude.parent.is_dir():
-            current = exclude.read_text(encoding="utf-8") if exclude.is_file() else ""
-            if "X2RED-INTEGRATION.json" not in current.splitlines():
-                exclude.write_text(
-                    current.rstrip() + "\nX2RED-INTEGRATION.json\n",
-                    encoding="utf-8",
-                )
+        if not exclude.parent.is_dir():
+            return
+        current = exclude.read_text(encoding="utf-8") if exclude.is_file() else ""
+        lines = current.splitlines()
+        for value in ("X2RED-INTEGRATION.json", "node_modules/"):
+            if value not in lines:
+                lines.append(value)
+        exclude.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
     @staticmethod
     def _run(
