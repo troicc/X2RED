@@ -36,7 +36,7 @@ _PROVIDER_META: dict[str, tuple[str, bool, str]] = {
     "jina": (
         "Jina Search",
         False,
-        "面向机器消费的实时搜索，使用中文查询和中国地区偏好。",
+        "可无密钥低频调用；配置密钥后提高限额。",
     ),
     "tavily": (
         "Tavily · China",
@@ -80,7 +80,7 @@ class MarketMaterialSearchEngine(MaterialSearchEngine):
         if provider == "firecrawl":
             return bool(self.settings.firecrawl_api_key)
         if provider == "jina":
-            return bool(self.settings.jina_api_key)
+            return True
         return super().configured(provider)
 
     def _search_one(
@@ -150,17 +150,19 @@ class MarketMaterialSearchEngine(MaterialSearchEngine):
         )
 
     def _search_jina(self, query: str, max_results: int) -> list[SearchCandidate]:
+        headers = {
+            **self.headers,
+            "Content-Type": "application/json",
+        }
+        if self.settings.jina_api_key:
+            headers["Authorization"] = f"Bearer {self.settings.jina_api_key}"
         response = httpx.post(
             self.settings.jina_search_base_url,
-            headers={
-                **self.headers,
-                "Authorization": f"Bearer {self.settings.jina_api_key}",
-                "Content-Type": "application/json",
-            },
+            headers=headers,
             json={
                 "q": query,
                 "gl": "cn",
-                "hl": "zh-cn",
+                "hl": "zh",
                 "num": min(max(max_results, 1), 20),
             },
             timeout=max(self.settings.request_timeout_seconds, 45.0),
