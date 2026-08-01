@@ -5,7 +5,9 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.db.session import get_db
+from app.domain.platform_schemas import SkillPackOut, SkillPackUpdate
 from app.domain.schemas import SkillBindingOut, SkillBindingUpdate
+from app.services.skill_packs import pack_payloads, set_pack_enabled
 from app.services.skills import binding_for, definition_for, ensure_bindings
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -62,3 +64,27 @@ def update_skill(
         reasoning_effort=binding.reasoning_effort,
         prompt_version=binding.prompt_version,
     )
+
+
+@router.get("/skill-packs", response_model=list[SkillPackOut])
+def list_skill_packs(db: Session = Depends(get_db)) -> list[SkillPackOut]:
+    settings = get_settings()
+    ensure_bindings(db, settings.model_name)
+    payload = pack_payloads(db, settings)
+    db.commit()
+    return payload
+
+
+@router.put("/skill-packs/{pack_id}", response_model=SkillPackOut)
+def update_skill_pack(
+    pack_id: str,
+    body: SkillPackUpdate,
+    db: Session = Depends(get_db),
+) -> SkillPackOut:
+    settings = get_settings()
+    try:
+        output = set_pack_enabled(db, settings, pack_id=pack_id, enabled=body.enabled)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    db.commit()
+    return output
