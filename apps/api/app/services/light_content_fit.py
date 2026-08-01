@@ -58,19 +58,23 @@ def assess_source_fit(
     audience: str = "",
     feedback: str = "",
 ) -> LightContentFit:
-    combined = " ".join((source_text, seasonal_topic, audience, feedback)).strip()
-    technical = _hits(source_text, TECHNICAL_PATTERNS)
-    life = _hits(combined, LIFE_PATTERNS)
-    seasonal = _hits(combined, SEASONAL_PATTERNS)
-    photo = _hits(combined, PHOTO_PATTERNS)
+    source = source_text.strip()
+    intent = " ".join((seasonal_topic, audience, feedback)).strip()
+    technical = _hits(source, TECHNICAL_PATTERNS)
+    source_life = _hits(source, LIFE_PATTERNS)
+    source_seasonal = _hits(source, SEASONAL_PATTERNS)
+    source_photo = _hits(source, PHOTO_PATTERNS)
+    intent_life = _hits(intent, LIFE_PATTERNS)
+    intent_seasonal = _hits(intent, SEASONAL_PATTERNS)
+    intent_photo = _hits(intent, PHOTO_PATTERNS)
 
-    if technical >= 3 and life == 0:
+    if technical >= 3 and source_life == 0 and source_seasonal == 0:
         source_kind = "technical"
-    elif seasonal > 0:
+    elif source_seasonal > 0:
         source_kind = "seasonal_life"
-    elif life > 0:
+    elif source_life > 0:
         source_kind = "life"
-    elif photo > 0:
+    elif source_photo > 0:
         source_kind = "visual_life"
     else:
         source_kind = "general"
@@ -78,7 +82,7 @@ def assess_source_fit(
     if recipe == "short_commentary":
         return LightContentFit(
             allowed=True,
-            score=0.9 if technical else 0.78,
+            score=0.9 if source_kind == "technical" else 0.78,
             source_kind=source_kind,
             reason="短评可以围绕原来源的现实矛盾展开，但仍需保留事实边界。",
             suggested_recipes=("short_commentary",),
@@ -97,62 +101,89 @@ def assess_source_fit(
             source_kind=source_kind,
             reason=(
                 f"当前来源主要是技术/工具内容，与“{label}”没有可验证的生活语义连接。"
-                "系统已阻止把技术文章强行改成泛鸡汤。请选择“一句短评”、公众号长文，"
-                "或更换真正包含生活、人物、节气或照片叙事的来源。"
+                "目标读者、语气或修改要求不能改变来源类型。系统已阻止把技术文章强行改成泛鸡汤。"
+                "请选择“一句短评”、公众号长文，或更换真正包含生活、人物、节气或照片叙事的来源。"
             ),
             suggested_recipes=("short_commentary",),
         )
 
-    if recipe == "mature_life" and life == 0:
+    if recipe == "mature_life" and source_life == 0:
         return LightContentFit(
             allowed=False,
             score=0.28,
             source_kind=source_kind,
             reason=(
-                "来源没有中年、年长读者、家庭、关系、三餐、睡眠或生活经验等材料。"
-                "系统不会凭空编造“中老年共鸣”。请换生活类来源，或选择一句短评。"
+                "原始来源没有中年、年长读者、家庭、关系、三餐、睡眠或生活经验等材料。"
+                "仅在目标读者里填写年龄不能制造来源证据。请换生活类来源，或选择一句短评。"
             ),
             suggested_recipes=("short_commentary", "comfort"),
         )
 
-    if recipe == "seasonal" and seasonal == 0:
+    if recipe == "comfort" and source_life == 0:
+        return LightContentFit(
+            allowed=False,
+            score=0.35,
+            source_kind=source_kind,
+            reason=(
+                "原始来源没有压力、疲惫、关系、家庭或具体生活处境，无法可靠生成慰藉内容。"
+                "系统不会只靠用户填写的语气把无关来源改写成鸡汤。"
+            ),
+            suggested_recipes=("short_commentary",),
+        )
+
+    if recipe == "seasonal" and source_seasonal == 0 and intent_seasonal == 0:
         return LightContentFit(
             allowed=False,
             score=0.25,
             source_kind=source_kind,
             reason=(
                 "来源和任务说明里都没有明确节气、物候、换季或时令主题。"
-                "请填写具体节气/时令并使用相关生活来源，系统不会借题发挥编造饮食功效。"
+                "请填写具体节气并使用相关生活来源，系统不会借题发挥编造饮食功效。"
             ),
             suggested_recipes=("short_commentary",),
         )
 
-    if recipe == "photo_quote" and photo == 0:
+    if recipe == "seasonal" and source_life == 0 and source_seasonal == 0:
+        return LightContentFit(
+            allowed=False,
+            score=0.3,
+            source_kind=source_kind,
+            reason=(
+                "虽然填写了节气主题，但原始来源没有相应的物候、饮食或生活材料。"
+                "请换用真正的时令来源；系统不会把无关内容包装成节气文章。"
+            ),
+            suggested_recipes=("short_commentary",),
+        )
+
+    if recipe == "photo_quote" and source_photo == 0:
         return LightContentFit(
             allowed=False,
             score=0.32,
             source_kind=source_kind,
             reason=(
-                "来源没有照片、影像、人物或可承担叙事的生活场景。"
-                "照片短句必须建立在真实图片或明确视觉场景上，不能只画一个无意义占位方块。"
+                "原始来源没有照片、影像、人物或可承担叙事的生活场景。"
+                "仅在修改要求里描述画面不能替代真实素材，照片短句不会再生成无意义占位方块。"
             ),
             suggested_recipes=("short_commentary", "comfort"),
         )
 
     score = 0.72
-    if recipe == "comfort" and life > 0:
+    if recipe == "comfort" and source_life > 0:
         score = 0.88
-    elif recipe == "mature_life" and life > 0:
+    elif recipe == "mature_life" and source_life > 0:
         score = 0.9
-    elif recipe == "seasonal" and seasonal > 0:
-        score = 0.92
-    elif recipe == "photo_quote" and photo > 0:
+    elif recipe == "seasonal" and (source_seasonal > 0 or (source_life > 0 and intent_seasonal > 0)):
+        score = 0.9
+    elif recipe == "photo_quote" and source_photo > 0:
         score = 0.9
 
+    intent_note = ""
+    if intent_life > 0 or intent_photo > 0:
+        intent_note = " 用户要求会作为编辑方向，但不会被当作来源事实。"
     return LightContentFit(
         allowed=True,
         score=score,
         source_kind=source_kind,
-        reason="来源与内容配方存在明确语义连接，可以继续策划。",
+        reason=f"来源与内容配方存在明确语义连接，可以继续策划。{intent_note}",
         suggested_recipes=(recipe, "short_commentary"),
     )
