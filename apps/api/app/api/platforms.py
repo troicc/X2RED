@@ -13,7 +13,11 @@ from app.core.config import get_settings
 from app.db.session import get_db
 from app.domain.models import DraftRevision, SourceItem
 from app.domain.platform_schemas import (
+    LightContentApproval,
+    LightContentCandidateSelect,
+    LightContentIterateRequest,
     LightContentVariantCreate,
+    LightCorpusCreate,
     PlatformCatalogOut,
     PlatformRenderRequest,
     PlatformVariantOut,
@@ -22,13 +26,26 @@ from app.domain.platform_schemas import (
     WeChatVariantCreate,
 )
 from app.domain.platforms import PlatformVariant
-from app.services.light_content import LightContentError, LightContentService
+from app.services.light_content import LightContentError
+from app.services.light_content_lab import LightContentLabService
+from app.services.light_visual_renderer import VISUAL_STYLE_LABELS
 from app.services.platform_studio import PlatformStudioError, PlatformStudioService
 from app.services.skill_packs import pack_payloads
 from app.services.skills import ensure_bindings
 from app.services.wechat_themes import list_theme_payloads
 
 router = APIRouter(prefix="/api/platforms", tags=["platform-studio"])
+
+
+def _light_lab(service: PlatformStudioService) -> LightContentLabService:
+    return LightContentLabService(service.settings, service.editorial)
+
+
+def _variant(db: Session, variant_id: str) -> PlatformVariant:
+    value = db.get(PlatformVariant, variant_id)
+    if value is None:
+        raise HTTPException(status_code=404, detail="平台版本不存在")
+    return value
 
 
 @router.get("/catalog", response_model=PlatformCatalogOut)
@@ -60,6 +77,11 @@ def catalog(db: Session = Depends(get_db)) -> PlatformCatalogOut:
                     "article": ["21:9", "1:1"],
                     "light_series": ["3:5"],
                 },
+                "light_visual_styles": [
+                    {"id": key, "label": value}
+                    for key, value in VISUAL_STYLE_LABELS.items()
+                ],
+                "light_quality_modes": ["fast", "studio"],
                 "skill_pack_ids": [
                     "wechat-editorial-adapter",
                     "wechat-inline-design-system",
@@ -155,9 +177,8 @@ async def create_wechat_light_variant(
             .where(DraftRevision.source_id == source.id)
             .order_by(DraftRevision.version.desc())
         )
-    light_service = LightContentService(service.settings, service.editorial)
     try:
-        variant = await light_service.create_variant(
+        variant = await _light_lab(service).create_variant(
             db,
             source=source,
             draft=draft,
@@ -168,20 +189,133 @@ async def create_wechat_light_variant(
             tone=body.tone,
             theme=body.theme,
             author=body.author,
+            visual_style=body.visual_style,
+            quality_mode=body.quality_mode,
+            feedback=body.feedback,
         )
     except LightContentError as exc:
+        db.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     db.commit()
     db.refresh(variant)
     return variant
 
 
+@router.post(
+    "/wechat/light/variants/{variant_id}/iterate",
+    response_model=PlatformVariantOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def iterate_wechat_light_variant(
+    variant_id: str,
+    body: LightContentIterateRequest,
+    db: Session = Depends(get_db),
+    service: PlatformStudioService = Depends(get_platform_service),
+) -> PlatformVariant:
+    current = _variant(db, variant_id)
+    try:
+        revised = await _light_lab(service).iterate_variant(
+            db,
+            current,
+            feedback=body.feedback,
+            quality_mode=body.quality_mode,
+        )
+    except LightContentError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    db.commit()
+    db.refresh(revised)
+    return revised
+
+
+@router.post(
+    "/wechat/light/variants/{variant_id}/select-candidate",
+    response_model=PlatformVariantOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def select_wechat_light_candidate(
+    variant_id: str,
+    body: LightContentCandidateSelect,
+    db: Session = Depends(get_db),
+    service: PlatformStudioService = Depends(get_platform_service),
+) -> PlatformVariant:
+    current = _variant(db, variant_id)
+    try:
+        revised = _light_lab(service).select_candidate(
+            db,
+            current,
+            candidate_index=body.candidate_index,
+        )
+    except LightContentError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    db.commit()
+    db.refresh(revised)
+    return revised
+
+
+@router.post("/wechat/light/variants/{variant_id}/approve")
+def approve_wechat_light_variant(
+    variant_id: str,
+    body: LightContentApproval,
+    db: Session = Depends(get_db),
+    service: PlatformStudioService = Depends(get_platform_service),
+) -> dict:
+    current = _variant(db, variant_id)
+    try:
+        corpus_item = _light_lab(service).approve_to_corpus(db, current, note=body.note)
+    except LightContentError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    db.commit()
+    db.refresh(current)
+    return {
+        "variant_id": current.id,
+        "corpus_item_id": corpus_item.id,
+        "approved": True,
+    }
+
+
+@router.get("/wechat/light/corpus")
+def list_wechat_light_corpus(
+    recipe: str = Query(default="", max_length=40),
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    service: PlatformStudioService = Depends(get_platform_service),
+) -> list[dict]:
+    return _light_lab(service).list_corpus(db, recipe=recipe, limit=limit)
+
+
+@router.post("/wechat/light/corpus", status_code=status.HTTP_201_CREATED)
+def create_wechat_light_corpus(
+    body: LightCorpusCreate,
+    db: Session = Depends(get_db),
+    service: PlatformStudioService = Depends(get_platform_service),
+) -> dict:
+    try:
+        artifact = _light_lab(service).add_corpus_item(
+            db,
+            recipe=body.recipe,
+            title=body.title,
+            body_markdown=body.body_markdown,
+            visual_style=body.visual_style,
+            note=body.note,
+        )
+    except LightContentError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    db.commit()
+    return {
+        "id": artifact.id,
+        "recipe": artifact.scope_id,
+        "version": artifact.version,
+        "approved": True,
+    }
+
+
 @router.get("/variants/{variant_id}", response_model=PlatformVariantOut)
 def get_variant(variant_id: str, db: Session = Depends(get_db)) -> PlatformVariant:
-    variant = db.get(PlatformVariant, variant_id)
-    if variant is None:
-        raise HTTPException(status_code=404, detail="平台版本不存在")
-    return variant
+    return _variant(db, variant_id)
 
 
 @router.put("/variants/{variant_id}", response_model=PlatformVariantOut)
@@ -191,9 +325,7 @@ def update_variant(
     db: Session = Depends(get_db),
     service: PlatformStudioService = Depends(get_platform_service),
 ) -> PlatformVariant:
-    variant = db.get(PlatformVariant, variant_id)
-    if variant is None:
-        raise HTTPException(status_code=404, detail="平台版本不存在")
+    variant = _variant(db, variant_id)
     revised = service.revise_variant(
         db,
         variant,
@@ -216,13 +348,10 @@ def render_variant(
     db: Session = Depends(get_db),
     service: PlatformStudioService = Depends(get_platform_service),
 ) -> dict:
-    variant = db.get(PlatformVariant, variant_id)
-    if variant is None:
-        raise HTTPException(status_code=404, detail="平台版本不存在")
+    variant = _variant(db, variant_id)
     try:
         if variant.format == "light_series":
-            light_service = LightContentService(service.settings, service.editorial)
-            variant, validation, files = light_service.render_variant(
+            variant, validation, files = _light_lab(service).render_variant(
                 db,
                 variant,
                 package=body.package,
@@ -277,9 +406,7 @@ def download_variant_file(
 
 
 def _variant_file(db: Session, variant_id: str, file_key: str) -> Path:
-    variant = db.get(PlatformVariant, variant_id)
-    if variant is None:
-        raise HTTPException(status_code=404, detail="平台版本不存在")
+    variant = _variant(db, variant_id)
     try:
         files = json.loads(variant.output_paths_json or "{}")
     except json.JSONDecodeError as exc:
