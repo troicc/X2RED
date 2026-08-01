@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -121,9 +122,17 @@ def import_material(
 ) -> SourceItem:
     try:
         if body.candidate is not None:
+            candidate = dict(body.candidate)
+            external_id = str(candidate.get("external_id") or "")
+            if external_id:
+                candidate["external_id"] = re.sub(
+                    r"[^A-Za-z0-9._-]",
+                    "_",
+                    external_id,
+                )[:64]
             source = _crawler().import_candidate(
                 db,
-                candidate=body.candidate,
+                candidate=candidate,
                 category=body.category,
                 editor_note=body.editor_note,
             )
