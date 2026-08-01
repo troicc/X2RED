@@ -171,13 +171,14 @@ def test_skill_pipeline_transform_and_storyboard(
 
         health = client.get("/health")
         assert health.status_code == 200
-        assert health.json()["version"] == "0.8.0"
+        assert health.json()["version"] == "0.8.1"
         assert health.json()["model_configured"] is True
         assert health.json()["editorial_pipeline"] == (
             "multi-agent-signal-to-story-plus-platform-skill-packs"
         )
         assert health.json()["intelligence_pipeline"] == "monitor-score-l1-l2"
         assert health.json()["card_renderer"] == (
-            "style-layout-palette-material-html-playwright"
+            "public-safe-skill-storyboard-semantic-html"
         )
+        assert health.json()["wechat_renderer"] == "public-safe-inline-html-cover-pair"
         assert health.json()["wechat_workbench"] is True
