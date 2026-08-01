@@ -12,10 +12,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.domain.models import Asset, AssetState, RightsStatus, SourceItem, SourceState
-from app.services.material_harvester import MaterialHarvester, MaterialHarvesterError
+from app.services.material_harvester import MaterialHarvesterError
+from app.services.safe_material_harvester import SafeMaterialHarvester
 
 
-class MarketMaterialHarvester(MaterialHarvester):
+class MarketMaterialHarvester(SafeMaterialHarvester):
     """Use normal HTTP first, then a clean Playwright context for public JS pages."""
 
     def discovery_query(self, *, category: str, query: str = "") -> str:
