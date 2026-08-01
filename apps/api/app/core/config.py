@@ -34,14 +34,21 @@ class Settings(BaseSettings):
     image_size: str = "1024x1536"
     request_timeout_seconds: float = 20.0
 
-    material_user_agent: str = "X2RED-MaterialResearch/0.11 (+local research; public pages)"
+    material_user_agent: str = "X2RED-MaterialResearch/0.12 (+local research; public pages)"
     material_min_interval_seconds: float = Field(default=2.0, ge=0.5, le=60.0)
-    material_max_page_bytes: int = Field(default=5 * 1024 * 1024, ge=100_000, le=20_000_000)
-    material_browser_enabled: bool = True
+    material_max_page_bytes: int = Field(
+        default=5 * 1024 * 1024,
+        ge=100_000,
+        le=20_000_000,
+    )
+    material_search_provider: str = "auto"
+    material_extract_provider: str = "auto"
+    material_gdelt_base_url: str = "https://api.gdeltproject.org/api/v2/doc/doc"
+
+    # Optional local browser fallback. Off by default: market extraction APIs are preferred.
+    material_browser_enabled: bool = False
     material_browser_timeout_seconds: float = Field(default=40.0, ge=5.0, le=180.0)
     material_browser_wait_ms: int = Field(default=1800, ge=0, le=15_000)
-    material_search_provider: str = "auto"
-    material_gdelt_base_url: str = "https://api.gdeltproject.org/api/v2/doc/doc"
 
     serpapi_api_key: str = ""
     serpapi_base_url: str = "https://serpapi.com/search.json"
@@ -53,6 +60,12 @@ class Settings(BaseSettings):
     tavily_search_depth: str = "basic"
     brave_search_api_key: str = ""
     brave_search_base_url: str = "https://api.search.brave.com/res/v1/web/search"
+
+    firecrawl_api_key: str = ""
+    firecrawl_base_url: str = "https://api.firecrawl.dev"
+    jina_api_key: str = ""
+    jina_reader_base_url: str = "https://r.jina.ai"
+    jina_search_base_url: str = "https://llm-serp.jina.ai"
 
     scheduler_enabled: bool = True
     scheduler_timezone: str = "Asia/Shanghai"
