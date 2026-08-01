@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.domain.models import CardRender, DraftRevision
-from app.services.guizang_native import GuizangNativeService
+from app.services.guizang_native_full import FullGuizangNativeService
 from app.services.rich_cards import RichCardService
 
 
@@ -13,7 +13,7 @@ class NativeAwareCardService(RichCardService):
 
     def __init__(self, settings: Settings) -> None:
         super().__init__(settings)
-        self.guizang = GuizangNativeService(settings)
+        self.guizang = FullGuizangNativeService(settings)
 
     def render(
         self,
