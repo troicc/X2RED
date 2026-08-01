@@ -87,6 +87,7 @@ def test_search_provider_status_and_auto_failover(
     )
     statuses = {item["id"]: item for item in engine.statuses()}
     assert statuses["firecrawl"]["configured"] is True
+    assert statuses["jina"]["configured"] is True
     assert statuses["tavily"]["configured"] is True
     assert statuses["serpapi_baidu"]["configured"] is False
     assert statuses["gdelt"]["configured"] is True
@@ -110,7 +111,7 @@ def test_search_provider_status_and_auto_failover(
     monkeypatch.setattr(engine, "_search_one", fake_search_one)
     result = engine.search(provider="auto", query="退休 社区", max_results=10)
     assert result["provider"] == "tavily"
-    assert calls == ["firecrawl", "tavily"]
+    assert calls == ["firecrawl", "jina", "tavily"]
     assert any(item["status"] == "failed" for item in result["attempts"])
 
 
