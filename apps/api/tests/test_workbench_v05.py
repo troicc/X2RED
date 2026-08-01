@@ -172,7 +172,7 @@ def test_skill_pipeline_transform_and_storyboard(
         health = client.get("/health")
         assert health.status_code == 200
         payload = health.json()
-        assert payload["version"] == "0.9.0"
+        assert payload["version"] == "0.10.0"
         assert payload["model_configured"] is True
         assert payload["editorial_pipeline"] == (
             "multi-agent-signal-to-story-plus-platform-skill-packs"
