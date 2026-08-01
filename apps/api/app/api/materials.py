@@ -10,7 +10,8 @@ from app.core.config import get_settings
 from app.db.session import get_db
 from app.domain.models import SourceItem
 from app.domain.schemas import SourceListItem
-from app.services.material_harvester import MaterialHarvester, MaterialHarvesterError
+from app.services.material_harvester import MaterialHarvesterError
+from app.services.safe_material_harvester import SafeMaterialHarvester
 
 router = APIRouter(prefix="/api/materials", tags=["materials"])
 
@@ -42,8 +43,8 @@ class MaterialImportRequest(BaseModel):
     editor_note: str = Field(default="", max_length=6000)
 
 
-def _service() -> MaterialHarvester:
-    return MaterialHarvester(get_settings())
+def _service() -> SafeMaterialHarvester:
+    return SafeMaterialHarvester(get_settings())
 
 
 @router.post("/discover")
