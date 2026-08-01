@@ -205,7 +205,7 @@ async def lifespan(app: FastAPI):
     await media_store.close()
 
 
-app = FastAPI(title="X2RED", version="0.8.0", lifespan=lifespan)
+app = FastAPI(title="X2RED", version="0.8.1", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=r"^(chrome-extension://[a-z]{32}|http://(?:127\.0\.0\.1|localhost)(?::\d+)?)$",
@@ -259,8 +259,8 @@ def health() -> dict:
         "scheduler_enabled": settings.scheduler_enabled,
         "sqlite_wal": settings.database_url.startswith("sqlite"),
         "x2pdf_bridge": "/api/integrations/x2pdf/documents",
-        "card_renderer": "style-layout-palette-material-html-playwright",
-        "wechat_renderer": "inline-html-plus-cover-pair",
+        "card_renderer": "public-safe-skill-storyboard-semantic-html",
+        "wechat_renderer": "public-safe-inline-html-cover-pair",
     }
 
 
