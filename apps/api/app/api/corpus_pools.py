@@ -214,15 +214,13 @@ async def generate_corpus_pool_draft(
         service.finalize_batch(db, pool=pool, batch=batch, draft=draft)
         db.commit()
         db.refresh(draft)
+        pool_payload = service.detail(db, pool.id)
+        batch_payload = next(
+            item for item in pool_payload["batches"] if item["id"] == batch.id
+        )
         return {
-            "pool": service.list_pools(db, state="all")[
-                next(
-                    index
-                    for index, item in enumerate(service.list_pools(db, state="all"))
-                    if item["id"] == pool.id
-                )
-            ],
-            "batch": service.list_batches(db, pool)[0],
+            "pool": pool_payload,
+            "batch": batch_payload,
             "draft": draft,
         }
     except CorpusPoolError as exc:
