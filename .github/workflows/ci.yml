@@ -35,6 +35,10 @@ jobs:
       - run: node --check apps/api/app/static/studio-navigation-v071.js
       - run: node --check apps/api/app/static/platform-v08.js
       - run: node --check apps/api/app/static/card-skill-v08.js
+      - run: node --check apps/api/app/static/review-v09.js
+      - run: node --check apps/api/app/static/review-bridge-v09.js
+      - run: node --check apps/api/extensions/wechat-publisher-assistant/popup.js
+      - run: node --check apps/api/extensions/wechat-publisher-assistant/content.js
       - run: pytest -q
       # FastAPI requires Depends(...) defaults. E701/E702 only enforce line
       # layout; compileall and tests remain the semantic gate for these services.
