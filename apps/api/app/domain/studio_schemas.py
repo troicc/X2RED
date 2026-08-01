@@ -74,6 +74,9 @@ class SignalFeedItem(BaseModel):
     metadata: dict[str, Any]
     score: ScoreOut | None = None
     l1_analysis: dict[str, Any] | None = None
+    l2_analysis: dict[str, Any] | None = None
+    l2_analysis_id: str = ""
+    promoted_source_id: str = ""
 
 
 class SignalDashboard(BaseModel):
@@ -105,6 +108,26 @@ class AnalysisOut(BaseModel):
     error: str
     created_at: datetime
     updated_at: datetime
+
+
+class SignalPromoteRequest(BaseModel):
+    mode: Literal["fast", "studio"] = "studio"
+    reader: str = Field(default="", max_length=2000)
+    promise: str = Field(default="", max_length=2000)
+    main_thesis: str = Field(default="", max_length=2000)
+    style_profile_id: str | None = None
+    budget_limit_cents: int = Field(default=100, ge=0, le=10000)
+
+
+class SignalPromoteResult(BaseModel):
+    candidate_id: str
+    analysis_id: str
+    source_id: str
+    project_id: str
+    source_created: bool
+    reader: str
+    promise: str
+    main_thesis: str
 
 
 class PatternCardCreate(BaseModel):

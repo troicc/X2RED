@@ -13,6 +13,7 @@ from app.core.config import get_settings
 from app.db.session import get_db
 from app.domain.models import DraftRevision, SourceItem
 from app.domain.platform_schemas import (
+    LightContentVariantCreate,
     PlatformCatalogOut,
     PlatformRenderRequest,
     PlatformVariantOut,
@@ -21,6 +22,7 @@ from app.domain.platform_schemas import (
     WeChatVariantCreate,
 )
 from app.domain.platforms import PlatformVariant
+from app.services.light_content import LightContentError, LightContentService
 from app.services.platform_studio import PlatformStudioError, PlatformStudioService
 from app.services.skill_packs import pack_payloads
 from app.services.skills import ensure_bindings
@@ -47,12 +49,22 @@ def catalog(db: Session = Depends(get_db)) -> PlatformCatalogOut:
                 ],
             },
             "wechat": {
-                "formats": ["article", "cover_pair", "publish_package"],
+                "formats": [
+                    "article",
+                    "light_series",
+                    "cover_pair",
+                    "publish_package",
+                ],
                 "ratios": ["21:9", "1:1"],
+                "format_ratios": {
+                    "article": ["21:9", "1:1"],
+                    "light_series": ["3:5"],
+                },
                 "skill_pack_ids": [
                     "wechat-editorial-adapter",
                     "wechat-inline-design-system",
                     "article-illustration-planner",
+                    "wechat-light-zine",
                     "wechat-draft-publisher",
                 ],
             },
@@ -119,6 +131,51 @@ async def create_wechat_variant(
     return variant
 
 
+@router.post(
+    "/wechat/light/variants",
+    response_model=PlatformVariantOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_wechat_light_variant(
+    body: LightContentVariantCreate,
+    db: Session = Depends(get_db),
+    service: PlatformStudioService = Depends(get_platform_service),
+) -> PlatformVariant:
+    source = db.get(SourceItem, body.source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="来源不存在")
+    draft: DraftRevision | None = None
+    if body.draft_id:
+        draft = db.get(DraftRevision, body.draft_id)
+        if draft is None or draft.source_id != source.id:
+            raise HTTPException(status_code=404, detail="所选草稿不存在或不属于当前来源")
+    else:
+        draft = db.scalar(
+            select(DraftRevision)
+            .where(DraftRevision.source_id == source.id)
+            .order_by(DraftRevision.version.desc())
+        )
+    light_service = LightContentService(service.settings, service.editorial)
+    try:
+        variant = await light_service.create_variant(
+            db,
+            source=source,
+            draft=draft,
+            recipe=body.recipe,
+            image_count=body.image_count,
+            seasonal_topic=body.seasonal_topic,
+            audience=body.audience,
+            tone=body.tone,
+            theme=body.theme,
+            author=body.author,
+        )
+    except LightContentError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    db.commit()
+    db.refresh(variant)
+    return variant
+
+
 @router.get("/variants/{variant_id}", response_model=PlatformVariantOut)
 def get_variant(variant_id: str, db: Session = Depends(get_db)) -> PlatformVariant:
     variant = db.get(PlatformVariant, variant_id)
@@ -163,14 +220,22 @@ def render_variant(
     if variant is None:
         raise HTTPException(status_code=404, detail="平台版本不存在")
     try:
-        variant, validation, files = service.render_wechat_variant(
-            db,
-            variant,
-            package=body.package,
-        )
+        if variant.format == "light_series":
+            light_service = LightContentService(service.settings, service.editorial)
+            variant, validation, files = light_service.render_variant(
+                db,
+                variant,
+                package=body.package,
+            )
+        else:
+            variant, validation, files = service.render_wechat_variant(
+                db,
+                variant,
+                package=body.package,
+            )
         db.commit()
         db.refresh(variant)
-    except PlatformStudioError as exc:
+    except (PlatformStudioError, LightContentError) as exc:
         db.commit()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {

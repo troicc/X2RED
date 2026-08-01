@@ -15,6 +15,13 @@ WechatTheme = Literal[
     "receipt",
     "olive",
 ]
+LightContentRecipe = Literal[
+    "comfort",
+    "mature_life",
+    "seasonal",
+    "photo_quote",
+    "short_commentary",
+]
 
 
 class WeChatVariantCreate(BaseModel):
@@ -24,6 +31,18 @@ class WeChatVariantCreate(BaseModel):
     mode: Literal["adapt", "preserve"] = "adapt"
     include_citations: bool = True
     include_illustration_plan: bool = True
+    author: str = Field(default="", max_length=80)
+
+
+class LightContentVariantCreate(BaseModel):
+    source_id: str
+    draft_id: str | None = None
+    recipe: LightContentRecipe = "comfort"
+    image_count: int = Field(default=4, ge=3, le=6)
+    seasonal_topic: str = Field(default="", max_length=120)
+    audience: str = Field(default="", max_length=500)
+    tone: str = Field(default="安静、克制、有生活感", max_length=300)
+    theme: WechatTheme = "zen"
     author: str = Field(default="", max_length=80)
 
 
