@@ -159,15 +159,22 @@ def test_skill_pipeline_transform_and_storyboard(
         assert "thesis" in kinds
         assert "facts" in kinds
         assert kinds[-1] == "source"
-        assert specs[0]["renderer"] in {"html-playwright", "pillow-fallback"}
+        assert specs[0]["renderer"] in {"html-playwright-rich", "pillow-fallback"}
+        assert specs[0]["visual_style"]
+        assert specs[0]["layout"] == "sparse"
         paths = json.loads(render["output_paths_json"])
         with Image.open(paths[0]) as image:
             assert image.size == (1242, 1656)
 
         health = client.get("/health")
         assert health.status_code == 200
-        assert health.json()["version"] == "0.7.0"
+        assert health.json()["version"] == "0.8.0"
         assert health.json()["model_configured"] is True
-        assert health.json()["editorial_pipeline"] == "multi-agent-signal-to-story"
+        assert health.json()["editorial_pipeline"] == (
+            "multi-agent-signal-to-story-plus-platform-skill-packs"
+        )
         assert health.json()["intelligence_pipeline"] == "monitor-score-l1-l2"
-        assert health.json()["card_renderer"] == "html-playwright"
+        assert health.json()["card_renderer"] == (
+            "style-layout-palette-material-html-playwright"
+        )
+        assert health.json()["wechat_workbench"] is True
