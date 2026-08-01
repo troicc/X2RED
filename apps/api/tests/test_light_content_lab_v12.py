@@ -57,9 +57,54 @@ def test_light_content_lab_candidates_corpus_iteration_and_distinct_visuals(
                 structured_content_json="{}",
                 metrics_json="{}",
             )
-            db.add(source)
+            technical = SourceItem(
+                provider="test",
+                platform="x",
+                external_id="technical-light-lab-v12",
+                canonical_url="https://x.com/example/status/121",
+                author_handle="engineer",
+                author_name="Engineer",
+                text_original=(
+                    "Claude Fable 5 connects to Blender through MCP. The GPU renderer uses CUDA kernels, "
+                    "Python plugins and a new inference model to inspect frames and revise the 3D scene."
+                ),
+                content_kind="article",
+                structured_content_json="{}",
+                metrics_json="{}",
+            )
+            db.add_all([source, technical])
             db.commit()
             source_id = source.id
+            technical_id = technical.id
+
+        rejected = client.post(
+            "/api/platforms/wechat/light/variants",
+            json={
+                "source_id": technical_id,
+                "recipe": "mature_life",
+                "image_count": 4,
+                "audience": "50岁以上读者",
+                "visual_style": "minimal_zine",
+            },
+        )
+        assert rejected.status_code == 409, rejected.text
+        assert "技术/工具内容" in rejected.json()["detail"]
+        assert "泛鸡汤" in rejected.json()["detail"]
+
+        technical_commentary = client.post(
+            "/api/platforms/wechat/light/variants",
+            json={
+                "source_id": technical_id,
+                "recipe": "short_commentary",
+                "image_count": 3,
+                "visual_style": "old_newspaper",
+                "quality_mode": "fast",
+            },
+        )
+        assert technical_commentary.status_code == 201, technical_commentary.text
+        technical_meta = json.loads(technical_commentary.json()["metadata_json"])
+        assert technical_meta["source_fit"]["source_kind"] == "technical"
+        assert technical_meta["source_fit"]["allowed"] is True
 
         dark_created = client.post(
             "/api/platforms/wechat/light/variants",
@@ -79,6 +124,7 @@ def test_light_content_lab_candidates_corpus_iteration_and_distinct_visuals(
         dark_meta = json.loads(dark["metadata_json"])
         assert dark_meta["pipeline_version"] == "light-lab-v12"
         assert dark_meta["visual_style"] == "dark_contemplative"
+        assert dark_meta["source_fit"]["score"] > 0.8
         assert len(dark_meta["candidates"]) == 3
         assert dark_meta["reviews"]["audience"]
         assert dark_meta["reviews"]["culture"]
@@ -126,6 +172,39 @@ def test_light_content_lab_candidates_corpus_iteration_and_distinct_visuals(
         selected_meta = json.loads(selected_payload["metadata_json"])
         assert selected_meta["selected_candidate_index"] == 1
         assert selected_payload["version"] > dark["version"]
+
+        edited = client.put(
+            f"/api/platforms/variants/{selected_payload['id']}",
+            json={
+                "title": "晚饭后，先把自己的十分钟还回来",
+                "subtitle": "不是解决所有问题，只是停止继续透支",
+                "summary": "工作和家庭都需要回应时，人很容易把自己排到最后。",
+                "body_markdown": (
+                    "晚饭收拾完，屋里终于安静下来。先不要打开下一条消息。\n\n"
+                    "给自己十分钟，不解决问题，只确认今天已经够累。\n\n"
+                    "边界不是拒绝所有人，而是不再把自己永远放到最后。"
+                ),
+                "tags": "生活,边界",
+                "theme": "zen",
+            },
+        )
+        assert edited.status_code == 200, edited.text
+        edited_payload = edited.json()
+        edited_meta = json.loads(edited_payload["metadata_json"])
+        assert edited_meta["human_edited"] is True
+        assert edited_meta["human_approved"] is False
+        assert edited_meta["poster_specs"][0]["phrase"] == "晚饭后，先把自己的十分钟还回来"
+        assert "晚饭收拾完" in edited_meta["poster_specs"][1]["phrase"]
+        assert edited_payload["output_paths_json"] == "{}"
+
+        edited_rendered = client.post(
+            f"/api/platforms/variants/{edited_payload['id']}/render",
+            json={"package": False},
+        )
+        assert edited_rendered.status_code == 200, edited_rendered.text
+        edited_fresh = client.get(f"/api/platforms/variants/{edited_payload['id']}").json()
+        edited_fresh_meta = json.loads(edited_fresh["metadata_json"])
+        assert "晚饭后" in edited_fresh_meta["poster_specs"][0]["final_prompt"]
 
         iterated = client.post(
             f"/api/platforms/wechat/light/variants/{selected_payload['id']}/iterate",
