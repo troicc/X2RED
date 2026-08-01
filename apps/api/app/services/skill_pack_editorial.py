@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import re
+from typing import Any
 
 import httpx
 from sqlalchemy.orm import Session
@@ -9,9 +11,19 @@ from app.domain.models import DraftRevision, SourceItem
 from app.services.reader_editorial import ReaderFirstEditorialService
 from app.services.skills import binding_for
 
+_ALLOWED_CARD_KINDS = {
+    "hero_cover",
+    "key_result",
+    "concept_diagram",
+    "before_after",
+    "workflow_flow",
+    "key_takeaways",
+    "opinion_close",
+}
+
 
 class SkillPackEditorialService(ReaderFirstEditorialService):
-    """Reader-first editorial service with optional platform skill packs."""
+    """Reader-first editorial service with platform copy and visual planning."""
 
     async def generate(self, db: Session, source: SourceItem, style: str) -> DraftRevision:
         draft = await super().generate(db, source, style)
@@ -22,6 +34,9 @@ class SkillPackEditorialService(ReaderFirstEditorialService):
                 "xhs.title_formulas",
                 "xhs.caption_hashtags",
                 "xhs.viral_structure",
+                "visual.storyboard",
+                "visual.art_direction",
+                "visual.material_intake",
             )
         }
         if not (
@@ -54,15 +69,27 @@ class SkillPackEditorialService(ReaderFirstEditorialService):
             if bindings["xhs.viral_structure"].enabled
             else "保持现有结构。"
         )
+        storyboard_rule = (
+            "为制图输出 4-7 页故事板。每页只能解决一个问题，禁止按字符长度切正文。"
+            if bindings["visual.storyboard"].enabled
+            else "card_storyboard 输出空数组。"
+        )
+        material_rule = (
+            "有来源图片时只在确实能解释内容的页面标记 asset_role=source；否则使用 diagram 或 none。"
+            if bindings["visual.material_intake"].enabled
+            else "所有页面 asset_role=none。"
+        )
         prompt = f"""
-对下面已经完成事实核查和读者化编辑的小红书草稿，执行最后一轮平台适配。
-这一步只能改善卖点优先级、标题、开头节奏、发布配文和标签，不能改变事实、数字、来源归属或结论范围。
+对下面已经完成事实核查和读者化编辑的小红书草稿，执行最后一轮平台适配与制图策划。
+这一步只能改善卖点优先级、标题、开头节奏、发布配文、标签和视觉故事板，不能改变事实、数字、来源归属或结论范围。
 
 启用的 Skill：{', '.join(active)}
 - {selling_point_rule}
 - {title_rule}
 - {caption_rule}
 - {structure_rule}
+- {storyboard_rule}
+- {material_rule}
 
 硬性要求：
 1. 不使用“震惊、炸裂、封神、必须收藏”等廉价夸张词。
@@ -70,6 +97,11 @@ class SkillPackEditorialService(ReaderFirstEditorialService):
 3. 技术内容先讲人能感知的结果，再解释术语。
 4. 保留读者稿，不把正文改回审计报告、风险清单或逐句翻译。
 5. 标题 14-26 个汉字；正文长度不超过当前正文的 1.15 倍。
+6. 故事板必须面向公开发布，禁止出现 X2RED、X2PDF、X SOURCE、WECHAT、工作台、来源恢复、审核状态等内部词。
+7. 故事板可用页型只有 hero_cover、key_result、concept_diagram、before_after、workflow_flow、key_takeaways、opinion_close。
+8. 封面只表达一个核心判断；正文页每页最多 4 个短要点；最后一页给出清晰判断，不放免责声明或来源说明。
+9. 技术长文优先使用：封面 → 新变化 → 机制图解 → 前后对比/工作流 → 关键要点 → 判断。
+10. card_storyboard 中每页 title 不超过 22 字，subtitle 不超过 70 字，单个 item 不超过 42 字。
 
 编辑分析：{json.dumps(analysis or {}, ensure_ascii=False)[:10000]}
 当前标题：{draft.title}
@@ -83,21 +115,30 @@ class SkillPackEditorialService(ReaderFirstEditorialService):
   "tags":["标签"],
   "selling_points":[{{"text":"卖点","score":0.0,"reason":"为什么"}}],
   "title_candidates":[{{"formula":"pain|question|discovery|hotspot|identity","title":"标题"}}],
-  "caption":"发布时使用的短配文"
+  "caption":"发布时使用的短配文",
+  "content_type":"technology|design|tutorial|opinion|news|explainer",
+  "visual_direction":{{"style":"editorial|swiss|knowledge|minimal|poster","layout":"sparse|balanced|comparison|flow|quadrant","palette":"neutral|warm|macaron|neon|monochrome","reason":"选择原因"}},
+  "card_storyboard":[
+    {{"kind":"hero_cover","label":"技术趋势","title":"封面标题","subtitle":"一句话副标题","items":[],"visual_brief":"画面说明","asset_role":"source|diagram|none"}},
+    {{"kind":"key_result","label":"先看变化","title":"这一页的中心","subtitle":"可选说明","items":["短要点"],"visual_brief":"画面说明","asset_role":"source|diagram|none"}}
+  ]
 }}
 """.strip()
         strongest = max(
             (binding for binding in bindings.values() if binding.enabled),
-            key=lambda item: {"low": 1, "medium": 2, "high": 3}.get(item.reasoning_effort, 2),
+            key=lambda item: {"low": 1, "medium": 2, "high": 3}.get(
+                item.reasoning_effort,
+                2,
+            ),
         )
         try:
             result = await self._chat_json(
                 system_prompt=(
-                    "你是克制的小红书科技与知识内容主编。你理解平台阅读节奏，"
-                    "但不以标题党、夸张词和伪生活感换取点击。"
+                    "你是克制的小红书科技与知识内容主编，也是信息设计总监。"
+                    "你理解平台阅读节奏，但不以标题党、夸张词、模板排字和伪生活感换取点击。"
                 ),
                 user_prompt=prompt,
-                temperature=0.48,
+                temperature=0.44,
                 reasoning_effort=strongest.reasoning_effort,
                 model_name=strongest.model_name,
             )
@@ -109,9 +150,6 @@ class SkillPackEditorialService(ReaderFirstEditorialService):
             RuntimeError,
             json.JSONDecodeError,
         ):
-            # This is an optional final enhancement pass. The reader-first draft
-            # has already been generated and must remain usable when the model,
-            # a gateway, or a test double cannot serve one more request.
             return draft
 
         generated = self._sanitize_generated(
@@ -134,11 +172,92 @@ class SkillPackEditorialService(ReaderFirstEditorialService):
                 "selling_points": result.get("selling_points") or [],
                 "title_candidates": result.get("title_candidates") or [],
                 "caption": str(result.get("caption") or ""),
+                "content_type": self._content_type(result.get("content_type")),
+                "visual_direction": self._visual_direction(result.get("visual_direction")),
+                "card_storyboard": self._normalize_storyboard(result.get("card_storyboard")),
             },
             "quality_passes": [
                 *(provenance.get("quality_passes") or []),
                 *active,
-            ][-20:],
+            ][-24:],
         }
         draft.provenance_json = json.dumps(next_provenance, ensure_ascii=False)
         return draft
+
+    @staticmethod
+    def _content_type(value: object) -> str:
+        text = str(value or "").strip()
+        return text if text in {"technology", "design", "tutorial", "opinion", "news", "explainer"} else "explainer"
+
+    @staticmethod
+    def _visual_direction(value: object) -> dict[str, str]:
+        raw = value if isinstance(value, dict) else {}
+        allowed = {
+            "style": {"editorial", "swiss", "knowledge", "minimal", "poster"},
+            "layout": {"sparse", "balanced", "comparison", "flow", "quadrant"},
+            "palette": {"neutral", "warm", "macaron", "neon", "monochrome"},
+        }
+        output: dict[str, str] = {}
+        for key, values in allowed.items():
+            item = str(raw.get(key) or "").strip()
+            if item in values:
+                output[key] = item
+        reason = re.sub(r"\s+", " ", str(raw.get("reason") or "")).strip()
+        if reason:
+            output["reason"] = reason[:180]
+        return output
+
+    @classmethod
+    def _normalize_storyboard(cls, value: object) -> list[dict[str, Any]]:
+        if not isinstance(value, list):
+            return []
+        output: list[dict[str, Any]] = []
+        for raw in value[:7]:
+            if not isinstance(raw, dict):
+                continue
+            kind = str(raw.get("kind") or "").strip()
+            if kind not in _ALLOWED_CARD_KINDS:
+                continue
+            title = cls._trim(raw.get("title"), 42)
+            if not title:
+                continue
+            items = []
+            raw_items = raw.get("items")
+            if isinstance(raw_items, list):
+                for item in raw_items[:4]:
+                    text = cls._trim(item, 84)
+                    if text and text not in items:
+                        items.append(text)
+            asset_role = str(raw.get("asset_role") or "none").strip()
+            if asset_role not in {"source", "diagram", "none"}:
+                asset_role = "none"
+            output.append(
+                {
+                    "kind": kind,
+                    "label": cls._trim(raw.get("label"), 14),
+                    "title": title,
+                    "subtitle": cls._trim(raw.get("subtitle"), 140),
+                    "items": items,
+                    "visual_brief": cls._trim(raw.get("visual_brief"), 180),
+                    "asset_role": asset_role,
+                }
+            )
+        if output and output[0]["kind"] != "hero_cover":
+            output.insert(
+                0,
+                {
+                    "kind": "hero_cover",
+                    "label": "主题",
+                    "title": output[0]["title"],
+                    "subtitle": "",
+                    "items": [],
+                    "visual_brief": "只表达一个核心判断",
+                    "asset_role": "source",
+                },
+            )
+        return output[:7]
+
+    @staticmethod
+    def _trim(value: object, limit: int) -> str:
+        text = re.sub(r"\s+", " ", str(value or "")).strip()
+        return text if len(text) <= limit else text[: limit - 1].rstrip("，。； ") + "…"

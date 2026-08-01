@@ -155,11 +155,14 @@ def test_skill_pipeline_transform_and_storyboard(
         render = cards.json()
         specs = json.loads(render["spec_json"])
         kinds = [spec["kind"] for spec in specs]
-        assert kinds[0] == "cover"
-        assert "thesis" in kinds
-        assert "facts" in kinds
-        assert kinds[-1] == "source"
-        assert specs[0]["renderer"] in {"html-playwright-rich", "pillow-fallback"}
+        assert kinds[0] == "hero_cover"
+        assert "key_result" in kinds
+        assert any(kind in kinds for kind in ("concept_diagram", "workflow_flow", "key_takeaways"))
+        assert kinds[-1] == "opinion_close"
+        assert all(spec["visibility_mode"] == "public" for spec in specs)
+        assert all(not spec.get("source") and not spec.get("footer") for spec in specs)
+        assert "X2RED" not in json.dumps(specs, ensure_ascii=False)
+        assert specs[0]["renderer"] in {"html-playwright-semantic", "pillow-fallback"}
         assert specs[0]["visual_style"]
         assert specs[0]["layout"] == "sparse"
         paths = json.loads(render["output_paths_json"])
@@ -168,13 +171,14 @@ def test_skill_pipeline_transform_and_storyboard(
 
         health = client.get("/health")
         assert health.status_code == 200
-        assert health.json()["version"] == "0.8.0"
+        assert health.json()["version"] == "0.8.1"
         assert health.json()["model_configured"] is True
         assert health.json()["editorial_pipeline"] == (
             "multi-agent-signal-to-story-plus-platform-skill-packs"
         )
         assert health.json()["intelligence_pipeline"] == "monitor-score-l1-l2"
         assert health.json()["card_renderer"] == (
-            "style-layout-palette-material-html-playwright"
+            "public-safe-skill-storyboard-semantic-html"
         )
+        assert health.json()["wechat_renderer"] == "public-safe-inline-html-cover-pair"
         assert health.json()["wechat_workbench"] is True

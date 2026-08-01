@@ -6,6 +6,7 @@ from app.core.config import Settings
 from app.domain.models import DraftRevision, SourceItem
 from app.services.cards import CardService
 from app.services.editorial import EditorialService
+from app.services.publication_safety import contains_internal_marker
 
 
 def test_editorial_and_card_quality(tmp_path: Path) -> None:
@@ -48,9 +49,12 @@ def test_editorial_and_card_quality(tmp_path: Path) -> None:
         )
     )
     specs = service._build_specs(draft, max_cards=6)
-    assert specs[0]["kind"] == "cover"
-    assert specs[-1]["kind"] == "source"
-    assert any(spec["kind"] == "content" for spec in specs)
+    assert specs[0]["kind"] == "hero_cover"
+    assert specs[-1]["kind"] == "opinion_close"
+    assert any(spec["kind"] in {"key_result", "concept_diagram", "key_takeaways"} for spec in specs)
+    assert all(spec["visibility_mode"] == "public" for spec in specs)
+    assert all(not spec.get("source") and not spec.get("footer") for spec in specs)
+    assert not any(contains_internal_marker(str(spec)) for spec in specs)
 
     for index, spec in enumerate(specs, start=1):
         spec["page"] = index
@@ -60,6 +64,8 @@ def test_editorial_and_card_quality(tmp_path: Path) -> None:
     assert "本地内容工作流为什么值得关注" in html_document
     assert "1242px" in html_document
     assert "1656px" in html_document
+    assert "X2RED" not in html_document
+    assert "X SOURCE" not in html_document
 
     output = tmp_path / "preview.png"
     service._draw_fallback(output, specs[0], "editorial_minimal")
