@@ -21,13 +21,22 @@ class Settings(BaseSettings):
     raw_dir: Path = Path("./data/raw")
     export_dir: Path = Path("./data/exports")
     browser_profile_dir: Path = Path("./data/profiles/xhs")
+    native_skill_dir: Path = Path("./data/native-skills")
     card_font_path: Path | None = None
     download_media: bool = True
     max_media_bytes: int = Field(default=200 * 1024 * 1024, ge=1)
     model_base_url: str = ""
     model_api_key: str = ""
     model_name: str = ""
+    image_base_url: str = ""
+    image_api_key: str = ""
+    image_model: str = ""
+    image_size: str = "1024x1536"
     request_timeout_seconds: float = 20.0
+    material_user_agent: str = "X2RED-MaterialResearch/0.11 (+local research; respects robots.txt)"
+    material_min_interval_seconds: float = Field(default=2.0, ge=0.5, le=60.0)
+    material_max_page_bytes: int = Field(default=5 * 1024 * 1024, ge=100_000, le=20_000_000)
+    material_gdelt_base_url: str = "https://api.gdeltproject.org/api/v2/doc/doc"
     scheduler_enabled: bool = True
     scheduler_timezone: str = "Asia/Shanghai"
     scheduler_poll_seconds: int = Field(default=30, ge=10, le=3600)
@@ -42,6 +51,7 @@ class Settings(BaseSettings):
             self.raw_dir,
             self.export_dir,
             self.browser_profile_dir,
+            self.native_skill_dir,
         ):
             path.mkdir(parents=True, exist_ok=True)
 
