@@ -4,10 +4,24 @@ set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 HOST_PYTHON=${1:-"$REPO_ROOT/.venv/bin/python"}
-MEDIACRAWLER_REVISION=${X2RED_MEDIACRAWLER_REVISION:-1779dde9725f6b7ef42e29022c0054b3e678f1af}
-MEDIACRAWLER_ROOT=${X2RED_MEDIACRAWLER_ROOT:-"$REPO_ROOT/.vendor/MediaCrawler"}
-MARKER="$MEDIACRAWLER_ROOT/.x2red-revision"
+cd "$REPO_ROOT"
 
+# Resolve the same pydantic settings used by the running application. This
+# honors .env as well as exported X2RED_* variables without sourcing shell code.
+eval "$("$HOST_PYTHON" - <<'PY'
+import shlex
+from app.core.config import Settings
+
+settings = Settings()
+print("MEDIACRAWLER_REVISION=" + shlex.quote(settings.mediacrawler_revision))
+print(
+    "MEDIACRAWLER_ROOT="
+    + shlex.quote(str(settings.mediacrawler_root.expanduser().resolve()))
+)
+PY
+)"
+
+MARKER="$MEDIACRAWLER_ROOT/.x2red-revision"
 mkdir -p "$(dirname -- "$MEDIACRAWLER_ROOT")"
 
 if [ ! -d "$MEDIACRAWLER_ROOT/.git" ]; then
