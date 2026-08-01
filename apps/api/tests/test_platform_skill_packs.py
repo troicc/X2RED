@@ -209,7 +209,7 @@ def test_platform_frontend_and_health_contracts() -> None:
     assert "轻内容图组" in light_lab_js
     assert "多 Agent 生成 3 个候选" in light_lab_js
     assert "批准并加入优质语料" in light_lab_js
-    assert 'version="0.10.0"' in main_py
+    assert 'version="0.11.0"' in main_py
     assert "reviewed-semantic-playwright" in main_py
     assert "reviewed-module-tree-plus-cover-brief" in main_py
     assert "six-route-distinct-visual-v12" in main_py
