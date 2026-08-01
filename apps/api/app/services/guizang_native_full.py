@@ -41,19 +41,49 @@ class FullGuizangNativeService(GuizangNativeService):
             style_mode=style_mode,
             max_cards=max_cards,
         )
-        theme = re.sub(r"[^a-z0-9-]", "", str(plan.get("theme") or "").lower())
-        return f"<!-- X2RED_UPSTREAM_THEME:{theme} -->\n{posters}"
+        return self._with_theme_marker(posters, plan)
+
+    def _repair_posters(
+        self,
+        *,
+        draft: DraftRevision,
+        source_brief: str,
+        references: str,
+        plan: dict[str, Any],
+        posters_html: str,
+        validator_output: str,
+        max_cards: int,
+    ) -> str:
+        repaired = super()._repair_posters(
+            draft=draft,
+            source_brief=source_brief,
+            references=references,
+            plan=plan,
+            posters_html=self._without_theme_marker(posters_html),
+            validator_output=validator_output,
+            max_cards=max_cards,
+        )
+        return self._with_theme_marker(repaired, plan)
 
     @staticmethod
-    def _assemble_document(seed: str, posters_html: str, *, max_cards: int) -> str:
-        theme_match = re.search(r"X2RED_UPSTREAM_THEME:([a-z0-9-]+)", posters_html)
-        theme = theme_match.group(1) if theme_match else ""
-        posters_html = re.sub(
+    def _with_theme_marker(posters_html: str, plan: dict[str, Any]) -> str:
+        theme = re.sub(r"[^a-z0-9-]", "", str(plan.get("theme") or "").lower())
+        return f"<!-- X2RED_UPSTREAM_THEME:{theme} -->\n{posters_html}"
+
+    @staticmethod
+    def _without_theme_marker(posters_html: str) -> str:
+        return re.sub(
             r"<!--\s*X2RED_UPSTREAM_THEME:[a-z0-9-]+\s*-->\s*",
             "",
             posters_html,
             count=1,
         )
+
+    @staticmethod
+    def _assemble_document(seed: str, posters_html: str, *, max_cards: int) -> str:
+        theme_match = re.search(r"X2RED_UPSTREAM_THEME:([a-z0-9-]+)", posters_html)
+        theme = theme_match.group(1) if theme_match else ""
+        posters_html = FullGuizangNativeService._without_theme_marker(posters_html)
         sheet = re.compile(r'<main class="sheet">.*?</main>', re.S)
         if not sheet.search(seed):
             raise CardRenderError("Guizang 种子模板缺少 sheet 主体")
