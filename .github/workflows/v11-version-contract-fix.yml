@@ -1,0 +1,32 @@
+name: Update v11 version contracts
+
+on:
+  push:
+    branches: ["agent/material-harvester-native-skills-v11"]
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    if: github.event.head_commit.message != 'Update v11 version contracts'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/material-harvester-native-skills-v11
+      - name: Update historical version assertions
+        run: |
+          sed -i 's/0\.10\.0/0.11.0/g' \
+            apps/api/tests/test_platform_skill_packs.py \
+            apps/api/tests/test_review_edit_v09.py \
+            apps/api/tests/test_signal_to_story_v07.py \
+            apps/api/tests/test_workbench_v05.py \
+            apps/api/tests/test_x2pdf_v06.py
+      - name: Commit version contracts
+        run: |
+          git config user.name "x2red-ci"
+          git config user.email "x2red-ci@users.noreply.github.com"
+          git add apps/api/tests
+          git commit -m "Update v11 version contracts"
+          git push origin HEAD:agent/material-harvester-native-skills-v11
