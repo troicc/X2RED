@@ -17,6 +17,7 @@ from app.domain.models import (
 )
 from app.domain.schemas import CorpusPoolDetail
 from app.services.corpus_pools import CorpusPoolService
+from app.services.source_graph import connected_source_ids
 
 
 def settings(tmp_path: Path) -> Settings:
@@ -196,6 +197,14 @@ def test_preview_does_not_consume_and_batches_rotate(tmp_path: Path) -> None:
                 SourceRelation.relation_type == "corpus_batch",
             )
         ) == 2
+
+        first_context = connected_source_ids(db, first_anchor.id)
+        second_context = connected_source_ids(db, second_anchor.id)
+        assert set(first_context) == {first_anchor.id, *first_ids}
+        assert set(second_context) == {second_anchor.id, *second_ids}
+        assert second_anchor.id not in first_context
+        assert first_anchor.id not in second_context
+        assert connected_source_ids(db, first_sources[0].id) == [first_sources[0].id]
 
 
 def test_batch_draft_keeps_pool_provenance_and_frozen_context(tmp_path: Path) -> None:
