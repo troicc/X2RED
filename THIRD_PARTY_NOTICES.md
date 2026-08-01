@@ -1,6 +1,28 @@
 # Third-party method and compatibility notices
 
-X2RED remains licensed under the MIT License. The platform Skill Pack registry records external projects that informed capability design. Unless explicitly stated below, X2RED does not bundle or execute those projects.
+X2RED remains licensed under the MIT License. Some external projects inform capability design; two optional native Skills are installed as separate, pinned upstream checkouts and retain their own licenses.
+
+## Separately licensed native Skill runtimes
+
+### op7418/guizang-social-card-skill
+
+- License: GNU Affero General Public License v3.0
+- Upstream and source offer: https://github.com/op7418/guizang-social-card-skill
+- Pinned commit: `cf4b810fac1c73fb65a2bb31d8c9278d82cbc4c5`
+- Runtime location: `data/native-skills/guizang-social-card-skill`
+- Integration: the exact upstream Git checkout remains separate from the MIT X2RED source tree. X2RED invokes its SKILL, references, 28 layout recipes, theme presets, seed templates, assets, Node dependencies, validator and Playwright-compatible HTML through file and subprocess boundaries.
+- The installed checkout preserves the upstream LICENSE and Git metadata. X2RED displays the upstream source URL and local source path. Any modification to that component remains subject to the applicable AGPL-3.0 obligations.
+
+### LiamGvchi/gc-minimal-zine-poster
+
+- License: MIT
+- Upstream: https://github.com/LiamGvchi/gc-minimal-zine-poster
+- Pinned commit: `4cb0396ad4e834019f753b37e1c4f415f5e02026`
+- Runtime location: `data/native-skills/gc-minimal-zine-poster-v0-1`
+- Integration: X2RED reads the complete upstream `SKILL.md` Standard Mode Prompt Compiler, selects the six-axis visual recipe per page, calls the explicitly configured image-generation API, and stores the final prompt, recipe, interpretation, model and output.
+- When no image model is configured, X2RED reports that requirement instead of presenting a reduced placeholder as an original Skill render.
+
+See also `THIRD_PARTY_NATIVE_SKILLS.md`.
 
 ## Native adaptations under permissive licenses
 
@@ -22,15 +44,7 @@ X2RED remains licensed under the MIT License. The platform Skill Pack registry r
 - License: MIT
 - Upstream: https://github.com/JimLiu/baoyu-skills
 - Adapted concepts: Style × Layout × Palette separation, long-form illustration planning, Markdown-to-WeChat workflow boundaries, cover metadata, and optional draft publishing adapters.
-- X2RED implementation does not embed Baoyu's scripts. Installed upstream skills are detected only to inform the user; they are never executed without an explicit future adapter and user action.
-
-### LiamGvchi/gc-minimal-zine-poster
-
-- License: MIT
-- Upstream: https://github.com/LiamGvchi/gc-minimal-zine-poster
-- Adapted concepts: 3:5 aged-paper posters, 70%-90% negative space, a single small visual anchor, sparse serif/typewriter typography, one visible saturated color anchor, and xerox/risograph/scanned-paper texture.
-- X2RED implementation: a native light-content workflow and original Pillow renderer for WeChat photo-plus-short-text series. It also adds recipe-specific safeguards for older audiences, seasonal food content, medical claims, and human review.
-- X2RED stores the final image prompt with every rendered poster so a future image-model adapter can consume the same reviewed visual brief.
+- X2RED implementation does not embed Baoyu's scripts. Installed upstream skills are detected only to inform the user; they are never executed without an explicit adapter and user action.
 
 ### doocs/md
 
@@ -39,13 +53,6 @@ X2RED remains licensed under the MIT License. The platform Skill Pack registry r
 - Adapted concepts: browser preview expectations for WeChat-friendly Markdown and rich technical content.
 
 ## AGPL projects used only as public design research
-
-### op7418/guizang-social-card-skill
-
-- License: GNU Affero General Public License v3.0
-- Upstream: https://github.com/op7418/guizang-social-card-skill
-- Research concepts: material-first card planning, screenshot treatment, subject safe zones, and paired WeChat covers.
-- No upstream code, templates, styles, scripts, assets, or prompt text are copied into X2RED. X2RED's implementation is an independent reimplementation using its existing MIT codebase.
 
 ### isjiamu/gzh-design-skill
 
