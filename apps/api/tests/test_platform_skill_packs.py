@@ -102,7 +102,7 @@ latency_ms = 160
 ```
 """.strip(),
         theme_id="graphite",
-        author="X2RED",
+        author="EasyMaker",
         source_url="https://x.com/example/article/1",
     )
     validation = renderer.validate(fragment)
@@ -181,6 +181,9 @@ def test_rich_cards_store_style_layout_palette_and_material(tmp_path: Path) -> N
     assert all(item["visual_style"] == "swiss" for item in specs)
     assert all(item["palette"] == "macaron" for item in specs)
     assert all(item["material_strategy"] == "text_only" for item in specs)
+    assert all(item["visibility_mode"] == "public" for item in specs)
+    assert all(not item.get("source") and not item.get("footer") for item in specs)
+    assert "X2RED" not in json.dumps(specs, ensure_ascii=False)
     assert all(not item.get("hero_image") for item in specs)
     paths = json.loads(render.output_paths_json)
     assert len(paths) == len(specs)
@@ -197,7 +200,9 @@ def test_platform_frontend_and_health_contracts() -> None:
     assert "skill-packs" in platform_js
     assert "去公众号" in platform_js
     assert "card-visual-style" in card_js
-    assert 'version="0.8.0"' in main_py
+    assert 'version="0.8.1"' in main_py
+    assert "public-safe-skill-storyboard-semantic-html" in main_py
+    assert "public-safe-inline-html-cover-pair" in main_py
     assert "platform-v08.js" in main_py
     assert "card-skill-v08.js" in main_py
     assert "No upstream code" in notices
