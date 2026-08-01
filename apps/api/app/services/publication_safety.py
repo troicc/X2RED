@@ -58,6 +58,7 @@ def public_card_spec(spec: Mapping[str, Any]) -> dict[str, Any]:
     output["branding"] = ""
     output["source"] = ""
     output["footer"] = ""
+    output["content_type"] = ""
     output["kicker"] = strip_internal_markers(str(output.get("kicker") or ""))
     return output
 
