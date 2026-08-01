@@ -55,7 +55,11 @@ def catalog(db: Session = Depends(get_db)) -> PlatformCatalogOut:
                     "cover_pair",
                     "publish_package",
                 ],
-                "ratios": ["21:9", "1:1", "3:5"],
+                "ratios": ["21:9", "1:1"],
+                "format_ratios": {
+                    "article": ["21:9", "1:1"],
+                    "light_series": ["3:5"],
+                },
                 "skill_pack_ids": [
                     "wechat-editorial-adapter",
                     "wechat-inline-design-system",
