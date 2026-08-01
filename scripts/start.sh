@@ -36,6 +36,10 @@ VENV_PYTHON="$REPO_ROOT/.venv/bin/python"
 "$VENV_PYTHON" -m pip install --upgrade pip setuptools wheel
 "$VENV_PYTHON" -m pip install -e '.[publisher]'
 
+if [ "${X2RED_SKIP_MEDIACRAWLER_INSTALL:-0}" != "1" ]; then
+  sh "$SCRIPT_DIR/setup-mediacrawler.sh" "$VENV_PYTHON"
+fi
+
 if [ "${X2RED_SKIP_BROWSER_INSTALL:-0}" != "1" ] && [ ! -f .venv/.x2red-playwright-ready ]; then
   echo "Preparing Chromium for HTML/CSS card rendering and Xiaohongshu preview…"
   "$VENV_PYTHON" -m playwright install chromium
