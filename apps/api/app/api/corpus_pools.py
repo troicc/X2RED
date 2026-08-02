@@ -184,6 +184,39 @@ def preview_corpus_batch(
         raise _bad_request(exc) from exc
 
 
+@router.post(
+    "/{pool_id}/materialize",
+    response_model=CorpusBatchOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def materialize_corpus_batch(
+    pool_id: str,
+    body: CorpusPoolBatchRequest,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Freeze one rotating batch as a selectable source for every workspace."""
+    service = _service()
+    try:
+        pool = service.get_pool(db, pool_id)
+        batch, _, _ = service.create_generation_batch(
+            db,
+            pool,
+            batch_size=body.batch_size,
+            focus=body.focus,
+        )
+        db.commit()
+        return next(item for item in service.list_batches(db, pool) if item["id"] == batch.id)
+    except CorpusPoolError as exc:
+        db.rollback()
+        raise _bad_request(exc) from exc
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"创建工作台批次失败：{str(exc)[:800]}",
+        ) from exc
+
+
 @router.get("/{pool_id}/batches", response_model=list[CorpusBatchOut])
 def list_corpus_batches(pool_id: str, db: Session = Depends(get_db)) -> list[dict]:
     service = _service()
