@@ -26,14 +26,36 @@
     observer.observe(list, { childList: true });
     window.setTimeout(() => observer.disconnect(), 15000);
 
-    // Keep the project id available for diagnostics even though the list is sorted
-    // newest-first and the newly created project is therefore the first item.
     list.dataset.restoreProjectId = expectedId;
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", restoreWritingProject, { once: true });
-  } else {
+  function loadScript(src) {
+    if (document.querySelector(`script[src='${src}']`)) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = src;
+      script.async = false;
+      script.addEventListener("load", resolve, { once: true });
+      script.addEventListener("error", () => reject(new Error(`无法加载 ${src}`)), { once: true });
+      document.body.appendChild(script);
+    });
+  }
+
+  async function loadV14Enhancements() {
+    await loadScript("/static/light-content-fixes-v14.js");
+    await loadScript("/static/information-architecture-v14.js");
+  }
+
+  function boot() {
     restoreWritingProject();
+    const start = () => loadV14Enhancements().catch((error) => console.error(error));
+    if (document.readyState === "complete") start();
+    else window.addEventListener("load", start, { once: true });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", boot, { once: true });
+  } else {
+    boot();
   }
 })();
