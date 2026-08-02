@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-08-02T10:37:00+08:00",
+  "repository": "troicc/X2RED",
+  "snapshot": {
+    "branch": "agent/replace-crawlers-with-api-adapters",
+    "pull_request": 19,
+    "pull_request_title": "重构简中素材采集、语料池与三层创作工作区",
+    "state_at_snapshot": "open_draft_unmerged",
+    "code_head_before_context_commits": "4c3cf831bca53bfec27347cdd8f8290911dd4e2e",
+    "last_verified_ci_run_number": 788,
+    "last_verified_test_result": "60 passed on Python 3.12 and 3.13",
+    "volatile_fields_must_be_rechecked": true
+  },
+  "product_architecture": [
+    {
+      "id": "corpus_library",
+      "label": "语料素材库",
+      "contains": ["X 信号发现", "简中平台发现", "平台分类来源", "语料池", "冻结批次"]
+    },
+    {
+      "id": "workbenches",
+      "label": "内容工作台",
+      "contains": ["小红书", "长文写作项目", "公众号长文", "公众号轻内容", "审核", "发布包"]
+    },
+    {
+      "id": "models_skills",
+      "label": "模型与 Skill",
+      "contains": ["文本模型", "图片模型", "风格", "Guizang", "Minimal Zine"]
+    }
+  ],
+  "primary_flow": "X/简中平台发现 -> SourceItem -> 平台分类 -> CorpusPool -> CorpusBatch -> 工作台 -> 编辑/制图/审核/发布",
+  "source_groups": ["pool", "x", "xhs", "dy", "ks", "bili", "wb", "tieba", "zhihu", "web"],
+  "simplified_chinese_discovery": {
+    "primary_engine": "NanmiCoder/MediaCrawler",
+    "pinned_commit": "1779dde9725f6b7ef42e29022c0054b3e678f1af",
+    "platforms": ["xhs", "dy", "ks", "bili", "wb", "tieba", "zhihu"],
+    "browser_mode": "local Chrome/Chromium CDP",
+    "constraints": ["low frequency", "manual trigger", "no comments", "no media download", "no access-control bypass", "non-commercial learning license"]
+  },
+  "database": {
+    "alembic_revision": "0010",
+    "new_tables": ["corpus_pools", "corpus_pool_sources", "corpus_batches"]
+  },
+  "light_content": {
+    "bug_root_cause": "loadLab was called while busy=true and returned early",
+    "fixed_behavior": ["adopt current candidate", "persist current editor fields", "render exact returned version", "force refresh and select returned version"]
+  },
+  "minimal_zine": {
+    "model_role": "text-free visual anchor only",
+    "typography": "local CJK compositor",
+    "output_root": "data/exports/wechat/{variant_id}/",
+    "artifacts": ["poster-*.png", "article.md", "manifest.json", "preview.html", "zip package"],
+    "watermark_mitigation": ["negative prompt", "crop risky outer/lower regions", "recompose on clean local canvas", "human review still required"]
+  },
+  "key_files": [
+    "AGENTS.md",
+    "apps/api/app/static/information-architecture-v14.js",
+    "apps/api/app/static/light-content-fixes-v14.js",
+    "apps/api/app/services/minimal_zine_native.py",
+    "apps/api/app/api/sources.py",
+    "apps/api/app/api/corpus_pools.py",
+    "apps/api/app/services/corpus_pools.py",
+    "apps/api/tests/test_minimal_zine_v14.py"
+  ],
+  "non_negotiables": [
+    "keep the three-layer information architecture",
+    "do not collapse all sources into one unclassified selector",
+    "signal studio discovers X and material library discovers Simplified-Chinese platforms",
+    "all discovery paths converge on SourceItem",
+    "corpus batches freeze memory, detailed sources, revision and provenance",
+    "render light content from current candidate and current editor text",
+    "do not delegate final Chinese typography to image models",
+    "final publishing remains a human action",
+    "recheck GitHub status before relying on snapshot state"
+  ],
+  "read_order": [
+    "AGENTS.md",
+    "docs/ai-context/README.md",
+    "docs/ai-context/PROJECT_MEMORY.md",
+    "docs/ai-context/WORKFLOWS.md",
+    "docs/ai-context/DEVELOPMENT_PLAYBOOK.md",
+    "docs/ai-context/OPEN_ITEMS.md"
+  ]
+}
