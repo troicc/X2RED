@@ -2,6 +2,8 @@
 
 X2RED is a local-first **signal intelligence and multi-platform editorial studio** for finding useful material, building reviewed Chinese writing, and producing Xiaohongshu and WeChat assets.
 
+> **Project context for humans and AI agents:** read [AGENTS.md](AGENTS.md) and [docs/ai-context/README.md](docs/ai-context/README.md) before modifying the current feature branch. The context package records the active three-layer product architecture, implementation progress, workflows, decisions, risks, local update commands and handoff protocol. Current PR/commit/CI fields are volatile and must still be rechecked on GitHub.
+
 ## Working application
 
 The current application can:
