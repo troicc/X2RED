@@ -1,15 +1,19 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+import json
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import get_settings
 from app.db.session import get_db
+from app.domain.discovery import CandidateState, DiscoveryCandidate
 from app.domain.models import (
     Asset,
     CorpusPool,
     CorpusPoolSource,
+    RightsStatus,
     SourceItem,
     SourceRelation,
     WorkspaceState,
@@ -88,14 +92,22 @@ def _recompile_pools(db: Session, pool_ids: list[str]) -> None:
 @router.get("", response_model=list[SourceListItem])
 def list_sources(
     workspace_state: str = Query(default=WorkspaceState.active.value),
+    platform: str = Query(default="", max_length=30),
+    provider: str = Query(default="", max_length=40),
+    content_kind: str = Query(default="", max_length=40),
+    include_pool_batches: bool = Query(default=True),
+    limit: int = Query(default=1000, ge=1, le=2000),
     db: Session = Depends(get_db),
 ) -> list[SourceItem]:
-    query = (
-        select(SourceItem)
-        .where(SourceItem.provider != "corpus_pool")
-        .order_by(SourceItem.captured_at.desc())
-        .limit(500)
-    )
+    query = select(SourceItem).order_by(SourceItem.captured_at.desc()).limit(limit)
+    if not include_pool_batches:
+        query = query.where(SourceItem.provider != "corpus_pool")
+    if platform:
+        query = query.where(SourceItem.platform == platform)
+    if provider:
+        query = query.where(SourceItem.provider == provider)
+    if content_kind:
+        query = query.where(SourceItem.content_kind == content_kind)
     if workspace_state != "all":
         if workspace_state not in {
             WorkspaceState.active.value,
@@ -104,6 +116,54 @@ def list_sources(
             raise HTTPException(status_code=400, detail="未知的来源箱状态")
         query = query.where(SourceItem.workspace_state == workspace_state)
     return list(db.scalars(query).all())
+
+
+@router.post(
+    "/from-signal/{candidate_id}",
+    response_model=SourceDetail,
+    status_code=status.HTTP_201_CREATED,
+)
+def materialize_signal_candidate(
+    candidate_id: str,
+    db: Session = Depends(get_db),
+) -> SourceDetail:
+    candidate = db.get(DiscoveryCandidate, candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="信号候选不存在")
+    source = db.scalar(
+        select(SourceItem).where(
+            SourceItem.platform == "x",
+            SourceItem.external_id == candidate.external_id,
+        )
+    )
+    if source is None:
+        source = SourceItem(
+            provider="signal-studio",
+            platform="x",
+            external_id=candidate.external_id,
+            canonical_url=candidate.canonical_url,
+            author_handle=candidate.author_handle,
+            author_name=candidate.author_name,
+            text_original=candidate.text,
+            language="",
+            content_kind="post",
+            structured_content_json=json.dumps(
+                {
+                    "source_origin": "signal_studio",
+                    "signal_candidate_id": candidate.id,
+                    "signal_metadata": json.loads(candidate.metadata_json or "{}"),
+                },
+                ensure_ascii=False,
+            ),
+            metrics_json=candidate.metadata_json or "{}",
+            rights_status=RightsStatus.needs_review.value,
+            rights_note="由信号台 X 候选转入素材库；发布前需人工确认引用范围和媒体版权。",
+        )
+        db.add(source)
+        db.flush()
+    candidate.state = CandidateState.imported.value
+    db.commit()
+    return _source_detail(db, source.id)
 
 
 @router.get("/{source_id}", response_model=SourceDetail)
