@@ -102,6 +102,8 @@
   function reorganizeNavigation() {
     const nav = document.querySelector(".primary-nav");
     if (!nav) return;
+    const ungrouped = [...nav.children].filter((item) => item.classList?.contains("nav-item"));
+    if (nav.dataset.architectureV14 === "true" && !ungrouped.length) return;
     const buttons = [...nav.querySelectorAll(".nav-item")];
     if (!buttons.length) return;
     const definitions = [
@@ -135,6 +137,7 @@
       containers[navGroup(view)].appendChild(button);
     });
     nav.replaceChildren(...definitions.map(([id]) => containers[id]));
+    nav.dataset.architectureV14 = "true";
   }
 
   function appState() {
@@ -272,10 +275,10 @@
       row.dataset.sourceLabel = LABELS[group] || "其他";
       row.hidden = group === "pool" || (corpusGroupFilter !== "all" && group !== corpusGroupFilter);
     });
-    rows
-      .slice()
-      .sort((a, b) => ORDER[a.dataset.sourceGroup] - ORDER[b.dataset.sourceGroup])
-      .forEach((row) => list.appendChild(row));
+    const sorted = rows.slice().sort((a, b) => ORDER[a.dataset.sourceGroup] - ORDER[b.dataset.sourceGroup]);
+    if (sorted.some((row, index) => row !== rows[index])) {
+      sorted.forEach((row) => list.appendChild(row));
+    }
   }
 
   async function openWorkspace(target, sourceId) {
