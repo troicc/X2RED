@@ -74,6 +74,36 @@ def session(tmp_path: Path) -> Session:
     return sessionmaker(bind=engine)()
 
 
+def allow_portable_render_font(
+    service: MinimalZineNativeService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pass the font preflight in tests whose subject is not font discovery.
+
+    GitHub's stock Ubuntu image has no CJK font.  The dedicated resolver test below
+    still verifies both the real success and failure paths; artifact lifecycle tests
+    inject this boundary so they exercise their own contract on every CI platform.
+    """
+
+    diagnostics = {
+        "available": True,
+        "selected": {
+            "path": "test-injected-cjk-font",
+            "face_index": 0,
+            "coverage_verified": True,
+        },
+        "serif_selected": {
+            "path": "test-injected-cjk-font",
+            "face_index": 0,
+            "coverage_verified": True,
+        },
+        "coverage_probe": list("中文测试页，。"),
+        "card_font_path": "",
+        "attempts": [],
+    }
+    monkeypatch.setattr(service.local_renderer, "require_cjk_font", lambda: diagnostics)
+
+
 def storyboard_specs() -> list[dict]:
     return [
         {
@@ -196,6 +226,7 @@ def test_recompose_selected_page_preserves_complete_set_and_excludes_raw_zip(
     db = session(tmp_path)
     service = MinimalZineNativeService(settings(tmp_path))
     variant = stored_variant(db, service)
+    allow_portable_render_font(service, monkeypatch)
     model_calls = {"compile": 0, "image": 0}
 
     def no_compile(**_: object) -> dict:
@@ -234,6 +265,7 @@ def test_recompose_rejects_missing_anchor_and_never_uses_final_as_raw(
     db = session(tmp_path)
     service = MinimalZineNativeService(settings(tmp_path))
     variant = stored_variant(db, service)
+    allow_portable_render_font(service, monkeypatch)
     outputs = json.loads(variant.output_paths_json)
     Path(outputs["anchor_02"]).unlink()
     outputs.pop("anchor_02")
@@ -253,6 +285,7 @@ def test_staging_failure_rolls_back_existing_package_and_db_refs(
     db = session(tmp_path)
     service = MinimalZineNativeService(settings(tmp_path))
     variant = stored_variant(db, service)
+    allow_portable_render_font(service, monkeypatch)
     original_outputs = variant.output_paths_json
     package_path = Path(json.loads(original_outputs)["package"])
     original_hash = hashlib.sha256(package_path.read_bytes()).hexdigest()
