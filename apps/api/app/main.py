@@ -333,15 +333,15 @@ def index() -> HTMLResponse:
     scripts = (
         '<script src="/static/studio-v07.js"></script>'
         '<script src="/static/style-v07.js"></script>'
-        '<script src="/static/studio-navigation-v071.js"></script>'
         '<script src="/static/platform-v08.js"></script>'
         '<script src="/static/card-skill-v08.js"></script>'
         '<script src="/static/review-v09.js"></script>'
         '<script src="/static/review-bridge-v09.js"></script>'
-        '<script src="/static/light-content-v10.js"></script>'
         '<script src="/static/signal-to-studio-v10.js"></script>'
         '<script src="/static/materials-v11.js"></script>'
         '<script src="/static/corpus-pools-v13.js"></script>'
+        '<script src="/static/product-shell-v15.js"></script>'
+        '<script src="/static/light-content-v15.js"></script>'
         '<script src="/static/native-skills-v11.js"></script>'
     )
     html = html.replace("</body>", f"{scripts}</body>")

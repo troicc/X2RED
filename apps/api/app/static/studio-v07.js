@@ -249,6 +249,7 @@
     studioState.projects.forEach((project) => {
       const button = createElement("button", `writing-project-item${studioState.selectedProject?.id === project.id ? " active" : ""}`);
       button.type = "button";
+      button.dataset.projectId = project.id;
       button.innerHTML = `<strong>${project.promise || project.main_thesis || "未命名写作任务"}</strong><span>${project.mode === "studio" ? "工作室" : "快速"} · ${project.state}</span><small>${project.spent_estimate_cents}/${project.budget_limit_cents} 预算单位</small>`;
       button.addEventListener("click", () => selectProject(project.id));
       box.append(button);

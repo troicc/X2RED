@@ -19,6 +19,7 @@ from app.domain.platform_schemas import (
     LightContentIterateRequest,
     LightContentVariantCreate,
     LightCorpusCreate,
+    MinimalZineStoryboardRevisionRequest,
     PlatformCatalogOut,
     PlatformRenderRequest,
     PlatformVariantOut,
@@ -31,6 +32,7 @@ from app.services.light_content import LightContentError
 from app.services.light_content_fit import assess_source_fit
 from app.services.light_content_lab import LightContentLabService
 from app.services.light_visual_renderer import VISUAL_STYLE_LABELS
+from app.services.minimal_zine_native import storyboard_model_input_changed
 from app.services.platform_studio import PlatformStudioError, PlatformStudioService
 from app.services.skill_packs import pack_payloads
 from app.services.skills import ensure_bindings
@@ -114,7 +116,12 @@ def _sync_light_storyboard(
         phrase, note = segments[index]
         spec["phrase"] = phrase
         spec["note"] = note
-        spec.pop("final_prompt", None)
+        # Editing title/body persists a new immutable textual revision.  It does not
+        # make an unchanged visual metaphor/raw anchor stale; only its local final
+        # composition needs rebuilding in the child directory.
+        spec.pop("final_composition_fingerprint", None)
+        spec.pop("compositor_version", None)
+        spec.pop("composition_diagnostics", None)
         if index < len(specs):
             specs[index] = spec
         else:
@@ -132,6 +139,29 @@ def _sync_light_storyboard(
     revised.metadata_json = json.dumps(metadata, ensure_ascii=False)
     revised.output_paths_json = "{}"
     revised.body_html = ""
+
+
+def _storyboard_page_changed(previous: dict, current: dict) -> bool:
+    fields = ("phrase", "note", "focus_x", "focus_y", "zoom")
+    return any(previous.get(field) != current.get(field) for field in fields)
+
+
+def _carry_storyboard_trace(
+    previous: dict,
+    current: dict,
+) -> None:
+    for key in (
+        "final_prompt",
+        "native_zine_recipe",
+        "native_zine_interpretation",
+        "model_input_fingerprint",
+        "raw_anchor_fingerprint",
+        "raw_anchor_source_variant_id",
+        "text_rendering",
+        "model_text_forbidden",
+    ):
+        if key in previous:
+            current[key] = previous[key]
 
 
 @router.get("/catalog", response_model=PlatformCatalogOut)
@@ -354,6 +384,107 @@ def select_wechat_light_candidate(
     except LightContentError as exc:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    db.commit()
+    db.refresh(revised)
+    return revised
+
+
+@router.post(
+    "/wechat/light/variants/{variant_id}/storyboard",
+    response_model=PlatformVariantOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def revise_wechat_light_storyboard(
+    variant_id: str,
+    body: MinimalZineStoryboardRevisionRequest,
+    db: Session = Depends(get_db),
+    service: PlatformStudioService = Depends(get_platform_service),
+) -> PlatformVariant:
+    """Freeze a page-level storyboard as a new PlatformVariant revision.
+
+    The source variant remains untouched.  Parent artifact linkage is retained only
+    for render-time, read-only inheritance; the new child starts with no output refs.
+    """
+
+    current = _variant(db, variant_id)
+    if current.platform != "wechat" or current.format != "light_series":
+        raise HTTPException(status_code=400, detail="当前版本不是公众号轻内容图组")
+    current_metadata = _json_object(current.metadata_json)
+    current_specs_raw = current_metadata.get("poster_specs")
+    current_specs = (
+        [dict(item) for item in current_specs_raw if isinstance(item, dict)]
+        if isinstance(current_specs_raw, list)
+        else []
+    )
+    page_count = len(current_specs)
+    if not 3 <= page_count <= 6:
+        raise HTTPException(status_code=400, detail="当前轻内容故事板必须包含 3 到 6 页")
+    submitted_numbers = [page.page for page in body.pages]
+    expected_numbers = list(range(1, page_count + 1))
+    if sorted(submitted_numbers) != expected_numbers:
+        raise HTTPException(
+            status_code=400,
+            detail=f"故事板页码必须唯一并完整覆盖 1 到 {page_count} 页",
+        )
+
+    revised = service.revise_variant(
+        db,
+        current,
+        title=current.title,
+        subtitle=current.subtitle,
+        summary=current.summary,
+        body_markdown=current.body_markdown,
+        tags=current.tags,
+        theme=current.theme,
+    )
+    metadata = _json_object(revised.metadata_json)
+    replacement_specs: list[dict] = []
+    model_changed_pages: list[int] = []
+    local_changed_pages: list[int] = []
+    for submitted in sorted(body.pages, key=lambda page: page.page):
+        page = submitted.page
+        previous = current_specs[page - 1]
+        replacement = submitted.model_dump()
+        replacement["visual_style"] = str(
+            previous.get("visual_style")
+            or current_metadata.get("visual_style")
+            or "minimal_zine"
+        )
+        model_changed = storyboard_model_input_changed(previous, replacement)
+        local_changed = _storyboard_page_changed(previous, replacement)
+        if model_changed:
+            model_changed_pages.append(page)
+        else:
+            # A phrase/note/crop-only revision keeps the exact prompt and recipe so
+            # the renderer can copy the parent raw anchor into the child staging set.
+            _carry_storyboard_trace(previous, replacement)
+        if local_changed or model_changed:
+            local_changed_pages.append(page)
+            replacement.pop("final_composition_fingerprint", None)
+            replacement.pop("compositor_version", None)
+            replacement.pop("composition_diagnostics", None)
+        replacement_specs.append(replacement)
+
+    metadata.update(
+        {
+            "parent_variant_id": current.id,
+            "poster_specs": replacement_specs,
+            "storyboard_revision": {
+                "parent_variant_id": current.id,
+                "model_input_changed_pages": model_changed_pages,
+                "local_composition_changed_pages": local_changed_pages,
+            },
+            "human_edited": True,
+            "human_approved": False,
+            "render_engine": "",
+            "validation": {},
+        }
+    )
+    revised.metadata_json = json.dumps(metadata, ensure_ascii=False)
+    revised.output_paths_json = "{}"
+    revised.status = "draft"
+    revised.error = ""
+    revised.body_html = ""
     db.commit()
     db.refresh(revised)
     return revised

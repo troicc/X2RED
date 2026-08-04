@@ -3,10 +3,13 @@ from __future__ import annotations
 import hashlib
 import math
 import random
+import struct
 from pathlib import Path
 from typing import Any
 
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
+
+from app.core.config import Settings
 
 
 VISUAL_STYLE_LABELS = {
@@ -27,9 +30,29 @@ RECIPE_STYLE_DEFAULTS = {
 }
 
 
+# Rendering an empty tofu box is worse than a noisy failure for Chinese content.
+# These probes cover common Han glyphs plus Chinese punctuation used by the local
+# compositor.  Coverage is read from the font cmap table, not inferred merely from
+# a font file existing on disk.
+CJK_PROBE_CHARACTERS = "中文测试页，。"
+
+
+class CJKFontError(RuntimeError):
+    """Raised when native Chinese typography cannot be rendered faithfully."""
+
+
 class LightVisualRenderer:
     width = 1200
     height = 2000
+
+    def __init__(self, settings: Settings | None = None) -> None:
+        # Keep the no-argument constructor used by the existing light-content
+        # renderer.  Native Minimal Zine passes Settings so card_font_path is
+        # honored before platform candidates.
+        self.settings = settings
+        self._font_cache: dict[tuple[int, bool, bool], ImageFont.FreeTypeFont | ImageFont.ImageFont] = {}
+        self._font_resolutions: dict[tuple[bool, bool], dict[str, Any] | None] = {}
+        self._font_attempts: list[dict[str, Any]] = []
 
     def render(
         self,
@@ -547,31 +570,310 @@ class LightVisualRenderer:
         values = ["".join(chars[index * size:(index + 1) * size]) for index in range(count)]
         return values
 
-    @staticmethod
-    def _font(size: int, *, bold: bool = False, serif: bool = False) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-        candidates = (
-            [
-                "/System/Library/Fonts/Songti.ttc",
-                "/System/Library/Fonts/STSong.ttf",
-                "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc",
-                "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
-            ]
+    def cjk_font_diagnostics(self) -> dict[str, Any]:
+        """Return the selected, cmap-verified font without copying any font asset.
+
+        A font filename alone is not a useful signal: macOS collections and generic
+        DejaVu installations commonly load successfully while lacking Han glyphs.
+        The resolver therefore records the exact TTC face and checks probe glyphs in
+        the cmap table before native publication is allowed.
+        """
+
+        primary = self._resolve_cjk_font(bold=True, serif=False)
+        serif = self._resolve_cjk_font(bold=False, serif=True)
+        return {
+            "available": primary is not None and serif is not None,
+            "selected": dict(primary) if primary else None,
+            "serif_selected": dict(serif) if serif else None,
+            "coverage_probe": list(CJK_PROBE_CHARACTERS),
+            "card_font_path": str(self.settings.card_font_path) if self.settings and self.settings.card_font_path else "",
+            "attempts": [dict(item) for item in self._font_attempts[-24:]],
+        }
+
+    def require_cjk_font(self) -> dict[str, Any]:
+        diagnostics = self.cjk_font_diagnostics()
+        if not diagnostics["available"]:
+            raise CJKFontError(
+                "未找到可验证中文字符覆盖的本地字体；请设置 X2RED_CARD_FONT_PATH "
+                "为具有中文 glyph 的字体，或安装 PingFang SC / Songti SC / Noto CJK。"
+            )
+        return diagnostics
+
+    def _font(
+        self,
+        size: int,
+        *,
+        bold: bool = False,
+        serif: bool = False,
+    ) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+        key = (size, bold, serif)
+        cached = self._font_cache.get(key)
+        if cached is not None:
+            return cached
+        resolution = self._resolve_cjk_font(bold=bold, serif=serif)
+        if resolution is not None:
+            try:
+                font = ImageFont.truetype(
+                    str(resolution["path"]),
+                    size=size,
+                    index=int(resolution["face_index"]),
+                )
+                self._font_cache[key] = font
+                return font
+            except OSError:
+                # A face can disappear between diagnostic resolution and draw in a
+                # mutable local font installation.  Fall through to legacy fallback;
+                # native Minimal Zine has already checked the resolver explicitly.
+                pass
+
+        fallback_candidates = (
+            ["/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf"]
             if serif
             else [
-                "/System/Library/Fonts/PingFang.ttc",
-                "/System/Library/Fonts/STHeiti Medium.ttc",
-                "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc" if bold else "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+                if bold
+                else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
             ]
         )
-        for candidate in candidates:
-            path = Path(candidate)
-            if path.is_file():
+        for candidate in fallback_candidates:
+            try:
+                font = ImageFont.truetype(candidate, size=size)
+                self._font_cache[key] = font
+                return font
+            except OSError:
+                continue
+        font = ImageFont.load_default()
+        self._font_cache[key] = font
+        return font
+
+    def _resolve_cjk_font(self, *, bold: bool, serif: bool) -> dict[str, Any] | None:
+        key = (bold, serif)
+        if key in self._font_resolutions:
+            return self._font_resolutions[key]
+
+        candidates = self._cjk_font_candidates(bold=bold, serif=serif)
+        best: tuple[int, dict[str, Any]] | None = None
+        configured_path = (
+            self.settings.card_font_path.resolve()
+            if self.settings and self.settings.card_font_path
+            else None
+        )
+        for path in candidates:
+            if not path.is_file():
+                continue
+            for face_index in self._face_indexes(path):
                 try:
-                    return ImageFont.truetype(str(path), size=size)
+                    font = ImageFont.truetype(str(path), size=24, index=face_index)
                 except OSError:
                     continue
-        return ImageFont.load_default()
+                name = " ".join(str(part) for part in font.getname()).strip()
+                coverage = self._has_cjk_coverage(path, face_index)
+                attempt = {
+                    "path": str(path),
+                    "face_index": face_index,
+                    "face_name": name,
+                    "coverage_verified": coverage,
+                }
+                self._font_attempts.append(attempt)
+                if not coverage:
+                    continue
+                score = self._face_score(name, path, bold=bold, serif=serif)
+                if configured_path is not None and path.resolve() == configured_path:
+                    # A user-supplied verified CJK face is an explicit art-direction
+                    # choice, not merely another fallback candidate.
+                    score += 100
+                resolved = {
+                    **attempt,
+                    "coverage_verified": True,
+                }
+                if best is None or score > best[0]:
+                    best = (score, resolved)
+
+        result = best[1] if best else None
+        self._font_resolutions[key] = result
+        return result
+
+    def _cjk_font_candidates(self, *, bold: bool, serif: bool) -> list[Path]:
+        configured = self.settings.card_font_path if self.settings else None
+        preferred: list[str] = []
+        if configured:
+            preferred.append(str(configured))
+        if serif:
+            preferred.extend(
+                [
+                    "/System/Library/Fonts/Supplemental/Songti.ttc",
+                    "/System/Library/Fonts/PingFang.ttc",
+                    "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc",
+                    "/usr/share/fonts/opentype/noto/NotoSerifCJKsc-Regular.otf",
+                    "/usr/share/fonts/truetype/noto/NotoSerifCJK-Regular.ttc",
+                    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+                    "/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf",
+                    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+                    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+                ]
+            )
+        else:
+            preferred.extend(
+                [
+                    "/System/Library/Fonts/PingFang.ttc",
+                    "/System/Library/Fonts/Supplemental/Songti.ttc",
+                    "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"
+                    if bold
+                    else "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+                    "/usr/share/fonts/opentype/noto/NotoSansCJKsc-Bold.otf"
+                    if bold
+                    else "/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf",
+                    "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc"
+                    if bold
+                    else "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+                    "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc",
+                    "/usr/share/fonts/opentype/noto/NotoSerifCJKsc-Regular.otf",
+                    "/usr/share/fonts/truetype/noto/NotoSerifCJK-Regular.ttc",
+                    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+                ]
+            )
+        # Preserve candidate precedence while avoiding an expensive duplicate TTC
+        # scan when card_font_path happens to equal a platform default.
+        return list(dict.fromkeys(Path(value) for value in preferred))
+
+    @staticmethod
+    def _face_indexes(path: Path) -> range | tuple[int, ...]:
+        return range(16) if path.suffix.lower() == ".ttc" else (0,)
+
+    @staticmethod
+    def _face_score(name: str, path: Path, *, bold: bool, serif: bool) -> int:
+        normalized = name.lower()
+        score = 0
+        if "pingfang sc" in normalized:
+            score += 30
+        if "songti sc" in normalized:
+            score += 30
+        if "noto" in normalized:
+            score += 20
+        if serif and any(value in normalized for value in ("songti", "serif")):
+            score += 8
+        if not serif and any(value in normalized for value in ("pingfang", "sans", "heiti")):
+            score += 8
+        if bold and any(value in normalized for value in ("bold", "black", "semibold", "medium")):
+            score += 5
+        if not bold and any(value in normalized for value in ("regular", "light", "book")):
+            score += 5
+        if path.name.lower().startswith("pingfang") and not serif:
+            score += 4
+        if path.name.lower().startswith("songti") and serif:
+            score += 4
+        return score
+
+    @staticmethod
+    def _has_cjk_coverage(path: Path, face_index: int) -> bool:
+        """Read Unicode cmap entries directly, including TTC collections.
+
+        Pillow can load a non-CJK font and substitute its .notdef glyph.  Parsing the
+        cmap table avoids accepting that failure mode without adding a fontTools
+        runtime dependency or bundling font assets.
+        """
+
+        try:
+            with path.open("rb") as handle:
+                def read_at(offset: int, size: int) -> bytes:
+                    handle.seek(offset)
+                    value = handle.read(size)
+                    if len(value) != size:
+                        raise ValueError("font data is truncated")
+                    return value
+
+                head = read_at(0, 12)
+                if head[:4] == b"ttcf":
+                    font_count = struct.unpack(">I", head[8:12])[0]
+                    if face_index >= font_count:
+                        return False
+                    sfnt_offset = struct.unpack(">I", read_at(12 + face_index * 4, 4))[0]
+                else:
+                    if face_index:
+                        return False
+                    sfnt_offset = 0
+                sfnt = read_at(sfnt_offset, 12)
+                table_count = struct.unpack(">H", sfnt[4:6])[0]
+                cmap_offset = None
+                for index in range(table_count):
+                    record = read_at(sfnt_offset + 12 + index * 16, 16)
+                    if record[:4] == b"cmap":
+                        cmap_offset = struct.unpack(">I", record[8:12])[0]
+                        break
+                if cmap_offset is None:
+                    return False
+                cmap_header = read_at(cmap_offset, 4)
+                subtable_count = struct.unpack(">H", cmap_header[2:4])[0]
+                subtable_offsets: list[int] = []
+                for index in range(subtable_count):
+                    record = read_at(cmap_offset + 4 + index * 8, 8)
+                    platform_id, encoding_id, relative = struct.unpack(">HHI", record)
+                    if platform_id == 0 or (platform_id == 3 and encoding_id in {1, 10}):
+                        subtable_offsets.append(cmap_offset + relative)
+                for subtable_offset in subtable_offsets:
+                    if LightVisualRenderer._cmap_covers(
+                        read_at,
+                        subtable_offset,
+                        [ord(value) for value in CJK_PROBE_CHARACTERS],
+                    ):
+                        return True
+        except (OSError, ValueError, struct.error):
+            return False
+        return False
+
+    @staticmethod
+    def _cmap_covers(
+        read_at: Any,
+        offset: int,
+        codepoints: list[int],
+    ) -> bool:
+        format_id = struct.unpack(">H", read_at(offset, 2))[0]
+        if format_id in {12, 13}:
+            header = read_at(offset, 16)
+            group_count = struct.unpack(">I", header[12:16])[0]
+            groups = [
+                struct.unpack(">III", read_at(offset + 16 + index * 12, 12))
+                for index in range(group_count)
+            ]
+            for point in codepoints:
+                found = False
+                for start, end, glyph in groups:
+                    if start <= point <= end:
+                        found = glyph != 0 if format_id == 13 else glyph + (point - start) != 0
+                        break
+                if not found:
+                    return False
+            return True
+        if format_id != 4:
+            return False
+        header = read_at(offset, 14)
+        segment_count = struct.unpack(">H", header[6:8])[0] // 2
+        end_codes_offset = offset + 14
+        end_codes = list(struct.unpack(">" + "H" * segment_count, read_at(end_codes_offset, segment_count * 2)))
+        start_codes_offset = end_codes_offset + segment_count * 2 + 2
+        start_codes = list(struct.unpack(">" + "H" * segment_count, read_at(start_codes_offset, segment_count * 2)))
+        deltas_offset = start_codes_offset + segment_count * 2
+        deltas = list(struct.unpack(">" + "h" * segment_count, read_at(deltas_offset, segment_count * 2)))
+        ranges_offset = deltas_offset + segment_count * 2
+        ranges = list(struct.unpack(">" + "H" * segment_count, read_at(ranges_offset, segment_count * 2)))
+        for point in codepoints:
+            matched = False
+            for index, (start, end) in enumerate(zip(start_codes, end_codes, strict=True)):
+                if not start <= point <= end:
+                    continue
+                range_offset = ranges[index]
+                if range_offset == 0:
+                    glyph = (point + deltas[index]) & 0xFFFF
+                else:
+                    glyph_offset = ranges_offset + index * 2 + range_offset + (point - start) * 2
+                    glyph = struct.unpack(">H", read_at(glyph_offset, 2))[0]
+                    if glyph:
+                        glyph = (glyph + deltas[index]) & 0xFFFF
+                matched = glyph != 0
+                break
+            if not matched:
+                return False
+        return True
 
     @staticmethod
     def _wrap(

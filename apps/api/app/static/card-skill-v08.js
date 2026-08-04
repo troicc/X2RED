@@ -13,7 +13,8 @@
   function injectControls() {
     const actions = document.querySelector(".card-control-actions");
     if (!actions || document.getElementById("card-visual-style")) return;
-    const template = document.getElementById("card-template")?.parentElement || document.getElementById("card-template");
+    const template = actions.querySelector(":scope > #card-template");
+    if (!template) return;
     const controls = [
       selectControl("card-visual-style", "视觉", [
         ["auto", "自动风格"], ["editorial", "Editorial 编辑"], ["swiss", "Swiss 设计"],

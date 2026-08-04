@@ -193,22 +193,95 @@ def test_rich_cards_store_style_layout_palette_and_material(tmp_path: Path) -> N
 def test_platform_frontend_and_health_contracts() -> None:
     root = Path(__file__).resolve().parents[3]
     platform_js = (root / "apps/api/app/static/platform-v08.js").read_text(encoding="utf-8")
+    studio_js = (root / "apps/api/app/static/studio-v07.js").read_text(encoding="utf-8")
     card_js = (root / "apps/api/app/static/card-skill-v08.js").read_text(encoding="utf-8")
     review_js = (root / "apps/api/app/static/review-v09.js").read_text(encoding="utf-8")
-    light_lab_js = (root / "apps/api/app/static/light-content-lab-v12.js").read_text(encoding="utf-8")
+    product_shell_js = (root / "apps/api/app/static/product-shell-v15.js").read_text(
+        encoding="utf-8"
+    )
+    light_v15_js = (root / "apps/api/app/static/light-content-v15.js").read_text(
+        encoding="utf-8"
+    )
+    light_v15_css = (root / "apps/api/app/static/light-content-v15.css").read_text(
+        encoding="utf-8"
+    )
+    product_shell_css = (root / "apps/api/app/static/product-shell-v15.css").read_text(
+        encoding="utf-8"
+    )
+    native_js = (root / "apps/api/app/static/native-skills-v11.js").read_text(
+        encoding="utf-8"
+    )
+    platforms_api = (root / "apps/api/app/api/platforms.py").read_text(encoding="utf-8")
+    native_api = (root / "apps/api/app/api/native_skills.py").read_text(encoding="utf-8")
+    ci = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     main_py = (root / "apps/api/app/main.py").read_text(encoding="utf-8")
     notices = (root / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
     assert "公众号工作台" in platform_js
     assert "skill-packs" in platform_js
     assert "去公众号" in platform_js
     assert "card-visual-style" in card_js
+    assert 'actions.querySelector(":scope > #card-template")' in card_js
+    assert "parentElement || document.getElementById(\"card-template\")" not in card_js
     assert "审阅故事板" in review_js
     assert "模块 Review" in review_js
     assert "发布助手" in review_js
-    assert "长文编辑" in light_lab_js
-    assert "轻内容图组" in light_lab_js
-    assert "多 Agent 生成 3 个候选" in light_lab_js
-    assert "批准并加入优质语料" in light_lab_js
+    assert "const controller" in light_v15_js
+    assert "任务设置" in light_v15_js
+    assert "文案候选" in light_v15_js
+    assert "视觉分镜" in light_v15_js
+    assert "成品交付" in light_v15_js
+    assert 'const tab = button("", "light-stage-tab"' in light_v15_js
+    assert 'tab.setAttribute("aria-label", `阶段 ${String(number).padStart(2, "0")}：${title}`);' in light_v15_js
+    assert 'button(title, "light-stage-tab"' not in light_v15_js
+    assert "light-storyboard-card-compact" in light_v15_js
+    assert "if (item.page !== state.selectedPage) return renderStoryboardSummary(item);" in light_v15_js
+    assert 'storyboardSelectField(item, "layout", "版式", LAYOUT_OPTIONS)' in light_v15_js
+    assert 'storyboardSelectField(item, "anchor", "视觉锚点", ANCHOR_OPTIONS)' in light_v15_js
+    assert 'storyboardSelectField(item, "texture", "质感", TEXTURE_OPTIONS)' in light_v15_js
+    assert "storyboardAccentField(item)" in light_v15_js
+    assert 'type: "number", min: 0, max: 1, step: 0.01' in light_v15_js
+    assert 'type: "number", min: 0.65, max: 2, step: 0.05' in light_v15_js
+    assert ".light-storyboard-card-compact" in light_v15_css
+    assert ".light-storyboard-summary" in light_v15_css
+    assert ".light-action-bar {\n  position: static;" in light_v15_css
+    assert "position: sticky;\n  bottom: 16px;" not in light_v15_css
+    assert "@media (min-width: 801px) and (max-width: 900px)" in product_shell_css
+    assert "@media (max-width: 800px)" in product_shell_css
+    assert "/wechat/light/variants/${encodeURIComponent(variant.id)}/storyboard" in light_v15_js
+    assert "仅重新排版（不调用图片模型）" in light_v15_js
+    assert "重新生成本页（调用图片模型）" in light_v15_js
+    assert "mode, pages: uniquePages" in light_v15_js
+    assert "meta.poster_specs" in light_v15_js
+    assert "state.currentVariant?.source_id === state.brief.sourceId" in light_v15_js
+    assert 'const preferredVariantId = sourceId ? ""' in light_v15_js
+    assert "state.variants.find((item) => item.source_id === state.brief.sourceId) || null" in light_v15_js
+    assert 'view: "signals-view"' in product_shell_js
+    assert 'view: "materials-view"' in product_shell_js
+    assert 'view: "corpus-pools-view"' in product_shell_js
+    assert 'view: "workbench-view"' in product_shell_js
+    assert 'view: "writing-view"' in product_shell_js
+    assert 'view: "wechat-view"' in product_shell_js
+    assert 'view: "publish-view"' in product_shell_js
+    assert 'view: "style-lab-view"' in product_shell_js
+    assert 'view: "settings-view"' in product_shell_js
+    assert "button.dataset.projectId === expectedId" in product_shell_js
+    assert "button.dataset.projectId = project.id" in studio_js
+    assert "native-zine-render" not in native_js
+    assert "window.fetch =" not in native_js
+    assert "/minimal-zine/variants/" not in native_js
+    assert "/wechat/light/variants/{variant_id}/storyboard" in platforms_api
+    assert 'Literal["render_missing", "recompose", "regenerate"]' in native_api
+    assert main_py.count('src="/static/product-shell-v15.js"') == 1
+    assert main_py.count('src="/static/light-content-v15.js"') == 1
+    for retired in (
+        "studio-navigation-v071.js",
+        "light-content-v10.js",
+        "light-content-lab-v12.js",
+        "light-content-fixes-v14.js",
+        "information-architecture-v14.js",
+    ):
+        assert retired not in main_py
+        assert retired not in ci
     assert 'version="0.11.0"' in main_py
     assert "reviewed-semantic-playwright" in main_py
     assert "reviewed-module-tree-plus-cover-brief" in main_py

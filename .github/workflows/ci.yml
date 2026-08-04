@@ -35,18 +35,15 @@ jobs:
       - run: node --check apps/api/app/static/studio-v07.js
       - run: node --check apps/api/app/static/studio-ux-v072.js
       - run: node --check apps/api/app/static/style-v07.js
-      - run: node --check apps/api/app/static/studio-navigation-v071.js
       - run: node --check apps/api/app/static/platform-v08.js
       - run: node --check apps/api/app/static/card-skill-v08.js
       - run: node --check apps/api/app/static/review-v09.js
       - run: node --check apps/api/app/static/review-bridge-v09.js
-      - run: node --check apps/api/app/static/light-content-v10.js
-      - run: node --check apps/api/app/static/light-content-lab-v12.js
-      - run: node --check apps/api/app/static/light-content-fixes-v14.js
-      - run: node --check apps/api/app/static/information-architecture-v14.js
       - run: node --check apps/api/app/static/signal-to-studio-v10.js
       - run: node --check apps/api/app/static/materials-v11.js
       - run: node --check apps/api/app/static/corpus-pools-v13.js
+      - run: node --check apps/api/app/static/product-shell-v15.js
+      - run: node --check apps/api/app/static/light-content-v15.js
       - run: node --check apps/api/app/static/native-skills-v11.js
       - run: node --check apps/api/extensions/wechat-publisher-assistant/popup.js
       - run: node --check apps/api/extensions/wechat-publisher-assistant/content.js

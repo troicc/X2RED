@@ -7,6 +7,8 @@
   <title>X2RED 创作工作台</title>
   <link rel="stylesheet" href="/static/styles.css" />
   <link rel="stylesheet" href="/static/studio-ux-v072.css" />
+  <link rel="stylesheet" href="/static/product-shell-v15.css" />
+  <link rel="stylesheet" href="/static/light-content-v15.css" />
 </head>
 <body>
   <div class="app-shell">
@@ -23,12 +25,20 @@
 
     <div class="app-main">
       <header class="topbar">
-        <div><p class="eyebrow">X → EDITORIAL → XIAOHONGSHU</p><h1 id="page-title">创作工作台</h1></div>
+        <div class="topbar-context">
+          <p id="global-context" class="eyebrow">02 · 内容工作台 / 小红书工作台</p>
+          <h1 id="page-title" class="visually-hidden">小红书工作台</h1>
+        </div>
         <div class="topbar-status"><span id="model-status" class="status-chip neutral">AI 检查中</span><span id="health" class="status-chip neutral">服务检查中</span></div>
       </header>
 
       <main class="view-stack">
         <section id="workbench-view" class="app-view active">
+          <section class="page-intro product-view-title">
+            <span class="section-kicker">CONTENT WORKBENCH</span>
+            <h2>小红书工作台</h2>
+            <p>从可追溯来源开始，完成分析、文案、制图与人工审核。</p>
+          </section>
           <section class="import-composer surface">
             <div class="import-copy"><span class="section-kicker">NEW SOURCE</span><h2>连续导入，集中判断</h2><p>普通帖子由 X2RED 抓取；X Article 和长文由 X2PDF 完整复原后发送到这里。</p></div>
             <form id="intake-form" class="import-form">

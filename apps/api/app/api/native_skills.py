@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -26,7 +26,30 @@ class NativeSkillInstallRequest(BaseModel):
 
 
 class MinimalZineRenderRequest(BaseModel):
+    """Keep legacy regenerate clients while exposing page-granular render modes."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["render_missing", "recompose", "regenerate"] | None = None
+    pages: list[int] | None = Field(default=None, max_length=6)
     regenerate: bool = False
+
+    @field_validator("pages")
+    @classmethod
+    def validate_requested_pages(cls, values: list[int] | None) -> list[int] | None:
+        if values is None:
+            return None
+        if len(set(values)) != len(values):
+            raise ValueError("pages 不能包含重复页码")
+        if any(value < 1 for value in values):
+            raise ValueError("pages 必须从第 1 页开始")
+        return values
+
+    @model_validator(mode="after")
+    def validate_legacy_precedence(self) -> MinimalZineRenderRequest:
+        if self.mode is not None and self.regenerate:
+            raise ValueError("显式 mode 与 regenerate=true 不能同时使用")
+        return self
 
 
 @router.get("")
@@ -72,6 +95,8 @@ def render_minimal_zine_variant(
         variant, results = service.render_variant(
             db,
             variant,
+            mode=body.mode,
+            pages=body.pages,
             regenerate=body.regenerate,
         )
         db.commit()
@@ -81,6 +106,7 @@ def render_minimal_zine_variant(
             "status": variant.status,
             "output_paths_json": variant.output_paths_json,
             "metadata_json": variant.metadata_json,
+            "mode": body.mode or ("regenerate" if body.regenerate else "render_missing"),
             "pages": results,
         }
     except NativeSkillError as exc:
