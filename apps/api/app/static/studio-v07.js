@@ -313,6 +313,15 @@
         approval.append(reject, approve);
         item.append(approval);
       }
+      if (artifact.artifact_type === "final_draft") {
+        const memoryAction = createElement("div", "artifact-approval");
+        const memoryButton = createElement("button", "secondary-action", "加入池子记忆");
+        memoryButton.type = "button";
+        memoryButton.dataset.memorySourceKind = "writing_artifact";
+        memoryButton.dataset.memorySourceId = artifact.id;
+        memoryAction.append(memoryButton);
+        item.append(memoryAction);
+      }
       timeline.append(item);
     });
     box.append(timeline);

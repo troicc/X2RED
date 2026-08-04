@@ -83,6 +83,7 @@ class ReaderFirstEditorialService(EditorialService):
         context: list[SourceItem],
         style: str,
         bindings: dict[str, SkillBinding] | None = None,
+        memory_prompts: dict[str, str] | None = None,
     ) -> dict | None:
         if not (self.settings.model_base_url and self.settings.model_name):
             return None
@@ -98,6 +99,7 @@ class ReaderFirstEditorialService(EditorialService):
             return None
 
         source_json = json.dumps(self._source_blocks(context), ensure_ascii=False)[:30000]
+        memory = memory_prompts or {}
         style_label = _STYLE_LABELS.get(style, style)
         analysis_prompt = f"""
 先分析下面的 X 原帖、Thread 或 X Article，不要直接写成稿。
@@ -117,6 +119,9 @@ uncertainties、audience_value、angles、recommended_angle、title_candidates�
 其中 recommended_angle 必须包含 name、reason、reader_hook、plain_language_thesis；
 outline 每一项包含 heading、purpose、source_indices，并按读者理解顺序组织。
 来源：{source_json}
+
+当前任务相关个人记忆：
+{memory.get("editor", "")}
 """.strip()
 
         try:
@@ -133,9 +138,12 @@ outline 每一项包含 heading、purpose、source_indices，并按读者理解�
 
             writing_prompt = f"""
 根据编辑分析和原始来源，写一篇真正面向读者的小红书技术长文。
-类型：{style_label}。{_READER_STYLE_GUIDES.get(style, _READER_STYLE_GUIDES['explain'])}
+类型：{style_label}。{_READER_STYLE_GUIDES.get(style, _READER_STYLE_GUIDES["explain"])}
 编辑分析：{json.dumps(analysis, ensure_ascii=False)[:15000]}
 原始来源：{source_json}
+
+当前任务相关个人记忆：
+{memory.get("writer", "")}
 
 读者稿必须遵守：
 - 开头两三句直接讲清“做成了什么”和“为什么这很厉害或很有意思”。
@@ -177,6 +185,7 @@ outline 每一项包含 heading、purpose、source_indices，并按读者理解�
                     analysis,
                     source_json,
                     polish_binding,
+                    memory_prompt=memory.get("polish", ""),
                 )
                 passes.append("writing.de_translate")
 
@@ -201,6 +210,8 @@ outline 每一项包含 heading、purpose、source_indices，并按读者理解�
         analysis: dict,
         source_json: str,
         binding: SkillBinding,
+        *,
+        memory_prompt: str = "",
     ) -> dict:
         prompt = f"""
 把下面初稿做最后一轮读者编辑。
@@ -217,6 +228,7 @@ outline 每一项包含 heading、purpose、source_indices，并按读者理解�
 编辑分析：{json.dumps(analysis, ensure_ascii=False)[:9000]}
 原始来源：{source_json}
 初稿：{json.dumps(initial, ensure_ascii=False)[:16000]}
+当前任务冻结的个人记忆：{memory_prompt}
 只输出 JSON：{{"title":"标题","body":"正文","tags":["标签"]}}
 """.strip()
         try:
@@ -336,7 +348,6 @@ outline 每一项包含 heading、purpose、source_indices，并按读者理解�
         if any(marker.replace(" ", "") in compact for marker in _GENERIC_DISCLAIMER_MARKERS):
             return True
         disclaimer_terms = sum(
-            term in compact
-            for term in ("核查", "验证", "边界", "适用性", "不确定", "公开资料")
+            term in compact for term in ("核查", "验证", "边界", "适用性", "不确定", "公开资料")
         )
         return disclaimer_terms >= 2 and len(compact) <= 220

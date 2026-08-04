@@ -27,6 +27,23 @@ All endpoints are local by default.
 - `PUT /api/drafts/{draft_id}`
 - `POST /api/drafts/{draft_id}/review`
 
+## Pool memory
+
+- `GET /api/pool-memory/source-options`
+- `GET /api/pool-memory/candidates`
+- `POST /api/pool-memory/candidates`
+- `PUT /api/pool-memory/candidates/{candidate_id}`
+- `POST /api/pool-memory/candidates/{candidate_id}/approve`
+- `GET /api/pool-memory/items`
+- `POST /api/pool-memory/items`
+- `POST /api/pool-memory/items/{memory_id}/supersede`
+- `POST /api/pool-memory/items/{memory_id}/revoke`
+- `POST /api/pool-memory/retrieve-preview`
+- `GET /api/pool-memory/snapshots`
+- `GET /api/pool-memory/usages`
+
+Candidate extraction never creates a formal card automatically. Approval and manual creation require explicit human confirmation, and uncertain source rights require an additional authorization confirmation. Supersede/revoke operations append lifecycle records rather than deleting history. Retrieval is task-scoped and fact-firewalled; snapshots and usages distinguish selection from actual configured-model consumption.
+
 ## Publish
 
 - `POST /api/publish/drafts/{draft_id}/prepare`

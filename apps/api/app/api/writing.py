@@ -6,12 +6,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_job_engine, get_writing_service
+from app.api.deps import get_job_engine, get_pool_memory_service, get_writing_service
 from app.db.session import get_db
 from app.domain.jobs import Job
 from app.domain.models import SourceItem
+from app.domain.pool_memory_schemas import PoolMemoryTargetCandidateRequest
 from app.domain.schemas import JobOut
-from app.domain.studio import StyleProfile, WritingArtifact, WritingProject
+from app.domain.studio import StyleProfile, WritingArtifact, WritingFeedback, WritingProject
 from app.domain.studio_schemas import (
     ArtifactApprovalRequest,
     StyleProfileCreate,
@@ -23,6 +24,7 @@ from app.domain.studio_schemas import (
 )
 from app.domain.style_schemas import StyleProfileTrainRequest
 from app.services.jobs import JobEngine
+from app.services.pool_memory import PoolMemoryError, PoolMemoryService
 from app.services.writing_studio import MultiAgentWritingService
 
 router = APIRouter(prefix="/api/writing", tags=["writing-studio"])
@@ -33,6 +35,12 @@ def project_payload(
     service: MultiAgentWritingService,
     project: WritingProject,
 ) -> dict:
+    memory_service = PoolMemoryService(service.settings, service.editorial)
+    memory_snapshot = memory_service.snapshot_for_target(
+        db,
+        target_type="writing_project",
+        target_id=project.id,
+    )
     return {
         "id": project.id,
         "source_id": project.source_id,
@@ -50,6 +58,7 @@ def project_payload(
         "updated_at": project.updated_at,
         "artifacts": service.artifacts(db, project.id),
         "runs": service.runs(db, project.id),
+        "memory_snapshot": memory_service.snapshot_summary(memory_snapshot),
     }
 
 
@@ -106,7 +115,9 @@ def list_projects(
     service: MultiAgentWritingService = Depends(get_writing_service),
 ) -> list[dict]:
     projects = list(
-        db.scalars(select(WritingProject).order_by(desc(WritingProject.updated_at)).limit(limit)).all()
+        db.scalars(
+            select(WritingProject).order_by(desc(WritingProject.updated_at)).limit(limit)
+        ).all()
     )
     return [project_payload(db, service, project) for project in projects]
 
@@ -176,7 +187,9 @@ def run_project(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.post("/projects/{project_id}/artifacts/{artifact_id}/approve", response_model=WritingProjectOut)
+@router.post(
+    "/projects/{project_id}/artifacts/{artifact_id}/approve", response_model=WritingProjectOut
+)
 def approve_artifact(
     project_id: str,
     artifact_id: str,
@@ -224,3 +237,106 @@ def add_feedback(
     )
     db.commit()
     return {"id": feedback.id, "created_at": feedback.created_at}
+
+
+@router.get("/projects/{project_id}/feedback")
+def list_feedback(
+    project_id: str,
+    db: Session = Depends(get_db),
+    memory_service: PoolMemoryService = Depends(get_pool_memory_service),
+) -> list[dict]:
+    if db.get(WritingProject, project_id) is None:
+        raise HTTPException(status_code=404, detail="写作项目不存在")
+    values = list(
+        db.scalars(
+            select(WritingFeedback)
+            .where(WritingFeedback.project_id == project_id)
+            .order_by(desc(WritingFeedback.created_at))
+        ).all()
+    )
+    return [
+        {
+            "id": item.id,
+            "draft_before_id": item.draft_before_id,
+            "draft_after_id": item.draft_after_id,
+            "diff": json.loads(item.diff_json or "{}"),
+            "feedback_reason": item.feedback_reason,
+            "affected_rules": json.loads(item.affected_rules_json or "[]"),
+            "pool_memory": memory_service.source_memory_status(
+                db,
+                source_kind="writing_feedback",
+                source_id=item.id,
+            ),
+            "created_at": item.created_at,
+        }
+        for item in values
+    ]
+
+
+@router.post(
+    "/projects/{project_id}/feedback/{feedback_id}/memory-candidate",
+    status_code=status.HTTP_201_CREATED,
+)
+async def feedback_memory_candidate(
+    project_id: str,
+    feedback_id: str,
+    body: PoolMemoryTargetCandidateRequest,
+    db: Session = Depends(get_db),
+    service: PoolMemoryService = Depends(get_pool_memory_service),
+) -> dict:
+    feedback = db.get(WritingFeedback, feedback_id)
+    if feedback is None or feedback.project_id != project_id:
+        raise HTTPException(status_code=404, detail="写作反馈不存在")
+    try:
+        candidate = await service.create_candidate(
+            db,
+            source_kind="writing_feedback",
+            source_id=feedback.id,
+            title=body.title,
+            dimensions=[str(item) for item in body.dimensions],
+            scope=body.scope.model_dump(),
+            usage_policy=body.usage_policy,
+            note=body.note,
+        )
+        db.commit()
+        db.refresh(candidate)
+        return {"candidate_id": candidate.id, "state": candidate.state}
+    except PoolMemoryError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post(
+    "/projects/{project_id}/final-memory-candidate",
+    status_code=status.HTTP_201_CREATED,
+)
+async def final_memory_candidate(
+    project_id: str,
+    body: PoolMemoryTargetCandidateRequest,
+    db: Session = Depends(get_db),
+    service: MultiAgentWritingService = Depends(get_writing_service),
+    memory_service: PoolMemoryService = Depends(get_pool_memory_service),
+) -> dict:
+    project = db.get(WritingProject, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="写作项目不存在")
+    artifact = service.latest_artifact(db, project.id, "final_draft")
+    if artifact is None:
+        raise HTTPException(status_code=404, detail="当前项目还没有终稿")
+    try:
+        candidate = await memory_service.create_candidate(
+            db,
+            source_kind="writing_artifact",
+            source_id=artifact.id,
+            title=body.title,
+            dimensions=[str(item) for item in body.dimensions],
+            scope=body.scope.model_dump(),
+            usage_policy=body.usage_policy,
+            note=body.note,
+        )
+        db.commit()
+        db.refresh(candidate)
+        return {"candidate_id": candidate.id, "state": candidate.state}
+    except PoolMemoryError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

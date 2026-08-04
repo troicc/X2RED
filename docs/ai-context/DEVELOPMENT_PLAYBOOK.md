@@ -173,7 +173,7 @@ X2RED_AUTO_L2_DAILY_LIMIT=5
 
 ## 6. 数据库迁移
 
-当前功能分支包含 Alembic revision `0010`，新增语料池和批次表。
+当前功能分支包含 Alembic revision `0011`。`0010` 新增语料池和批次表；`0011` 新增 `pool_memory_snapshots` 和 `pool_memory_usages`，正式记忆卡继续复用 append-only `review_artifacts`。
 
 `./scripts/start.sh` 和 `x2red serve` 默认自动迁移，因此正常启动不需要先单独运行迁移。
 
@@ -206,7 +206,7 @@ pytest -q
 ruff check apps/api --select E,F,I,B,UP --ignore E501,E701,E702,UP035,UP042,B008,I001
 ```
 
-2026-08-04 本地 CI 等价验证为 67 passed、8 warnings。测试数量会变化，不能把固定数字当成永久门槛；真正门槛是当前分支所有测试和两套 Python 均通过。该次还通过了 compileall、Ruff、active Node 脚本检查、发布助手选择器、shell/py_compile 和全新数据库 0001→0010 迁移。`apps/api/tests/conftest.py` 会隔离开发机 `.env`、`X2RED_*` 和代理变量，避免真实模型/代理配置污染测试；这不改变生产运行时配置加载。Minimal Zine 的产物/回滚测试会注入 font preflight，避免依赖 CI 宿主字体；专门的字体解析测试仍使用真实环境验证 CJK 可用与缺失路径。
+2026-08-04 23:03 本地 CI 等价验证为 71 passed、8 warnings。测试数量会变化，不能把固定数字当成永久门槛；真正门槛是当前分支全部测试通过。该次还通过了 compileall、Ruff、active Node 脚本检查、发布助手选择器、shell/py_compile、`git diff --check`、全新数据库 0001→0011 迁移和现有数据库 0010→0011 增量升级。`apps/api/tests/conftest.py` 会隔离开发机 `.env`、`X2RED_*` 和代理变量，避免真实模型/代理配置污染测试；这不改变生产运行时配置加载。运行时依赖使用 `httpx[socks]`，因此宿主机配置 SOCKS 代理时不会在模型客户端初始化阶段因缺少 `socksio` 退出。Minimal Zine 的产物/回滚测试会注入 font preflight，避免依赖 CI 宿主字体；专门的字体解析测试仍使用真实环境验证 CJK 可用与缺失路径。
 
 涉及 Python 版本差异的高风险 PR，在合并前应从 Actions 页面手动触发完整矩阵。不要为了跳过文档提交而直接给必需 workflow 添加 `paths-ignore`，否则 required check 可能保持 Pending。
 
@@ -214,6 +214,7 @@ ruff check apps/api --select E,F,I,B,UP --ignore E501,E701,E702,UP035,UP042,B008
 
 - 历史数据库迁移恢复；
 - 来源和语料池；
+- 池子记忆候选、人工批准、严格 scope、角色隔离、事实防火墙、替代/撤销、快照和真实使用记录；
 - MediaCrawler normalization 和跨平台 URL 校验；
 - 启动脚本和安装脚本；
 - 公众号发布助手选择器；
@@ -227,7 +228,7 @@ ruff check apps/api --select E,F,I,B,UP --ignore E501,E701,E702,UP035,UP042,B008
 
 CI 不能替代真实浏览器交互。重要改动后至少验证：
 
-2026-08-04 已在 1600、1440、1024 宽度执行浏览器检查：无 console error 或横向溢出，轻内容第 3 阶段为 1 个展开页 + 3 个紧凑页，第 4 阶段的成品与交付链接正确；来源切换和非首项写作项目深链也通过。后续改动仍需至少验证：
+2026-08-04 23:03 已在 1600、1440、1024、800 宽度执行池子记忆浏览器检查：独立导航、来源选项、手工规则、检索预览、空状态和响应式布局通过，无 console error 或横向溢出；此前轻内容第 3 阶段 1 个展开页 + 3 个紧凑页、第 4 阶段成品与交付链接、来源切换和非首项写作项目深链基线继续保留。后续改动仍需至少验证：
 
 1. 来源箱按平台切换和搜索；
 2. 来源下拉 `optgroup` 不会丢失当前选择；
@@ -242,6 +243,9 @@ CI 不能替代真实浏览器交互。重要改动后至少验证：
 11. Minimal Zine raw anchor 与 final poster 分离、CJK cmap 字体检查、边缘角标人工审图；
 12. preview 和 ZIP 内文件一致且 ZIP 不含 anchors；
 13. 旧数据库启动并升级成功。
+14. 池子记忆从内容生成候选后必须人工预览/编辑/批准，未授权来源需要明确确认；替代和撤销不物理覆盖旧卡。
+15. 检索只命中任务 scope，事实角色不获得风格记忆；无模型回退不新增 usage，模型真实消费才标记 snapshot applied。
+16. 草稿、AI 变换、多 Agent、公众号长文/轻内容和原生 Skill 的新版本都关联自己的冻结记忆快照。
 
 ## 9. 文档和上下文维护
 

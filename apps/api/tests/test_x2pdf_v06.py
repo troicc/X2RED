@@ -172,7 +172,7 @@ def test_x2pdf_bridge_lifecycle_skills_and_publish_archive(
         assert client.get(f"/api/sources/{source_id}").status_code == 404
 
         health = client.get("/health").json()
-        assert health["version"] == "0.11.0"
+        assert health["version"] == "0.12.0"
         assert health["editorial_pipeline"] == (
             "multi-agent-signal-to-story-plus-platform-skill-packs"
         )

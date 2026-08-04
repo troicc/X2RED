@@ -92,7 +92,7 @@
             <label>内部标签<input id="wechat-tags" maxlength="1000" /></label>
             <div class="platform-editor-actions">
               <span id="wechat-status" class="inline-status"></span>
-              <div><button id="wechat-save" class="secondary-action" type="submit">保存新版本</button><button id="wechat-render" class="primary-action" type="button">排版并生成发布包</button></div>
+              <div><button id="wechat-memory" class="secondary-action" type="button">加入池子记忆</button><button id="wechat-save" class="secondary-action" type="submit">保存新版本</button><button id="wechat-render" class="primary-action" type="button">排版并生成发布包</button></div>
             </div>
           </form>
         </article>
@@ -199,6 +199,7 @@
     values.forEach((variant) => {
       const button = el("button", `platform-variant-item${platformState.currentVariant?.id === variant.id ? " active" : ""}`);
       button.type = "button";
+      button.dataset.variantId = variant.id;
       button.innerHTML = `<strong>${variant.title || "未命名公众号版本"}</strong><span>v${variant.version} · ${variant.theme} · ${variant.status}</span><small>${dateText(variant.updated_at)}</small>`;
       button.addEventListener("click", () => selectVariant(variant.id));
       box.appendChild(button);
@@ -212,6 +213,7 @@
     document.getElementById("wechat-editor-empty").hidden = true;
     const form = document.getElementById("wechat-editor");
     form.hidden = false;
+    form.dataset.currentVariantId = variant.id;
     document.getElementById("wechat-title").value = variant.title;
     document.getElementById("wechat-subtitle").value = variant.subtitle;
     document.getElementById("wechat-summary").value = variant.summary;
@@ -331,6 +333,44 @@
     }
   }
 
+  function editorValues() {
+    return {
+      title: document.getElementById("wechat-title").value,
+      subtitle: document.getElementById("wechat-subtitle").value,
+      summary: document.getElementById("wechat-summary").value,
+      body_markdown: document.getElementById("wechat-body").value,
+      tags: document.getElementById("wechat-tags").value,
+      theme: document.getElementById("wechat-theme").value,
+    };
+  }
+
+  async function openMemoryCandidate() {
+    if (!platformState.currentVariant || platformState.busy) return;
+    setBusy(true, "正在先冻结当前编辑框内容…");
+    try {
+      let variant = platformState.currentVariant;
+      const payload = editorValues();
+      const changed = ["title", "subtitle", "summary", "body_markdown", "tags", "theme"]
+        .some((key) => String(variant[key] || "") !== String(payload[key] || ""));
+      if (changed) {
+        variant = await apiCall(`/api/platforms/variants/${encodeURIComponent(variant.id)}`, {
+          method: "PUT",
+          body: JSON.stringify(payload),
+        });
+        platformState.variants.unshift(variant);
+        selectVariant(variant.id);
+      }
+      document.dispatchEvent(new CustomEvent("x2red:memory-source", {
+        detail: { kind: "platform_variant", id: variant.id },
+      }));
+      showStatus(`已冻结为公众号 v${variant.version}，请检查记忆候选。`, "ok");
+    } catch (error) {
+      showStatus(error.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function renderVariant() {
     if (!platformState.currentVariant || platformState.busy) return;
     setBusy(true, "正在生成内联 HTML、封面对和 ZIP 发布包…");
@@ -364,6 +404,7 @@
   function bindEvents() {
     document.getElementById("wechat-create-form").addEventListener("submit", createVariant);
     document.getElementById("wechat-editor").addEventListener("submit", saveVariant);
+    document.getElementById("wechat-memory").addEventListener("click", openMemoryCandidate);
     document.getElementById("wechat-render").addEventListener("click", renderVariant);
     document.getElementById("wechat-refresh").addEventListener("click", () => loadWechat());
     document.getElementById("wechat-source").addEventListener("change", async () => {

@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_platform_service
+from app.api.deps import get_platform_service, get_pool_memory_service
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.domain.models import DraftRevision, SourceItem
@@ -28,12 +28,14 @@ from app.domain.platform_schemas import (
     WeChatVariantCreate,
 )
 from app.domain.platforms import PlatformVariant
+from app.domain.pool_memory_schemas import PoolMemoryTargetCandidateRequest
 from app.services.light_content import LightContentError
 from app.services.light_content_fit import assess_source_fit
 from app.services.light_content_lab import LightContentLabService
 from app.services.light_visual_renderer import VISUAL_STYLE_LABELS
 from app.services.minimal_zine_native import storyboard_model_input_changed
 from app.services.platform_studio import PlatformStudioError, PlatformStudioService
+from app.services.pool_memory import PoolMemoryError, PoolMemoryService
 from app.services.skill_packs import pack_payloads
 from app.services.skills import ensure_bindings
 from app.services.wechat_themes import list_theme_payloads
@@ -552,6 +554,58 @@ def create_wechat_light_corpus(
 @router.get("/variants/{variant_id}", response_model=PlatformVariantOut)
 def get_variant(variant_id: str, db: Session = Depends(get_db)) -> PlatformVariant:
     return _variant(db, variant_id)
+
+
+@router.post(
+    "/variants/{variant_id}/memory-candidate",
+    status_code=status.HTTP_201_CREATED,
+)
+async def variant_memory_candidate(
+    variant_id: str,
+    body: PoolMemoryTargetCandidateRequest,
+    db: Session = Depends(get_db),
+    service: PoolMemoryService = Depends(get_pool_memory_service),
+) -> dict:
+    variant = _variant(db, variant_id)
+    try:
+        candidate = await service.create_candidate(
+            db,
+            source_kind="platform_variant",
+            source_id=variant.id,
+            title=body.title,
+            dimensions=[str(item) for item in body.dimensions],
+            scope=body.scope.model_dump(),
+            usage_policy=body.usage_policy,
+            note=body.note,
+        )
+        db.commit()
+        db.refresh(candidate)
+        return {"candidate_id": candidate.id, "state": candidate.state}
+    except PoolMemoryError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/variants/{variant_id}/memory-usages")
+def variant_memory_usages(
+    variant_id: str,
+    db: Session = Depends(get_db),
+    service: PoolMemoryService = Depends(get_pool_memory_service),
+) -> dict:
+    variant = _variant(db, variant_id)
+    metadata = _json_object(variant.metadata_json)
+    snapshot = service.snapshot(db, str(metadata.get("memory_snapshot_id") or ""))
+    if snapshot is None:
+        return {
+            "variant_id": variant.id,
+            "snapshot": service.snapshot_summary(None),
+            "usages": [],
+        }
+    return {
+        "variant_id": variant.id,
+        "snapshot": service.snapshot_summary(snapshot),
+        "usages": service.list_usages(db, target_id=snapshot.target_id, limit=200),
+    }
 
 
 @router.put("/variants/{variant_id}", response_model=PlatformVariantOut)

@@ -273,7 +273,7 @@ def test_review_edit_render_and_wechat_publisher_flow(
         assert any(item["state"] == "superseded" for item in artifacts)
 
         health = client.get("/health").json()
-        assert health["version"] == "0.11.0"
+        assert health["version"] == "0.12.0"
         assert health["review_pipeline"] == (
             "storyboard-module-tree-cover-brief-versioned-approval"
         )

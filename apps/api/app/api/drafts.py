@@ -4,9 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_editorial_service
+from app.api.deps import get_editorial_service, get_pool_memory_service
 from app.db.session import get_db
 from app.domain.models import DraftRevision, ReviewDecision, SourceItem
+from app.domain.pool_memory_schemas import PoolMemoryTargetCandidateRequest
 from app.domain.schemas import (
     DraftGenerateRequest,
     DraftOut,
@@ -15,6 +16,7 @@ from app.domain.schemas import (
     ReviewRequest,
 )
 from app.services.editorial import EditorialService
+from app.services.pool_memory import PoolMemoryError, PoolMemoryService
 
 router = APIRouter(prefix="/api", tags=["drafts"])
 
@@ -118,3 +120,31 @@ def review_draft(
         "facts_checked": decision.facts_checked,
         "rights_checked": decision.rights_checked,
     }
+
+
+@router.post("/drafts/{draft_id}/memory-candidate", status_code=201)
+async def draft_memory_candidate(
+    draft_id: str,
+    body: PoolMemoryTargetCandidateRequest,
+    db: Session = Depends(get_db),
+    service: PoolMemoryService = Depends(get_pool_memory_service),
+) -> dict:
+    if db.get(DraftRevision, draft_id) is None:
+        raise HTTPException(status_code=404, detail="草稿不存在")
+    try:
+        candidate = await service.create_candidate(
+            db,
+            source_kind="draft_revision",
+            source_id=draft_id,
+            title=body.title,
+            dimensions=[str(item) for item in body.dimensions],
+            scope=body.scope.model_dump(),
+            usage_policy=body.usage_policy,
+            note=body.note,
+        )
+        db.commit()
+        db.refresh(candidate)
+        return {"candidate_id": candidate.id, "state": candidate.state}
+    except PoolMemoryError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

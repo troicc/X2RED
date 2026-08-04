@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.domain.models import DraftRevision, SourceItem
 from app.domain.studio import StyleProfile, WritingArtifact, WritingProject
 from app.domain.style_snapshot import WritingStyleSnapshot
-
+from app.services.pool_memory import PoolMemoryService
 
 _DEFAULT_STYLE = {
     "identity": "专业但不端着的中文内容创作者",
@@ -59,12 +59,19 @@ class StyleSnapshotMixin:
             profile_name = "Default"
             profile_version = 0
         else:
+            samples = self._json(profile.samples_json, {})
+            samples_serialized = json.dumps(samples, ensure_ascii=False, sort_keys=True)
             payload = {
                 "name": profile.name,
                 "description": profile.description,
                 "rules": self._json(profile.rules_json, {}),
                 "forbidden": self._json(profile.forbidden_json, []),
-                "samples": self._json(profile.samples_json, {}),
+                "sample_bundle": {
+                    "stored_in_style_profile": True,
+                    "content_injected": False,
+                    "sha256": hashlib.sha256(samples_serialized.encode()).hexdigest(),
+                    "note": "原始样本不整包注入；需要长期复用的短例应经人工批准进入池子记忆。",
+                },
                 "version": profile.version,
             }
             profile_name = profile.name
@@ -80,6 +87,25 @@ class StyleSnapshotMixin:
         )
         db.add(snapshot)
         db.flush()
+        memory_service = PoolMemoryService(self.settings, self.editorial)
+        memory_service.create_snapshot(
+            db,
+            target_type="writing_project",
+            target_id=project.id,
+            query={
+                "platform": "xhs",
+                "format": "article",
+                "article_type": "technical_explainer",
+                "style_profile_id": profile.id if profile else "",
+                "audience": project.reader,
+                "source_text": source.text_original[:30000],
+                "topics": [project.main_thesis] if project.main_thesis else [],
+                "limit": 6,
+                "max_chars": 6500,
+            },
+            model_configured=bool(self.settings.model_base_url and self.settings.model_name),
+            model_name=self.settings.model_name,
+        )
         return project
 
     def _style_payload(self, db: Session, project: WritingProject) -> dict[str, Any]:

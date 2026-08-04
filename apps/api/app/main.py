@@ -26,6 +26,7 @@ from app.api import (
     materials,
     native_skills,
     platforms,
+    pool_memory,
     publish,
     reviews,
     settings as settings_api,
@@ -37,6 +38,7 @@ from app.core.config import get_settings
 from app.db.base import Base
 from app.db.session import engine
 from app.domain import review_artifacts as review_artifact_models  # noqa: F401
+from app.domain import pool_memory as pool_memory_models  # noqa: F401
 from app.domain.studio import ContentAnalysis, WritingProject
 from app.providers.fxtwitter import FxTwitterProvider
 from app.services.discovery import DiscoveryService
@@ -45,6 +47,7 @@ from app.services.jobs import JobEngine
 from app.services.media_store import MediaStore
 from app.services.native_cards import NativeAwareCardService
 from app.services.platform_studio import PlatformStudioService
+from app.services.pool_memory import PoolMemoryService
 from app.services.publisher import PublishService
 from app.services.raw_store import RawStore
 from app.services.review_flow import ReviewFlowService
@@ -88,6 +91,7 @@ async def lifespan(app: FastAPI):
     writing_service = MultiAgentWritingService(settings, editorial_service)
     signal_service = SignalStudioService(settings, provider, raw_store, editorial_service)
     platform_service = PlatformStudioService(settings, editorial_service)
+    pool_memory_service = PoolMemoryService(settings, editorial_service)
     card_service = NativeAwareCardService(settings)
     review_flow_service = ReviewFlowService(
         settings,
@@ -203,6 +207,7 @@ async def lifespan(app: FastAPI):
     app.state.writing_service = writing_service
     app.state.signal_service = signal_service
     app.state.platform_service = platform_service
+    app.state.pool_memory_service = pool_memory_service
     app.state.review_flow_service = review_flow_service
     app.state.scheduler = scheduler
     app.state.card_service = card_service
@@ -218,7 +223,7 @@ async def lifespan(app: FastAPI):
     await media_store.close()
 
 
-app = FastAPI(title="X2RED", version="0.11.0", lifespan=lifespan)
+app = FastAPI(title="X2RED", version="0.12.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=r"^(chrome-extension://[a-z]{32}|http://(?:127\.0\.0\.1|localhost)(?::\d+)?)$",
@@ -231,6 +236,7 @@ app.include_router(discovery.router)
 app.include_router(signals.router)
 app.include_router(writing.router)
 app.include_router(platforms.router)
+app.include_router(pool_memory.router)
 app.include_router(reviews.router)
 app.include_router(intake.router)
 app.include_router(integrations.router)
@@ -273,6 +279,8 @@ def health() -> dict:
         "review_pipeline": "storyboard-module-tree-cover-brief-versioned-approval",
         "light_content_pipeline": "corpus-grounded-multi-agent-candidates-independent-reviews-human-gate",
         "corpus_pool_pipeline": "compiled-global-memory-plus-rotating-detailed-batches",
+        "pool_memory_pipeline": "human-approved-append-only-task-snapshots-role-scoped",
+        "pool_memory": True,
         "corpus_pools": True,
         "light_content_lab": True,
         "light_content_source_fit_gate": True,
@@ -340,6 +348,7 @@ def index() -> HTMLResponse:
         '<script src="/static/signal-to-studio-v10.js"></script>'
         '<script src="/static/materials-v11.js"></script>'
         '<script src="/static/corpus-pools-v13.js"></script>'
+        '<script src="/static/pool-memory-v16.js"></script>'
         '<script src="/static/product-shell-v15.js"></script>'
         '<script src="/static/light-content-v15.js"></script>'
         '<script src="/static/native-skills-v11.js"></script>'

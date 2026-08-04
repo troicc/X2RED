@@ -13,21 +13,22 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
-from app.domain.models import DraftRevision, SourceItem
+from app.domain.models import DraftRevision, SourceItem, new_id
 from app.domain.platforms import PlatformVariant, PlatformVariantState
 from app.domain.review_artifacts import ReviewArtifact, ReviewArtifactState
 from app.services.editorial import EditorialService
 from app.services.light_content import (
+    RECIPE_GUIDES,
+    RECIPE_LABELS,
     LightContentError,
     LightContentService,
     LightRenderValidation,
-    RECIPE_GUIDES,
-    RECIPE_LABELS,
 )
 from app.services.light_visual_renderer import (
-    LightVisualRenderer,
     VISUAL_STYLE_LABELS,
+    LightVisualRenderer,
 )
+from app.services.pool_memory import PoolMemoryService
 from app.services.publication_safety import strip_internal_markers
 from app.services.skills import binding_for
 
@@ -67,9 +68,9 @@ class LightContentLabService:
             raise LightContentError("不支持的轻内容配方")
         if quality_mode not in {"fast", "studio"}:
             raise LightContentError("质量模式必须是 fast 或 studio")
+        variant_id = new_id("variant")
         count = min(max(int(image_count), 3), 6)
         resolved_style = self.renderer.resolve_style(visual_style, recipe)
-        corpus = self.list_corpus(db, recipe=recipe, limit=8)
         source_text = draft.body if draft and draft.body.strip() else source.text_original
         title_binding = binding_for(db, "wechat.title_summary", self.settings.model_name)
         visual_binding = binding_for(db, "visual.art_direction", self.settings.model_name)
@@ -79,6 +80,64 @@ class LightContentLabService:
             and self.settings.model_base_url
             and (title_binding.model_name or self.settings.model_name)
         )
+        memory_service = PoolMemoryService(self.settings, self.editorial)
+        previous_meta = self._json_object(previous_variant.metadata_json) if previous_variant else {}
+        previous_snapshot = memory_service.snapshot(
+            db,
+            str(previous_meta.get("memory_snapshot_id") or ""),
+        )
+        if previous_variant is not None and previous_snapshot is not None:
+            memory_snapshot = memory_service.clone_snapshot(
+                db,
+                previous_snapshot,
+                target_type="platform_variant",
+                target_id=variant_id,
+                model_configured=model_ready,
+                model_name=title_binding.model_name or self.settings.model_name,
+            )
+        else:
+            memory_snapshot = memory_service.create_snapshot(
+                db,
+                target_type="platform_variant",
+                target_id=variant_id,
+                query={
+                    "platform": "wechat",
+                    "format": "light_series",
+                    "article_type": recipe,
+                    "topics": [seasonal_topic] if seasonal_topic else [],
+                    "audience": audience,
+                    "recipe": recipe,
+                    "visual_route": resolved_style,
+                    "source_text": source_text[:30000],
+                    "limit": 8,
+                    "max_chars": 6000,
+                    "legacy_none": previous_variant is not None,
+                },
+                model_configured=model_ready,
+                model_name=title_binding.model_name or self.settings.model_name,
+            )
+        memory_prompts = {
+            "copy": memory_service.prompt_payload(
+                memory_snapshot,
+                role="writer",
+                allow_pending=True,
+            )["text"],
+            "reader": memory_service.prompt_payload(
+                memory_snapshot,
+                role="reader_reviewer",
+                allow_pending=True,
+            )["text"],
+            "fact": memory_service.prompt_payload(
+                memory_snapshot,
+                role="culture_reviewer",
+                allow_pending=True,
+            )["text"],
+            "visual": memory_service.prompt_payload(
+                memory_snapshot,
+                role="visual_director",
+                allow_pending=True,
+            )["text"],
+        }
 
         pipeline: dict[str, Any] | None = None
         if model_ready:
@@ -92,7 +151,7 @@ class LightContentLabService:
                 visual_style=resolved_style,
                 quality_mode=quality_mode,
                 feedback=feedback,
-                corpus=corpus,
+                memory_prompts=memory_prompts,
                 previous_variant=previous_variant,
                 model_name=title_binding.model_name or self.settings.model_name,
                 reasoning_effort=title_binding.reasoning_effort,
@@ -111,6 +170,15 @@ class LightContentLabService:
             generator = "light-lab-multi-agent-fallback"
         else:
             generator = "light-lab-multi-agent-model"
+            roles = [
+                ("editor_in_chief", "light_strategy"),
+                ("writer", "light_candidates"),
+                ("reader_reviewer", "light_audience_review"),
+                ("chief_editor", "light_final"),
+            ]
+            if quality_mode == "studio":
+                roles.append(("visual_director", "light_visual_direction"))
+            memory_service.mark_snapshot_applied(db, memory_snapshot, roles=roles)
 
         final = self.legacy._normalize_output(
             pipeline["final"],
@@ -126,8 +194,8 @@ class LightContentLabService:
         )
         iteration_round = 1
         if previous_variant is not None:
-            previous_meta = self._json_object(previous_variant.metadata_json)
             iteration_round = int(previous_meta.get("iteration_round") or 1) + 1
+        memory_summary = memory_service.snapshot_summary(memory_snapshot)
         metadata = {
             "generator": generator,
             "content_mode": "light_series",
@@ -152,7 +220,12 @@ class LightContentLabService:
             "revision_summary": str(pipeline.get("revision_summary") or ""),
             "auto_revision_triggered": bool(pipeline.get("auto_revision_triggered")),
             "poster_specs": final["posters"],
-            "corpus_item_ids": [str(item.get("id") or "") for item in corpus if item.get("id")],
+            "corpus_item_ids": memory_summary["memory_ids"],
+            "memory_snapshot_id": memory_summary["snapshot_id"],
+            "memory_snapshot_hash": memory_summary["snapshot_hash"],
+            "memory_ids": memory_summary["memory_ids"],
+            "memory_applied": memory_summary["applied"],
+            "memory_status": memory_summary["status"],
             "human_approved": False,
             "source_skill": {
                 "repository": "LiamGvchi/gc-minimal-zine-poster",
@@ -167,6 +240,7 @@ class LightContentLabService:
             },
         }
         variant = PlatformVariant(
+            id=variant_id,
             source_id=source.id,
             base_draft_id=draft.id if draft else None,
             platform="wechat",
@@ -520,12 +594,11 @@ class LightContentLabService:
         visual_style: str,
         quality_mode: str,
         feedback: str,
-        corpus: list[dict[str, Any]],
+        memory_prompts: dict[str, str],
         previous_variant: PlatformVariant | None,
         model_name: str,
         reasoning_effort: str,
     ) -> dict[str, Any] | None:
-        corpus_text = self._corpus_prompt(corpus)
         previous_text = ""
         if previous_variant is not None:
             previous_text = (
@@ -544,10 +617,11 @@ class LightContentLabService:
 {previous_text}
 来源材料：
 {source_text[:12000]}
-
-授权或人工批准语料（只学习节奏、结构和判断方式，禁止照抄句子）：
-{corpus_text}
 """.strip()
+        copy_common = f"{common}\n\n当前任务相关文案记忆：\n{memory_prompts.get('copy', '')}"
+        reader_common = f"{common}\n\n当前任务相关读者关系记忆：\n{memory_prompts.get('reader', '')}"
+        fact_common = f"{common}\n\n事实边界：\n{memory_prompts.get('fact', '')}"
+        visual_common = f"{common}\n\n仅限视觉维度的个人记忆：\n{memory_prompts.get('visual', '')}"
         try:
             strategy = await self._agent(
                 role="轻内容选题策划",
@@ -555,7 +629,7 @@ class LightContentLabService:
                     "你是中文公众号轻内容策划。先判断来源与配方是否匹配，再决定一个明确的情绪任务、"
                     "现实矛盾、事实边界和三种不同角度。拒绝空泛鸡汤、标题党和对中老年读者的俯视。"
                 ),
-                prompt=f"""{common}\n\n只输出 JSON：
+                prompt=f"""{copy_common}\n\n只输出 JSON：
 {{"content_thesis":"一句核心判断","emotional_job":"读者读完获得什么",
 "source_fit":"为什么适合/不适合这个配方","taboos":["禁区"],
 "evidence_boundaries":["不能超出来源的结论"],
@@ -570,7 +644,7 @@ class LightContentLabService:
                     "你是中文轻内容主笔。一次写三份明显不同的候选，不要同义改写。每份必须具体、"
                     "像真实作者说话，并且标题、正文和图上短句属于同一个主题。"
                 ),
-                prompt=f"""{common}\n\n策划结果：
+                prompt=f"""{copy_common}\n\n策划结果：
 {json.dumps(strategy, ensure_ascii=False)}
 
 生成 3 个候选。正文 120-500 字，2-5 个短段；每张图一句 6-24 字主句和最多 36 字小注。
@@ -594,7 +668,7 @@ class LightContentLabService:
                         "你只做目标读者审稿，不改稿。逐份检查是否有真实共鸣、是否说人话、是否尊重读者、"
                         "是否值得转发；识别鸡汤、说教、空话和驴头不对马嘴。"
                     ),
-                    prompt=self._review_prompt(common, strategy, candidates, "audience"),
+                    prompt=self._review_prompt(reader_common, strategy, candidates, "audience"),
                     model_name=model_name,
                     reasoning_effort=reasoning_effort,
                     temperature=0.15,
@@ -605,7 +679,7 @@ class LightContentLabService:
                         "你只做事实、文化与时令审校，不改稿。检查来源一致性、节气和饮食表述、医学承诺、"
                         "刻板印象、虚构细节和廉价古风。"
                     ),
-                    prompt=self._review_prompt(common, strategy, candidates, "culture"),
+                    prompt=self._review_prompt(fact_common, strategy, candidates, "culture"),
                     model_name=model_name,
                     reasoning_effort=reasoning_effort,
                     temperature=0.1,
@@ -619,7 +693,7 @@ class LightContentLabService:
                             "你是视觉导演。让三份候选真正形成不同图组，不要所有页面都是米色纸、小方块和同一构图。"
                             "为每个候选指定风格、照片策略、物件、版式、色彩和页间节奏。"
                         ),
-                        prompt=f"""{common}\n\n候选：{json.dumps(candidates, ensure_ascii=False)}
+                        prompt=f"""{visual_common}\n\n候选：{json.dumps(candidates, ensure_ascii=False)}
 只输出 JSON：{{"candidate_directions":[{{"candidate_index":0,
 "visual_style":"minimal_zine|photo_editorial|classical_ink|dark_contemplative|seasonal_folk|old_newspaper",
 "why":"为什么适配","poster_directions":[{{"page":1,"layout":"","visual_metaphor":"","photo_direction":"","accent":"#RRGGBB"}}]}}]}}""",
@@ -646,7 +720,7 @@ class LightContentLabService:
                     "你是最终总编。依据两路独立审稿选择最合适的候选，并只做一次必要修订。"
                     "不能把三份候选拼成一篇；不能为了金句牺牲来源一致性。"
                 ),
-                prompt=f"""{common}\n\n策划：{json.dumps(strategy, ensure_ascii=False)}
+                prompt=f"""{copy_common}\n\n策划：{json.dumps(strategy, ensure_ascii=False)}
 候选：{json.dumps(candidates, ensure_ascii=False)}
 读者审稿：{json.dumps(audience_review, ensure_ascii=False)}
 文化事实审校：{json.dumps(culture_review, ensure_ascii=False)}
@@ -886,6 +960,10 @@ class LightContentLabService:
                     "chief_editor_note": metadata.get("chief_editor_note"),
                     "revision_summary": metadata.get("revision_summary"),
                     "corpus_item_ids": metadata.get("corpus_item_ids"),
+                    "memory_snapshot_id": metadata.get("memory_snapshot_id"),
+                    "memory_snapshot_hash": metadata.get("memory_snapshot_hash"),
+                    "memory_ids": metadata.get("memory_ids"),
+                    "memory_applied": metadata.get("memory_applied"),
                 },
                 ensure_ascii=False,
             ),

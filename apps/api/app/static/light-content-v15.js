@@ -670,6 +670,16 @@
     });
   }
 
+  async function openMemoryCandidate() {
+    await run("正在先冻结当前候选和编辑框内容…", async () => {
+      const variant = await persistCurrent({ adoptCandidate: true });
+      document.dispatchEvent(new CustomEvent("x2red:memory-source", {
+        detail: { kind: "platform_variant", id: variant.id },
+      }));
+      status(`已冻结为 v${variant.version}，请在池子记忆中检查候选。`, "ok");
+    });
+  }
+
   function ingestRenderResult(result) {
     (Array.isArray(result?.pages) ? result.pages : []).forEach((page) => {
       const number = Number(page.page);
@@ -1116,7 +1126,8 @@
     feedbackSection.append(
       labelFor("继续迭代意见", feedback),
       button("按反馈重新迭代", "light-secondary-action", () => { void iterate(); }),
-      button("批准当前编辑稿", "light-secondary-action", () => { void approve(); }),
+      button("批准到旧优质语料（兼容）", "light-secondary-action", () => { void approve(); }),
+      button("加入池子记忆", "light-secondary-action", () => { void openMemoryCandidate(); }),
     );
     feedbackSection.querySelectorAll("button").forEach((value) => { value.dataset.lightAction = "true"; });
     editorCard.appendChild(feedbackSection);
@@ -1386,7 +1397,10 @@
     body.appendChild(actionBar(
       "成品可继续回到文案或分镜阶段修订；任何改动都会创建新版本。",
       button("返回视觉分镜", "light-primary-action", () => { void requestStage(3); }),
-      [button("刷新当前版本", "light-secondary-action", () => { void refreshDelivery(); })],
+      [
+        button("加入池子记忆", "light-secondary-action", () => { void openMemoryCandidate(); }),
+        button("刷新当前版本", "light-secondary-action", () => { void refreshDelivery(); }),
+      ],
     ));
   }
 

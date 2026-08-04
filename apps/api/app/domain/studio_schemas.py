@@ -248,6 +248,7 @@ class WritingProjectOut(BaseModel):
     updated_at: datetime
     artifacts: list[WritingArtifactOut] = Field(default_factory=list)
     runs: list[AgentRunOut] = Field(default_factory=list)
+    memory_snapshot: dict[str, Any] = Field(default_factory=dict)
 
 
 class ArtifactApprovalRequest(BaseModel):

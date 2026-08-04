@@ -39,6 +39,17 @@ class DurableAgentRunnerMixin:
         if not binding.enabled:
             raise ValueError(f"Skill {skill_name} 已关闭")
 
+        memory = self._memory_payload(
+            db,
+            project,
+            role=role,
+            allow_pending=True,
+        )
+        user_prompt = (
+            f"{user_prompt}\n\n当前任务冻结的池子记忆：\n{memory['text']}\n"
+            "长期风格宪法与任务记忆必须分开理解；任务记忆只决定怎么写，不能补充事实。"
+        )
+
         if role in _AUTHOR_CONTEXT_ROLES:
             decision = self.latest_artifact(db, project.id, "author_decision")
             if decision is not None:
@@ -98,6 +109,12 @@ class DurableAgentRunnerMixin:
                     temperature=temperature,
                     reasoning_effort=binding.reasoning_effort,
                     model_name=binding.model_name,
+                )
+                self._mark_memory_applied(
+                    db,
+                    project,
+                    role=role,
+                    stage=stage,
                 )
             else:
                 result = self._fallback_agent(role, project)

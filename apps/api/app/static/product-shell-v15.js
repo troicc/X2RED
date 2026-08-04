@@ -60,6 +60,12 @@
     {
       group: "models",
       layer: "03 · 模型与 Skill",
+      view: "pool-memory-view",
+      label: "池子记忆",
+    },
+    {
+      group: "models",
+      layer: "03 · 模型与 Skill",
       view: "style-lab-view",
       label: "风格配置",
     },

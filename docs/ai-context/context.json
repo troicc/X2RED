@@ -1,19 +1,20 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-04T16:16:00+08:00",
+  "updated_at": "2026-08-04T23:03:00+08:00",
   "repository": "troicc/X2RED",
+  "application_version": "0.12.0",
   "snapshot": {
     "branch": "agent/replace-crawlers-with-api-adapters",
     "pull_request": 19,
     "pull_request_title": "重构简中素材采集、语料池与三层创作工作区",
     "state_at_snapshot": "open_draft_mergeable_clean_unmerged_inspected_2026-08-04",
-    "code_head_at_inspection": "417adb4640ee7411362bc7a943b42c2c806a341b",
+    "code_head_at_inspection": "5a4d031f09daf6cfc3d630f91d340196bf9e83dd",
     "implementation_commit": "f48fff4",
     "ci_portability_fix_commit": "3063a9e",
     "verified_remote_ci_head": "bc76e1b9ce550556ad892c81315f9ea0af453e63",
     "github_checks_at_inspection": "all four push/pull_request Python 3.12 and 3.13 checks passed; PR was CLEAN and MERGEABLE",
-    "last_verified_test_result": "local CI-equivalent full suite: 67 passed, 8 warnings; compileall, Ruff, active JavaScript, publisher selector, shell, py_compile, and clean 0001-to-0010 migration passed",
-    "browser_smoke_at_inspection": "1600/1440/1024 widths: no console errors or horizontal overflow; stage 3 had 1 expanded and 3 compact pages; stage 4 delivery files rendered; source switching and a non-first writing-project deep link selected the exact matching record",
+    "last_verified_test_result": "local CI-equivalent full suite: 71 passed, 8 warnings; compileall, Ruff, active JavaScript, publisher selector, shell, py_compile, git diff check, clean 0001-to-0011 migration, and existing 0010-to-0011 upgrade passed",
+    "browser_smoke_at_inspection": "1600/1440/1024/800 widths: pool-memory navigation, source options, manual rules, retrieval preview, empty states and responsive layout passed with no console errors or horizontal overflow; prior light-content stages, source switching and writing-project deep-link baselines remain covered",
     "volatile_fields_must_be_rechecked": true
   },
   "ci_policy": {
@@ -42,10 +43,11 @@
     {
       "id": "models_skills",
       "label": "模型与 Skill",
-      "contains": ["文本模型", "图片模型", "风格", "Guizang", "Minimal Zine"]
+      "contains": ["文本模型", "图片模型", "池子记忆", "风格", "Guizang", "Minimal Zine"]
     }
   ],
   "primary_flow": "X/简中平台发现 -> SourceItem -> 平台分类 -> CorpusPool -> CorpusBatch -> 工作台 -> 编辑/制图/审核/发布",
+  "memory_flow": "approved content/feedback/pattern/manual rule -> memory candidate -> human edit/approval -> task and role scoped retrieval -> immutable selection snapshot -> real model usage -> traceable outcome",
   "source_groups": ["pool", "x", "xhs", "dy", "ks", "bili", "wb", "tieba", "zhihu", "web"],
   "simplified_chinese_discovery": {
     "primary_engine": "NanmiCoder/MediaCrawler",
@@ -55,8 +57,24 @@
     "constraints": ["low frequency", "manual trigger", "no comments", "no media download", "no access-control bypass", "non-commercial learning license"]
   },
   "database": {
-    "alembic_revision": "0010",
-    "new_tables": ["corpus_pools", "corpus_pool_sources", "corpus_batches"]
+    "alembic_revision": "0011",
+    "revision_0010_tables": ["corpus_pools", "corpus_pool_sources", "corpus_batches"],
+    "revision_0011_tables": ["pool_memory_snapshots", "pool_memory_usages"],
+    "pool_memory_cards_storage": "review_artifacts"
+  },
+  "pool_memory": {
+    "artifact_types": ["memory_candidate", "memory_card", "memory_event"],
+    "approval_contract": "extraction creates a candidate only; formal cards require explicit human approval and authorization confirmation when source rights are not already approved",
+    "source_kinds": ["draft", "platform_variant", "feedback", "pattern", "writing_artifact", "review_artifact", "manual", "legacy light_corpus_item"],
+    "scope_dimensions": ["platform", "format", "article_type", "style_profile", "audience", "recipe", "visual_route"],
+    "retrieval": "hard scope filtering, task similarity, source priority, recency and usage scoring; dedupe per source; default 4-8 cards",
+    "fact_firewall": "memory controls how to write, never what facts are allowed; evidence roles receive no style-memory payload",
+    "lifecycle": "append-only approve, supersede and revoke; no physical-overwrite API",
+    "snapshot_contract": "freeze selected IDs, role-scoped prompt payload and hash per target; clone for derived versions; never mutate the old target snapshot",
+    "usage_truth": "PoolMemoryUsage is appended only after a configured model actually consumes memory; deterministic fallback preserves provenance but remains applied=false",
+    "integrations": ["quick draft", "AI transform", "multi-Agent final", "WeChat long-form", "WeChat light-content and iterations", "XHS native skill copy and visual prompts"],
+    "runtime_assets": ["pool-memory-v16.js", "pool-memory-v16.css"],
+    "api_prefix": "/api/pool-memory"
   },
   "light_content": {
     "bug_root_cause": "loadLab was called while busy=true and returned early",
@@ -98,6 +116,10 @@
     "apps/api/app/static/light-content-v15.css",
     "apps/api/app/services/minimal_zine_native.py",
     "apps/api/app/services/light_visual_renderer.py",
+    "apps/api/app/api/pool_memory.py",
+    "apps/api/app/services/pool_memory.py",
+    "apps/api/app/static/pool-memory-v16.js",
+    "apps/api/app/static/pool-memory-v16.css",
     "apps/api/app/api/sources.py",
     "apps/api/app/api/corpus_pools.py",
     "apps/api/app/services/corpus_pools.py",
@@ -109,6 +131,10 @@
     "signal studio discovers X and material library discovers Simplified-Chinese platforms",
     "all discovery paths converge on SourceItem",
     "corpus batches freeze memory, detailed sources, revision and provenance",
+    "pool-memory cards require human approval and remain separate from factual evidence",
+    "pool-memory retrieval is task-scoped and role-scoped; factual agents receive no style memory",
+    "derived versions freeze or clone immutable memory selection snapshots",
+    "only real model consumption creates memory usage records",
     "render light content from current candidate and current editor text",
     "do not delegate final Chinese typography to image models",
     "final publishing remains a human action",

@@ -18,7 +18,7 @@ from app.domain.studio import (
     WritingState,
 )
 from app.services.editorial import EditorialService
-
+from app.services.pool_memory import PoolMemoryService
 
 ROLE_SKILLS = {
     "editor_in_chief": "writing.editor",
@@ -195,6 +195,45 @@ class WritingCore:
             result[artifact.artifact_type] = self._json(artifact.content_json, {})
         return result
 
+    def _memory_snapshot(self, db: Session, project: WritingProject):
+        return PoolMemoryService(self.settings, self.editorial).snapshot_for_target(
+            db,
+            target_type="writing_project",
+            target_id=project.id,
+        )
+
+    def _memory_payload(
+        self,
+        db: Session,
+        project: WritingProject,
+        *,
+        role: str,
+        allow_pending: bool = True,
+    ) -> dict[str, Any]:
+        service = PoolMemoryService(self.settings, self.editorial)
+        return service.prompt_payload(
+            self._memory_snapshot(db, project),
+            role=role,
+            allow_pending=allow_pending,
+        )
+
+    def _mark_memory_applied(
+        self,
+        db: Session,
+        project: WritingProject,
+        *,
+        role: str,
+        stage: str,
+    ) -> None:
+        snapshot = self._memory_snapshot(db, project)
+        if snapshot is None:
+            return
+        PoolMemoryService(self.settings, self.editorial).mark_snapshot_applied(
+            db,
+            snapshot,
+            roles=[(role, stage)],
+        )
+
     def _store_artifact(
         self,
         db: Session,
@@ -272,6 +311,7 @@ class WritingCore:
                     "final_artifact_id": artifact.id,
                     "roles": list(ROLE_SKILLS),
                     "style_profile_id": project.style_profile_id,
+                    **self._memory_provenance(db, project),
                 },
                 ensure_ascii=False,
             ),
@@ -280,6 +320,18 @@ class WritingCore:
         db.add(draft)
         db.flush()
         return draft
+
+    def _memory_provenance(self, db: Session, project: WritingProject) -> dict[str, Any]:
+        summary = PoolMemoryService(self.settings, self.editorial).snapshot_summary(
+            self._memory_snapshot(db, project)
+        )
+        return {
+            "memory_snapshot_id": summary["snapshot_id"],
+            "memory_snapshot_hash": summary["snapshot_hash"],
+            "memory_ids": summary["memory_ids"],
+            "memory_applied": summary["applied"],
+            "memory_status": summary["status"],
+        }
 
     def add_feedback(
         self,

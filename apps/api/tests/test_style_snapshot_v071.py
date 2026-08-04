@@ -60,7 +60,10 @@ def test_writing_project_freezes_style_profile_version(
                     ensure_ascii=False,
                 ),
                 forbidden_json=json.dumps(["总的来说"], ensure_ascii=False),
-                samples_json="{}",
+                samples_json=json.dumps(
+                    {"original_samples": ["这是一篇不应整包进入 Agent Prompt 的完整原创样本。"]},
+                    ensure_ascii=False,
+                ),
                 version=1,
             )
             db.add_all([source, profile])
@@ -89,6 +92,8 @@ def test_writing_project_freezes_style_profile_version(
             assert snapshot.style_profile_version == 1
             assert frozen_payload["rules"]["paragraph_habits"] == ["先结果后机制"]
             assert frozen_payload["forbidden"] == ["总的来说"]
+            assert frozen_payload["sample_bundle"]["content_injected"] is False
+            assert "完整原创样本" not in snapshot.snapshot_json
 
             profile = db.get(StyleProfile, profile_id)
             assert profile is not None

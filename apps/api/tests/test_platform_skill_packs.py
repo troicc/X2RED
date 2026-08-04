@@ -282,7 +282,7 @@ def test_platform_frontend_and_health_contracts() -> None:
     ):
         assert retired not in main_py
         assert retired not in ci
-    assert 'version="0.11.0"' in main_py
+    assert 'version="0.12.0"' in main_py
     assert "reviewed-semantic-playwright" in main_py
     assert "reviewed-module-tree-plus-cover-brief" in main_py
     assert "six-route-distinct-visual-v12" in main_py

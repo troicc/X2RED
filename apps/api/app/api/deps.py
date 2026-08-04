@@ -9,6 +9,7 @@ from app.services.editorial import EditorialService
 from app.services.intake import IntakeService
 from app.services.jobs import JobEngine
 from app.services.platform_studio import PlatformStudioService
+from app.services.pool_memory import PoolMemoryService
 from app.services.publisher import PublishService
 from app.services.signal_studio import SignalStudioService
 from app.services.writing_studio import MultiAgentWritingService
@@ -52,3 +53,7 @@ def get_writing_service(request: Request) -> MultiAgentWritingService:
 
 def get_platform_service(request: Request) -> PlatformStudioService:
     return request.app.state.platform_service
+
+
+def get_pool_memory_service(request: Request) -> PoolMemoryService:
+    return request.app.state.pool_memory_service

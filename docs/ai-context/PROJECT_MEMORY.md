@@ -1,6 +1,6 @@
 # X2RED 项目记忆
 
-更新时间：2026-08-04 16:16 +08:00
+更新时间：2026-08-04 23:03 +08:00
 
 ## 一、当前快照
 
@@ -18,7 +18,7 @@ Linux CI 便携性修复提交：`3063a9e`（非字体主题的 Minimal Zine 生
 
 2026-08-04 检查时 PR 状态：open、draft、mergeable、clean、尚未合并到 `main`。修复后远端验证 head `bc76e1b9ce550556ad892c81315f9ea0af453e63` 的 push/PR 两套 Python 3.12 和 3.13 共四个 Actions 均通过。该状态和 head 都是易变化事实。
 
-2026-08-04 的本地 CI 等价验证：完整测试 67 passed、8 warnings；compileall、Ruff、所有 active Node 脚本、发布助手选择器、shell/py_compile 和全新数据库 0001→0010 迁移均通过。真实浏览器在 1600、1440、1024 宽度检查无 console error 或横向溢出；轻内容第 3 阶段为 1 个展开页和 3 个紧凑页，第 4 阶段显示同一不可变版本的 manifest、预览、ZIP 和 4 张成品。来源切换能同步到该来源已有版本；写作项目深链用非首项 ID 验证后精确选中目标项目。
+2026-08-04 23:03 的最新本地 CI 等价验证：完整测试 71 passed、8 warnings；compileall、Ruff、所有 active Node 脚本、发布助手选择器、shell/py_compile、`git diff --check` 和全新数据库 0001→0011 迁移均通过。现有本地数据库完成 quick check、0010→0011 增量升级和升级后 quick check。真实服务在 `127.0.0.1:8787` 启动成功，`x2red check --publisher` 通过；真实浏览器在 1600、1440、1024、800 宽度检查池子记忆入口、来源选项、手工规则、检索预览和响应式布局，无 console error 或横向溢出。此前轻内容四阶段、来源切换和写作项目深链基线继续由完整回归套件覆盖。
 
 首次推送后的 GitHub Ubuntu runner 暴露了 3 个测试的宿主字体耦合：产物集合、raw 拒绝和 staging 回滚测试在进入各自断言前，被真实 CJK 字体门禁提前拦截。生产合同没有放宽；`3063a9e` 只为这三个非字体主题测试注入已通过的 font preflight，专门的字体解析测试继续覆盖“有 CJK 字体成功、无 CJK 字体明确失败”。修复后本地完整套件仍为 67 passed、8 warnings，远端 `bc76e1b` 四个矩阵任务均通过。
 
@@ -56,6 +56,7 @@ Linux CI 便携性修复提交：`3063a9e`（非字体主题的 Minimal Zine 生
 - OpenAI-compatible 文本模型；
 - 图片模型；
 - 风格配置；
+- 人工批准、任务相关的池子记忆；
 - Guizang 原生卡片 Skill；
 - Minimal Zine 原生视觉 Skill；
 - 未来可插拔模型和 Skill。
@@ -85,6 +86,8 @@ X 信号台 ───────────────┐
 ```
 
 所有发现渠道最终都应该进入统一的标准来源，而不是让每个平台维护孤立的数据孤岛。
+
+池子记忆位于模型与 Skill 层，是与 `CorpusBatch` 证据链分离的“怎么写”经验层。生成前按平台、格式、文章类型、风格、受众、配方和视觉路线检索少量已批准记忆；证据包仍独立决定“能写什么”，历史记忆中的人名、数字、日期、结果和因果不得进入新文章事实。
 
 ## 四、已完成的主要重构
 
@@ -289,7 +292,9 @@ X 信号台 ───────────────┐
 
 #### 03 · 模型与 Skill
 
-- 风格和模型设置；
+- 池子记忆；
+- 风格配置；
+- 模型设置；
 - 原生 Skill。
 
 这是当前信息架构的产品基线。后续新增功能应优先并入这三层，而不是继续增加平级主导航。
@@ -300,7 +305,7 @@ v15 产品壳的 canonical 导航层固定为：
 
 - 语料素材库：信号、原料、语料池；
 - 内容工作台：工作台、写作、公众号、发布；
-- 模型与 Skill：模型、风格和设置。
+- 模型与 Skill：池子记忆、风格、模型和原生 Skill。
 
 公众号轻内容在同一工作台内使用四个阶段：任务设置 → 文案候选 → 视觉分镜 → 成品交付。它会在进入视觉阶段前持久化当前候选和编辑框；视觉分镜只展开选中的一页，其余页面保持紧凑摘要；版式、视觉锚点、质感、强调色、焦点和缩放等枚举/控件显示中文标签。
 
@@ -316,7 +321,37 @@ Minimal Zine 渲染接口 `POST /api/native-skills/minimal-zine/variants/{varian
 - 自定义 storyboard `mood` 会进入冻结模型输入和 fingerprint，不再被静默降级为 `quiet`。
 - README、根 `ARCHITECTURE.md` 和 `docs/WORKFLOW.md` 已统一到三层架构、MediaCrawler、语料池/批次与 Minimal Zine 本地合成合同。
 
-### K. GitHub Actions 额度优化
+### K. 池子记忆与个人风格闭环（v0.12）
+
+池子记忆不再等同于一个不断膨胀的全局 Prompt。当前实现使用现有 `ReviewArtifact` 保存三类 append-only 记录：
+
+- `memory_candidate`：由文章、平台版本、反馈、模式卡或写作产物提炼的待批准候选；
+- `memory_card`：人工确认并批准的正式记忆卡；
+- `memory_event`：替代和撤销事件，旧卡保留且不物理覆盖。
+
+候选生成、候选编辑和正式批准相互分离。来源权利未明确时必须额外确认授权；模式卡只能保存抽象模式；手工规则必须确认原创、系统生成且已批准，或已获授权。卡片保存来源引用、版本、学习维度、适用范围、规则/偏好/禁用表达/短例/结构/视觉方向及 provenance，完整原文仍由来源对象持有，不复制进每次模型上下文。
+
+检索使用两阶段策略：先按平台、格式、文章类型、风格配置、受众、配方和视觉路线做硬过滤，再按主题相似度、来源优先级、时间和历史使用次数评分；同一来源去重，默认只取 4—8 条。Prompt 按角色分区，事实/证据角色不接收风格记忆；其他角色只得到与职责相关的维度。每个生成目标冻结不可变 `PoolMemorySnapshot`，只有配置的模型真实消费后才标记 `applied=true` 并追加 `PoolMemoryUsage`。无模型的确定性回退会保留选择 provenance，但不会伪称记忆已经影响输出，也不会增加使用记录。
+
+该链路已经接入快速小红书草稿、多 Agent 写作终稿、公众号长文、公众号轻内容及其迭代、XHS 原生 Skill 文案/视觉提示。AI 变换和轻内容迭代会克隆原版本的冻结选择，不回写旧快照。风格训练快照只保留授权样本包的 hash 和说明，不再把完整历史样本正文注入所有任务。
+
+前端在“03 · 模型与 Skill”下提供独立“池子记忆”工作台，包括内容提炼、手工规则、候选预览/编辑/批准、替代、撤销、任务检索预览、有效记忆和最近使用链路；草稿、多 Agent 终稿、公众号长文和轻内容成品均提供就地入口。1440px 及更窄桌面宽度会把追溯面板换行，避免检索控件在窄右栏内被压缩。
+
+数据库 revision `0011` 新增：
+
+- `pool_memory_snapshots`
+- `pool_memory_usages`
+
+相关实现：
+
+- `apps/api/app/api/pool_memory.py`
+- `apps/api/app/services/pool_memory.py`
+- `apps/api/app/domain/pool_memory.py`
+- `apps/api/app/static/pool-memory-v16.js`
+- `apps/api/app/static/pool-memory-v16.css`
+- `apps/api/tests/test_pool_memory_v16.py`
+
+### L. GitHub Actions 额度优化
 
 由于仓库为 private，标准 GitHub-hosted runner 会消耗账户额度。旧工作流对 `agent/**` 同时监听 `push` 和 `pull_request`，每次 PR 推送再乘 Python 3.12/3.13，实际产生 4 个任务。
 
@@ -351,6 +386,10 @@ Minimal Zine 渲染接口 `POST /api/native-skills/minimal-zine/variants/{varian
 
 分别代表长期语料池、池成员关系和冻结生成批次。
 
+### ReviewArtifact / PoolMemorySnapshot / PoolMemoryUsage
+
+`ReviewArtifact` 的 memory candidate/card/event 保存人工门禁的 append-only 风格经验；`PoolMemorySnapshot` 冻结一次生成选择、角色 Prompt 和 hash；`PoolMemoryUsage` 只记录模型真实消费的记忆、角色、阶段、分数和选择原因。记忆决定表达方式，不是当前文章的事实来源。
+
 ### DraftRevision
 
 不可变编辑版本。任何人工修改应该产生新版本，旧版本保留。
@@ -368,6 +407,8 @@ Minimal Zine 渲染接口 `POST /api/native-skills/minimal-zine/variants/{varian
 ### 文本模型
 
 使用 OpenAI-compatible chat endpoint，用于分析、写作、风格学习、平台适配和 Prompt 编译。无模型配置时，部分基础功能可以使用确定性回退，但高级工作室和原生视觉编译需要模型。
+
+池子记忆只在模型配置且实际调用成功时标记为已应用。检索结果按角色最小化注入，证据角色不读取风格记忆；历史样本和记忆中的具体事实不能越过当前 evidence pack。
 
 ### 图片模型
 
@@ -406,7 +447,7 @@ Minimal Zine native render 需要通过字体 `cmap` 探针验证中文 glyph；
 
 ## 八、当前文档状态
 
-截至 2026-08-04，README、根 `ARCHITECTURE.md`、`docs/WORKFLOW.md` 与本上下文包已经统一到当前三层架构。仍可能存在历史设计文档或已退役前端控制器中的旧术语；它们不得覆盖运行时入口和本上下文记录的产品合同。
+截至 2026-08-04 23:03，README、根 `ARCHITECTURE.md`、`docs/WORKFLOW.md`、`docs/API.md` 与本上下文包已经统一到当前三层架构、池子记忆闭环和 revision `0011`。仍可能存在历史设计文档或已退役前端控制器中的旧术语；它们不得覆盖运行时入口和本上下文记录的产品合同。
 
 ## 九、未来 Agent 的工作方式
 

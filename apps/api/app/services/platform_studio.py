@@ -11,9 +11,10 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
-from app.domain.models import DraftRevision, SourceItem
+from app.domain.models import DraftRevision, SourceItem, new_id
 from app.domain.platforms import PlatformVariant, PlatformVariantState
 from app.services.editorial import EditorialService
+from app.services.pool_memory import PoolMemoryService
 from app.services.skills import binding_for
 from app.services.source_graph import connected_sources
 from app.services.wechat_cover_renderer import WeChatCoverRenderer
@@ -44,6 +45,7 @@ class PlatformStudioService:
         include_illustration_plan: bool,
         author: str,
     ) -> PlatformVariant:
+        variant_id = new_id("variant")
         selected_theme = theme if theme != "auto" else auto_theme(
             draft.title if draft else "",
             draft.body if draft else source.text_original,
@@ -61,6 +63,43 @@ class PlatformStudioService:
                 "wechat.qa",
             )
         }
+        draft_provenance = self._json_object(draft.provenance_json) if draft else {}
+        adapt_binding = bindings["wechat.adapt_longform"]
+        model_ready = bool(
+            adapt_binding.enabled
+            and self.settings.model_base_url
+            and (adapt_binding.model_name or self.settings.model_name)
+        )
+        memory_service = PoolMemoryService(self.settings, self.editorial)
+        memory_snapshot = memory_service.create_snapshot(
+            db,
+            target_type="platform_variant",
+            target_id=variant_id,
+            query={
+                "platform": "wechat",
+                "format": "article",
+                "article_type": {
+                    "explain": "technical_explainer",
+                    "news": "news",
+                    "opinion": "commentary",
+                    "studio": "technical_explainer",
+                }.get(draft.style if draft else "", "technical_explainer"),
+                "style_profile_id": str(draft_provenance.get("style_profile_id") or ""),
+                "topics": [draft.title] if draft and draft.title else [],
+                "source_text": (draft.body if draft and draft.body.strip() else source.text_original)[
+                    :30000
+                ],
+                "limit": 6,
+                "max_chars": 6500,
+            },
+            model_configured=model_ready,
+            model_name=adapt_binding.model_name or self.settings.model_name,
+        )
+        memory_prompt = memory_service.prompt_payload(
+            memory_snapshot,
+            role="writer",
+            allow_pending=True,
+        )["text"]
         model_output = await self._generate_platform_copy(
             db,
             source=source,
@@ -71,6 +110,7 @@ class PlatformStudioService:
                 include_illustration_plan and bindings["article.illustration_plan"].enabled
             ),
             bindings=bindings,
+            memory_prompt=memory_prompt,
         )
         if model_output is None:
             model_output = self._fallback_copy(
@@ -82,6 +122,15 @@ class PlatformStudioService:
             generator = "wechat-structured-fallback"
         else:
             generator = "wechat-model-skill-pack"
+            memory_service.mark_snapshot_applied(
+                db,
+                memory_snapshot,
+                roles=[
+                    ("editor_in_chief", "wechat_adapt"),
+                    ("outline_architect", "wechat_adapt"),
+                    ("writer", "wechat_adapt"),
+                ],
+            )
 
         title = self._clean_title(str(model_output.get("title") or ""), source, draft)
         body_markdown = self._clean_markdown(str(model_output.get("body_markdown") or ""))
@@ -98,6 +147,7 @@ class PlatformStudioService:
             short_title = self.cover_renderer.short_title(title)
         summary = self._summary(str(model_output.get("summary") or ""), body_markdown)
         tags = self._tags(model_output.get("tags"), draft.tags if draft else "")
+        memory_summary = memory_service.snapshot_summary(memory_snapshot)
         metadata = {
             "generator": generator,
             "mode": mode,
@@ -107,6 +157,11 @@ class PlatformStudioService:
             "citations": model_output.get("citations") or [],
             "source_urls": [item.canonical_url for item in self._context(db, source)],
             "selected_theme": selected_theme,
+            "memory_snapshot_id": memory_summary["snapshot_id"],
+            "memory_snapshot_hash": memory_summary["snapshot_hash"],
+            "memory_ids": memory_summary["memory_ids"],
+            "memory_applied": memory_summary["applied"],
+            "memory_status": memory_summary["status"],
         }
         skill_profile = {
             name: {
@@ -118,6 +173,7 @@ class PlatformStudioService:
             for name, binding in bindings.items()
         }
         variant = PlatformVariant(
+            id=variant_id,
             source_id=source.id,
             base_draft_id=draft.id if draft else None,
             platform="wechat",
@@ -284,6 +340,7 @@ class PlatformStudioService:
         include_citations: bool,
         include_illustration_plan: bool,
         bindings: dict[str, Any],
+        memory_prompt: str = "",
     ) -> dict[str, Any] | None:
         adapt = bindings["wechat.adapt_longform"]
         if not (
@@ -322,6 +379,9 @@ class PlatformStudioService:
 8. 不使用营销式公众号套话，不把小红书 emoji、hashtags 和 CTA 搬进正文。
 9. 文章最后落在清晰判断、启发或下一步观察，不以免责声明结束。
 10. 只使用给定来源支持的事实；缺少证据的内容不要写。
+
+当前任务检索到的个人池子记忆：
+{memory_prompt}
 
 是否整理文末来源：{include_citations}
 是否给出配图规划：{include_illustration_plan}

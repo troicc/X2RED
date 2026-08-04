@@ -21,10 +21,12 @@ Web/document/manual ────┘                                      │
                     └──────── immutable edit / render / review / package ──────┘
 
 03 模型与 Skill
-OpenAI-compatible text/image models · style profiles · Guizang · Minimal Zine
+OpenAI-compatible text/image models · approved pool memory · style profiles · Guizang · Minimal Zine
 ```
 
 X signal discovery and Simplified-Chinese platform discovery remain separate discovery experiences, but both converge on the same `SourceItem` boundary. UI selectors preserve platform classification rather than flattening every source into one long list.
+
+Pool memory is a separate expression layer, not another evidence source. Approved cards answer “how should this be written?” and are retrieved by task scope and Agent role; the current source or `CorpusBatch` alone answers “what facts may be stated?”.
 
 ## Runtime
 
@@ -58,6 +60,9 @@ The documented server binds to `127.0.0.1`. Model gateways and image generation 
 - `Asset` / `AssetVariant`: source media and derived encodes; media failure never deletes source text.
 - `CorpusPool` / `CorpusPoolSource`: reusable multi-source content asset and membership.
 - `CorpusBatch`: isolated, one-way frozen handoff containing pool revision, full-pool memory, selected source details, focus and provenance.
+- `ReviewArtifact`: append-only review artifact; `memory_candidate`, `memory_card` and `memory_event` encode the human-gated memory lifecycle without overwriting old cards.
+- `PoolMemorySnapshot`: immutable task selection containing query scope, selected card IDs, role-scoped prompt payload, hash and actual application state.
+- `PoolMemoryUsage`: append-only record written only after a configured model consumes a card for a target role and stage.
 - `DraftRevision`: immutable editorial revision.
 - `PlatformVariant`: immutable Xiaohongshu or WeChat-specific revision; storyboard edits create child variants rather than overwriting parents.
 - `ReviewDecision`: explicit human approval or rejection event.
@@ -68,6 +73,7 @@ The documented server binds to `127.0.0.1`. Model gateways and image generation 
 - X discovery providers can be replaced while preserving normalized source and raw evidence contracts.
 - Simplified-Chinese discovery currently uses pinned MediaCrawler; candidates enter X2RED only after user selection and normalization.
 - Editorial and prompt-compilation services use deterministic fallback where supported plus optional configured text models.
+- Pool-memory retrieval is deterministic and available without a model, but fallback generation remains `applied=false` and creates no usage rows. Model roles receive only the dimensions they need; factual roles receive no style-memory payload.
 - Image models generate Minimal Zine raw visual anchors only. Final Chinese typography and layout are local responsibilities.
 - Package export is always available; browser publishing helpers stop before the final publish action.
 - Local content-addressed storage can later be replaced by another protected asset store.
@@ -86,6 +92,10 @@ For each light-content `PlatformVariant`, all final files live under `data/expor
 ## Isolation and review invariants
 
 - Corpus-batch context flows one way and one layer deep; shared sources cannot pull an older batch's full memory into a newer one.
+- Pool-memory candidates require human preview and approval; uncertain source rights require explicit authorization confirmation.
+- Pool-memory cards are superseded or revoked through append-only events rather than physical overwrite.
+- Historical memory controls style and structure only. Its names, numbers, dates, results and causal claims cannot cross the current evidence boundary.
+- Each generated target freezes or clones an immutable memory selection; only real model consumption creates usage records.
 - Source-text success and media success are independent.
 - Human edits create new immutable revisions.
 - Light-content rendering persists the current candidate and editor text before visual work.

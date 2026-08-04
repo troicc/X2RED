@@ -10,7 +10,7 @@ The product is organized into three layers:
 
 1. **语料素材库** — X signal discovery, local MediaCrawler discovery for Simplified-Chinese platforms, platform-classified `SourceItem` records, reusable corpus pools and frozen batches.
 2. **内容工作台** — Xiaohongshu, writing projects, WeChat long-form, WeChat light-content storyboards, review, previews and release packages.
-3. **模型与 Skill** — OpenAI-compatible text/image models, style profiles, the pinned Guizang runtime and the pinned Minimal Zine runtime.
+3. **模型与 Skill** — OpenAI-compatible text/image models, human-approved pool memory, style profiles, the pinned Guizang runtime and the pinned Minimal Zine runtime.
 
 The current application can:
 
@@ -22,12 +22,13 @@ The current application can:
 6. Dispatch a source or frozen batch to Xiaohongshu, WeChat long-form or WeChat light-content workspaces.
 7. Generate content through either a quick editorial pipeline or an artifact-driven multi-Agent writing studio.
 8. Train personal style profiles from authorized samples, held-out samples and author feedback.
-9. Create immutable draft and platform-specific revisions from the same evidence base.
-10. Render Xiaohongshu cards with the fast renderer or the complete upstream Guizang Editorial/Swiss runtime.
-11. Generate text-free Minimal Zine visual anchors with an image model, then compose final Chinese typography locally.
-12. Generate WeChat Markdown/HTML, covers, previews, manifests and ZIP release packages from one frozen version.
-13. Record source/media rights decisions and explicit human approval before publishing.
-14. Open platform preparation flows while stopping before the final publish action.
+9. Turn approved content, feedback, patterns or manual rules into human-reviewed pool-memory cards, then retrieve only task- and role-relevant cards for each generation.
+10. Create immutable draft and platform-specific revisions from the same evidence base and frozen memory selection.
+11. Render Xiaohongshu cards with the fast renderer or the complete upstream Guizang Editorial/Swiss runtime.
+12. Generate text-free Minimal Zine visual anchors with an image model, then compose final Chinese typography locally.
+13. Generate WeChat Markdown/HTML, covers, previews, manifests and ZIP release packages from one frozen version.
+14. Record source/media rights decisions and explicit human approval before publishing.
+15. Open platform preparation flows while stopping before the final publish action.
 
 ## One-command start
 
@@ -73,6 +74,14 @@ X2RED_MODEL_BASE_URL=https://your-provider.example/v1
 X2RED_MODEL_API_KEY=your-key
 X2RED_MODEL_NAME=your-model
 ```
+
+## Personal pool memory
+
+Open **模型与 Skill → 池子记忆** to extract a candidate from an approved draft, platform variant, feedback item, pattern card or writing artifact, or to enter an authorized rule manually. Extraction never publishes a formal memory automatically: the user previews and edits the candidate, confirms source rights when needed, and explicitly approves it. Later changes create superseding or revocation events instead of overwriting history.
+
+Generation retrieves a small task-scoped set by platform, format, article type, style, audience, recipe and visual route, then sends each Agent only the dimensions relevant to its role. Memory controls **how to write**; the current source/evidence pack controls **what can be stated as fact**. Names, numbers, dates, results and causal claims from historical memory are blocked unless they also exist in the current evidence.
+
+Every generated target freezes an immutable memory-selection snapshot. Usage records are written only when a configured model actually consumes that snapshot; deterministic fallback output remains traceable but is not falsely marked as memory-applied. The same contract is used by quick drafts, AI transforms, multi-Agent finals, WeChat long/light content and Xiaohongshu native Skill prompts.
 
 ## Image-model configuration
 
@@ -215,6 +224,7 @@ X2RED_AUTO_L2_DAILY_LIMIT=5
 - Xiaohongshu automation never clicks the final publish button.
 - WeChat output defaults to local package generation and manual publishing.
 - Review Agents return reports and do not silently overwrite the draft.
+- Pool memory requires human approval, remains append-only, and never replaces current factual evidence.
 - A draft must be explicitly approved with fact and rights checks before publishing.
 - Raw sources, metric evidence, score baselines, Agent runs, artifacts, revisions, variants, review events, rendered assets and package hashes are retained locally.
 

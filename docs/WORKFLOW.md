@@ -51,7 +51,22 @@ The v15 workspace has four stages:
 
 The storyboard endpoint freezes editorial intent; it does not generate copy or call the image model.
 
-## 5. Render Minimal Zine safely
+## 5. Close the personal-memory loop
+
+Approved drafts, platform variants, explicit feedback, pattern cards and writing artifacts expose an **加入池子记忆** action. The standalone **模型与 Skill → 池子记忆** workspace also accepts authorized manual rules. The lifecycle is deliberately gated:
+
+1. select a source and learning dimensions;
+2. generate a `memory_candidate` only;
+3. preview and edit its rules, preferences, prohibitions, examples, structure, visual direction and scope;
+4. confirm authorization when the source rights are not already approved;
+5. explicitly approve a new `memory_card`;
+6. later supersede or revoke it through append-only `memory_event` records rather than rewriting history.
+
+Before generation, X2RED hard-filters approved cards by platform, format, article type, style profile, audience, recipe and visual route, then scores task relevance, source priority, recency and historical usage. It deduplicates cards from the same source and normally selects 4–8. Each Agent receives only role-relevant dimensions; factual and evidence roles receive no style-memory payload.
+
+The current evidence pack is the fact boundary. Historical names, numbers, dates, outcomes and causal claims in memory cannot become new-article facts unless the current sources independently contain them. Each target freezes the selected card IDs, role prompts and hash in an immutable `PoolMemorySnapshot`. A derived version clones that frozen choice instead of mutating its parent. `PoolMemoryUsage` is appended only after a configured model really consumes the snapshot; deterministic fallback remains traceable but `applied=false`.
+
+## 6. Render Minimal Zine safely
 
 The text model reads the complete pinned upstream Skill and compiles a per-page recipe. The image prompt requires a sparse 3:5 composition, one visual cluster, reserved text space and no text, numbers, logos, signatures, UI, labels, watermarks or badges.
 
@@ -72,7 +87,7 @@ Rendering modes are:
 
 The complete directory is staged, validated and atomically promoted. A failure retains the previous directory, package and database references. Negative prompting and edge cleanup reduce—but cannot absolutely eliminate—model watermark or badge risk, so human visual review remains required.
 
-## 6. Review and publishing handoff
+## 7. Review and publishing handoff
 
 Every workspace requires review of:
 
