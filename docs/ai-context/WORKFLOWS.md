@@ -160,21 +160,39 @@ X2RED 可以打开发布准备页面，但不点击最终发布。
 
 ### 6.3 生成图组
 
-v14 流程：
+v15 工作台固定为四阶段：任务设置、文案候选、视觉分镜、成品交付。进入视觉阶段前必须先持久化当前候选和编辑框，不能只依赖旧版本 ID。
+
+阶段 3 的分镜编辑：
+
+1. 只展开当前选中的一页，其他页面显示紧凑摘要；
+2. 编辑短句、说明或视觉隐喻等字段时，UI 标记分镜为未保存，枚举控件使用中文标签；
+3. 保存时向 `POST /api/platforms/wechat/light/variants/{variant_id}/storyboard` 提交完整、唯一且覆盖所有页码的合同；
+4. 接口创建新的不可变子 `PlatformVariant`，保留 `parent_variant_id` 和模型输入/本地构图变更追踪，父版本不变；
+5. 该接口只冻结视觉合同，不生成文案，也不在请求中调用图片模型。
+
+渲染阶段：
 
 1. 读取当前显示版本；
 2. 若 UI 当前候选与保存选择不同，先采用候选；
 3. 比较编辑框和版本内容；
 4. 有变化则创建新版本；
-5. 根据视觉风格选择普通 renderer 或 Minimal Zine native；
-6. 生成后强制刷新；
-7. 定位接口返回的准确版本。
+5. 保存有变化的分镜；
+6. 根据视觉风格选择普通 renderer 或 Minimal Zine native；
+7. 生成后强制刷新并定位接口返回的准确版本；
+8. 进入成品交付，检查整组图片、预览、清单、ZIP 和人工复核状态。
 
 因此用户无需手动执行“采用 → 保存 → 刷新 → 生图”的四步临时流程。
 
 ### 6.4 迭代和批准
 
 迭代前先持久化当前编辑稿，再带 feedback 生成新轮次。批准前也先持久化，确保批准的是用户实际看到的稿件。
+
+### 6.5 阶段状态和失败
+
+- 从文案候选离开时自动保存当前候选和编辑稿；
+- 视觉分镜有未保存修改时，阶段摘要明确显示“分镜有未保存修改”；
+- 成品交付显示已生成的页数，未渲染时不能误标记为完成；
+- 渲染失败保留文本、分镜和旧版发布包，允许人工重试。
 
 ## 7. Minimal Zine native
 
@@ -200,14 +218,11 @@ v14 流程：
 本地合成器：
 
 1. 读取并校正模型图方向；
-2. 裁掉外沿和底部高风险区域；
-3. 降低饱和度并提高对比；
-4. 映射为黑、灰、米白纸张色系；
-5. 粘贴到 X2RED 生成的干净纸张画布；
-6. 绘制强调色；
-7. 使用本地中文字体排 phrase 和 note；
-8. 绘制页码和结构线；
-9. 写入 exports。
+2. 只清理受约束的外沿和底部高风险区域，保留模型的稀疏 plate 和颜色；
+3. 在真正颜色贫乏时才在安全区外添加不超过 0.3% 的小型 registration mark，不使用全局灰阶化、统一 colorize、重复厚框或巨大强调圆；
+4. 粘贴到 X2RED 生成的干净纸张画布；
+5. 使用 cmap 已验证的本地 CJK 字体排 phrase、note 和页码；缺少可验证字体时明确失败；
+6. 写入 exports，并将 raw `anchor_XX` 与 final `poster_XX` 分开记录。
 
 ### 7.4 重建产物
 
@@ -219,7 +234,17 @@ v14 流程：
 - HTML preview；
 - ZIP 发布包。
 
-旧版本模型图可以在 compositor version 变化后被重新本地合成，避免不必要地再次调用图片 API。
+旧版本模型图可以在 compositor version 变化后被重新本地合成，避免不必要地再次调用图片 API。`recompose` 只接受已验证 raw anchor，永远不把 final poster 当作 raw fallback。
+
+### 7.5 渲染 API 合同和发布包
+
+`POST /api/native-skills/minimal-zine/variants/{variant_id}/render` 的 body 支持：
+
+- `mode`: `render_missing`、`recompose` 或 `regenerate`；
+- `pages`: 可选的一基、唯一页码数组；
+- `regenerate`: 兼容旧客户端的布尔值。
+
+显式 `mode` 和 `regenerate=true` 同时出现会被拒绝。`render_missing` 补齐缺失页，`recompose` 只重排已有 raw anchor，`regenerate` 才重新调用图片模型。每次完整 render 都在 `data/exports/wechat/{variant_id}/` staging 后原子 promotion；失败时保留先前目录和数据库引用。manifest 和 ZIP 使用显式 allowlist，仅包含 `poster_XX`、`article.md`、`manifest.json` 和 `preview.html`，不把 `anchor_XX` 打进发布包。
 
 ## 8. 审核和权利
 

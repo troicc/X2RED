@@ -1,15 +1,17 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-02T10:37:00+08:00",
+  "updated_at": "2026-08-04T15:46:00+08:00",
   "repository": "troicc/X2RED",
   "snapshot": {
     "branch": "agent/replace-crawlers-with-api-adapters",
     "pull_request": 19,
     "pull_request_title": "重构简中素材采集、语料池与三层创作工作区",
-    "state_at_snapshot": "open_draft_unmerged",
-    "code_head_before_context_commits": "4c3cf831bca53bfec27347cdd8f8290911dd4e2e",
-    "last_verified_ci_run_number": 788,
-    "last_verified_test_result": "60 passed on Python 3.12 and 3.13",
+    "state_at_snapshot": "open_draft_mergeable_clean_unmerged_inspected_2026-08-04",
+    "code_head_at_inspection": "417adb4640ee7411362bc7a943b42c2c806a341b",
+    "implementation_commit": "f48fff4",
+    "github_checks_at_inspection": "green for the pre-delivery head; latest head must be rechecked after push",
+    "last_verified_test_result": "local CI-equivalent full suite: 67 passed, 8 warnings; compileall, Ruff, active JavaScript, publisher selector, shell, py_compile, and clean 0001-to-0010 migration passed",
+    "browser_smoke_at_inspection": "1600/1440/1024 widths: no console errors or horizontal overflow; stage 3 had 1 expanded and 3 compact pages; stage 4 delivery files rendered; source switching and a non-first writing-project deep link selected the exact matching record",
     "volatile_fields_must_be_rechecked": true
   },
   "product_architecture": [
@@ -44,24 +46,47 @@
   },
   "light_content": {
     "bug_root_cause": "loadLab was called while busy=true and returned early",
-    "fixed_behavior": ["adopt current candidate", "persist current editor fields", "render exact returned version", "force refresh and select returned version"]
+    "runtime_assets": ["product-shell-v15.js/css", "light-content-v15.js/css"],
+    "legacy_assets_on_disk_not_loaded": ["v10", "v12", "v14", "information-architecture controllers"],
+    "stages": ["任务设置", "文案候选", "视觉分镜", "成品交付"],
+    "storyboard_endpoint": "POST /api/platforms/wechat/light/variants/{variant_id}/storyboard",
+    "storyboard_behavior": ["persist current candidate/editor before visual work", "only selected page expands", "Chinese labels for exact enum controls", "create immutable child PlatformVariant", "render requests do not author editorial content"],
+    "fixed_behavior": ["adopt current candidate", "persist current editor fields", "render exact returned version", "force refresh and select returned version", "match current variant to the selected source_id instead of retaining a stale source variant"]
   },
+  "v15_audit_fixes": [
+    "tests ignore developer .env, X2RED variables, and proxy variables while production config remains unchanged",
+    "writing-project deep links restore the exact data-project-id instead of the first list item",
+    "custom storyboard mood remains in the frozen model input and fingerprint",
+    "root README, ARCHITECTURE, and workflow documents match the three-layer product architecture"
+  ],
   "minimal_zine": {
     "model_role": "text-free visual anchor only",
     "typography": "local CJK compositor",
     "output_root": "data/exports/wechat/{variant_id}/",
-    "artifacts": ["poster-*.png", "article.md", "manifest.json", "preview.html", "zip package"],
-    "watermark_mitigation": ["negative prompt", "crop risky outer/lower regions", "recompose on clean local canvas", "human review still required"]
+    "render_modes": ["render_missing", "recompose", "regenerate"],
+    "legacy_render_boolean": "regenerate",
+    "render_contract": "optional unique one-based pages; explicit mode plus true legacy regenerate is invalid; recompose requires stored raw anchor and calls neither prompt compiler nor image model",
+    "compositor": "minimal-zine-local-type-v4 preserves sparse model plate/color; constrained high-risk outer-edge cleanup; no global grayscale/colorize/repeated thick frame/giant accent circle; color-starved input may get non-obstructive <=0.3% registration mark",
+    "typography_contract": "cmap-verified CJK font (card font, PingFang/Songti/Noto candidates); fail clearly when unavailable",
+    "artifacts": ["anchor_XX raw", "poster_XX final", "article.md", "manifest.json", "preview.html", "zip package"],
+    "package_allowlist": ["poster_XX", "article.md", "manifest.json", "preview.html"],
+    "staging_policy": "atomic staging/promotion; service failure preserves prior package",
+    "watermark_mitigation": ["negative prompt", "crop risky outer/lower regions", "recompose on clean local canvas", "human visual/copyright/fact review still required; no absolute prevention claim"],
+    "probe_diagnosis_2026_08_02": "configured GLM produced target sparse aged-paper visual but also an AI生成 badge despite strict negative prompt; constrained edge cleanup removed it in the sample; residual model variability/watermark risk remains",
+    "root_cause": "historical quality damage primarily came from compositor contract, missing raw observability, and bad CJK font fallback; prompt was reasonably faithful and GLM capable"
   },
   "key_files": [
     "AGENTS.md",
-    "apps/api/app/static/information-architecture-v14.js",
-    "apps/api/app/static/light-content-fixes-v14.js",
+    "apps/api/app/static/product-shell-v15.js",
+    "apps/api/app/static/product-shell-v15.css",
+    "apps/api/app/static/light-content-v15.js",
+    "apps/api/app/static/light-content-v15.css",
     "apps/api/app/services/minimal_zine_native.py",
+    "apps/api/app/services/light_visual_renderer.py",
     "apps/api/app/api/sources.py",
     "apps/api/app/api/corpus_pools.py",
     "apps/api/app/services/corpus_pools.py",
-    "apps/api/tests/test_minimal_zine_v14.py"
+    "apps/api/tests/test_minimal_zine_v15.py"
   ],
   "non_negotiables": [
     "keep the three-layer information architecture",

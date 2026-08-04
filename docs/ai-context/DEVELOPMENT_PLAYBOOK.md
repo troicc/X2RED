@@ -2,12 +2,14 @@
 
 ## 1. 当前分支和 PR
 
-文档创建时：
+2026-08-04 检查时：
 
 - 仓库：`troicc/X2RED`
 - 分支：`agent/replace-crawlers-with-api-adapters`
 - PR：`#19`
-- PR 尚未合并到 `main`
+- 远端基线 head：`417adb4640ee7411362bc7a943b42c2c806a341b`
+- 本轮实现提交：`f48fff4`
+- PR 仍为 open、draft、mergeable、clean，尚未合并到 `main`
 
 每次工作前都应重新检查，不要假设上述状态仍成立。
 
@@ -202,7 +204,7 @@ pytest -q
 ruff check apps/api --select E,F,I,B,UP --ignore E501,E701,E702,UP035,UP042,B008,I001
 ```
 
-最后确认的 `pytest` 数量是 60，但测试数量会变化，不能把固定数字当成永久门槛。真正门槛是当前分支所有测试和两套 Python 均通过。
+2026-08-04 本地 CI 等价验证为 67 passed、8 warnings。测试数量会变化，不能把固定数字当成永久门槛；真正门槛是当前分支所有测试和两套 Python 均通过。该次还通过了 compileall、Ruff、active Node 脚本检查、发布助手选择器、shell/py_compile 和全新数据库 0001→0010 迁移。`apps/api/tests/conftest.py` 会隔离开发机 `.env`、`X2RED_*` 和代理变量，避免真实模型/代理配置污染测试；这不改变生产运行时配置加载。
 
 ### 重要回归范围
 
@@ -214,11 +216,14 @@ ruff check apps/api --select E,F,I,B,UP --ignore E501,E701,E702,UP035,UP042,B008
 - Minimal Zine 本地中文合成；
 - 模型图边缘角标区域裁切；
 - exports 路径、preview 和 ZIP；
-- 新 v14 前端控制器语法。
+- 直接加载的 v15 产品壳和轻内容控制器语法；旧 v10/v12/v14 控制器只留在磁盘，不是 runtime/CI 入口。
+- Minimal Zine v15 分镜不可变修订、raw/final 分离、render mode 校验和发布包 allowlist。
 
 ## 8. 手工 smoke test
 
 CI 不能替代真实浏览器交互。重要改动后至少验证：
+
+2026-08-04 已在 1600、1440、1024 宽度执行浏览器检查：无 console error 或横向溢出，轻内容第 3 阶段为 1 个展开页 + 3 个紧凑页，第 4 阶段的成品与交付链接正确；来源切换和非首项写作项目深链也通过。后续改动仍需至少验证：
 
 1. 来源箱按平台切换和搜索；
 2. 来源下拉 `optgroup` 不会丢失当前选择；
@@ -227,11 +232,12 @@ CI 不能替代真实浏览器交互。重要改动后至少验证：
 5. 简中平台搜索、选择和导入；
 6. 语料池建池、预览、正式批次；
 7. 三个“送到工作台”入口；
-8. 轻内容生成后自动加载；
-9. 切换候选和修改文字后直接生图，结果使用当前内容；
-10. Minimal Zine 图片无模型中文，右下角供应商标识不进入最终画布；
-11. preview 和 ZIP 内文件一致；
-12. 旧数据库启动并升级成功。
+8. 轻内容四阶段状态、当前候选/编辑稿持久化和准确版本定位；
+9. 视觉分镜只展开选中页，保存创建不可变子版本；
+10. `render_missing`、`recompose`、`regenerate` 及 legacy 布尔冲突校验；
+11. Minimal Zine raw anchor 与 final poster 分离、CJK cmap 字体检查、边缘角标人工审图；
+12. preview 和 ZIP 内文件一致且 ZIP 不含 anchors；
+13. 旧数据库启动并升级成功。
 
 ## 9. 文档和上下文维护
 

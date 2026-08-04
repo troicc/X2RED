@@ -1,6 +1,6 @@
 # X2RED 项目记忆
 
-更新时间：2026-08-02 10:37 +08:00
+更新时间：2026-08-04 15:46 +08:00
 
 ## 一、当前快照
 
@@ -10,13 +10,15 @@
 
 PR：`#19 重构简中素材采集、语料池与三层创作工作区`
 
-文档创建前代码 head：`4c3cf831bca53bfec27347cdd8f8290911dd4e2e`
+2026-08-04 收尾前的远端基线 head：`417adb4640ee7411362bc7a943b42c2c806a341b`
 
-文档创建时 PR 状态：open、draft、mergeable、尚未合并到 `main`。
+本轮实现提交：`f48fff4`（v15 轻内容、Minimal Zine、本地测试隔离和根级架构文档）。
 
-最后确认的完整 CI：GitHub Actions `#788`，Python 3.12 和 3.13 均通过；`pytest -q` 为 60 passed，前端脚本语法检查、数据库迁移、微信发布助手回归和 Ruff 全部通过。
+2026-08-04 检查时 PR 状态：open、draft、mergeable、clean、尚未合并到 `main`。远端检查为 green，但检查结果仍对应推送前的旧 head；推送后必须等待新 head 的 Actions。该状态和 head 都是易变化事实。
 
-以上 PR、head 和 CI 属于易变化事实。新对话必须重新查询 GitHub，不能直接沿用。
+2026-08-04 的本地 CI 等价验证：完整测试 67 passed、8 warnings；compileall、Ruff、所有 active Node 脚本、发布助手选择器、shell/py_compile 和全新数据库 0001→0010 迁移均通过。真实浏览器在 1600、1440、1024 宽度检查无 console error 或横向溢出；轻内容第 3 阶段为 1 个展开页和 3 个紧凑页，第 4 阶段显示同一不可变版本的 manifest、预览、ZIP 和 4 张成品。来源切换能同步到该来源已有版本；写作项目深链用非首项 ID 验证后精确选中目标项目。
+
+以上 PR、head、CI 和浏览器结果均带有 2026-08-04 检查日期。新对话必须重新查询 GitHub 和实际代码，不能直接沿用。
 
 ## 二、用户的核心产品意图
 
@@ -118,11 +120,12 @@ X 信号台 ───────────────┐
 
 来源箱增加平台标签和平台切换；小红书、公众号长文、公众号轻内容和写作项目的来源选择器使用 `optgroup`；语料池来源选择器可按平台过滤。
 
-相关前端控制器：
+当前产品壳直接加载：
 
-- `apps/api/app/static/information-architecture-v14.js`
+- `apps/api/app/static/product-shell-v15.js`
+- `apps/api/app/static/product-shell-v15.css`
 
-该控制器必须保持幂等，MutationObserver 触发时不能反复重排已经完成的导航结构。
+旧的 v10/v12/v14 和 information-architecture 控制器仍留在磁盘用于历史参考，但不再由运行时或 CI 加载。v15 导航实现仍必须保持幂等，MutationObserver 触发时不能反复重排已经完成的导航结构。
 
 ### C. X 信号合并进素材库
 
@@ -201,7 +204,7 @@ X 信号台 ───────────────┐
 
 当前修复：
 
-- 使用独立 v14 控制器接管关键按钮；
+- 使用直接加载的 v15 产品壳和轻内容控制器接管关键按钮；
 - 操作成功后强制刷新；
 - 根据接口返回版本定位准确版本；
 - 生成图组前自动采用当前候选；
@@ -211,8 +214,12 @@ X 信号台 ───────────────┐
 
 相关文件：
 
-- `apps/api/app/static/light-content-fixes-v14.js`
-- `apps/api/app/static/light-content-lab-v12.js`
+- `apps/api/app/static/light-content-v15.js`
+- `apps/api/app/static/light-content-v15.css`
+- `apps/api/app/static/product-shell-v15.js`
+- `apps/api/app/static/product-shell-v15.css`
+
+旧的 `light-content-fixes-v14.js`、`light-content-lab-v12.js` 和其他旧控制器仍在磁盘，但不再是运行时或 CI 入口。
 
 正确用户流程已经简化为：修改候选或编辑框后，直接点击“按当前编辑稿生成图组”。
 
@@ -231,12 +238,12 @@ X 信号台 ───────────────┐
 1. 文本模型读取完整上游 `SKILL.md`，为每页编译视觉配方；
 2. 图片模型只生成无字视觉锚点；
 3. Prompt 明确禁止中文、英文、数字、Logo、水印、签名、角标、UI 和标签；
-4. 本地合成器裁掉模型外沿和底部高风险区域；
-5. 将视觉转为低饱和灰阶/旧纸风格；
-6. 在 X2RED 的干净画布上绘制强调色；
-7. 使用本地 CJK 字体排中文和页码；
-8. 统一写入该 variant 的 exports 目录；
-9. 同步重建 Markdown、manifest、preview 和 ZIP。
+4. compositor v4 保留完整稀疏模型 plate 和颜色，只清理受约束的高风险外沿；
+5. 图片模型颜色信号被保留，不再全局灰阶化、统一 colorize、重复厚框或添加巨大强调圆；真正颜色贫乏时才在安全区外添加不遮挡内容且不超过 0.3% 的小型 registration mark；
+6. 在 X2RED 的干净画布上用 cmap 已验证的本地 CJK 字体排中文和页码；缺少可验证字体时明确失败，不静默使用 tofu/错误 fallback；
+7. raw `anchor_XX` 和最终 `poster_XX` 是两类独立、各自校验的产物；发布包使用显式 allowlist 排除 anchors；
+8. 所有完整产物写入该 variant 的 `data/exports/wechat/{variant_id}/`，并同步重建 Markdown、manifest、preview 和 ZIP；
+9. 先在 staging 目录完成完整性校验，再原子 promotion；服务失败时恢复此前目录和数据库引用。
 
 最终目录：
 
@@ -253,10 +260,11 @@ X 信号台 ───────────────┐
 相关文件：
 
 - `apps/api/app/services/minimal_zine_native.py`
-- `apps/api/app/static/light-content-fixes-v14.js`
-- `apps/api/tests/test_minimal_zine_v14.py`
+- `apps/api/app/services/light_visual_renderer.py`
+- `apps/api/app/static/light-content-v15.js`
+- `apps/api/tests/test_minimal_zine_v15.py`
 
-必须如实描述边界：负面 Prompt 和裁切可以显著降低边缘角标风险，但不能数学上保证图片模型不会在主体中央生成异常符号。最终仍需人工审图。
+2026-08-02 的真实配置 GLM 探针显示：GLM 能生成目标稀疏旧纸视觉，但即使严格负面 Prompt 仍在右下角生成了“AI生成”角标；该样本经过受约束外沿清理后未进入最终画布。这个样本证明缓解有效，不证明模型永不生成水印或角标。历史质量损伤的主因判断为 compositor 合同、raw 可观测性和错误 CJK fallback，而不是 Prompt 已经失真；GLM 的随机性和水印行为仍是残余模型风险。最终仍需人工视觉、版权和事实复核。
 
 ### H. 三层前端导航
 
@@ -281,6 +289,28 @@ X 信号台 ───────────────┐
 - 原生 Skill。
 
 这是当前信息架构的产品基线。后续新增功能应优先并入这三层，而不是继续增加平级主导航。
+
+### I. v15 产品壳和轻内容不可变分镜
+
+v15 产品壳的 canonical 导航层固定为：
+
+- 语料素材库：信号、原料、语料池；
+- 内容工作台：工作台、写作、公众号、发布；
+- 模型与 Skill：模型、风格和设置。
+
+公众号轻内容在同一工作台内使用四个阶段：任务设置 → 文案候选 → 视觉分镜 → 成品交付。它会在进入视觉阶段前持久化当前候选和编辑框；视觉分镜只展开选中的一页，其余页面保持紧凑摘要；版式、视觉锚点、质感、强调色、焦点和缩放等枚举/控件显示中文标签。
+
+分镜编辑通过 `POST /api/platforms/wechat/light/variants/{variant_id}/storyboard` 提交完整、唯一且覆盖全部页码的页面合同，并创建不可变的子 `PlatformVariant`；父版本保持不变，子版本带 `parent_variant_id` 和变更追踪。渲染请求只消费已冻结合同，不负责创作文案。
+
+Minimal Zine 渲染接口 `POST /api/native-skills/minimal-zine/variants/{variant_id}/render` 支持 `mode: render_missing | recompose | regenerate`，以及可选的唯一一基页码 `pages`；旧客户端可用 `regenerate: true`，但显式 `mode` 与该 legacy 布尔值同时出现会被拒绝。`recompose` 必须找到存储的 raw anchor，只调用本地 compositor，不调用 Prompt compiler 或图片模型；`regenerate` 才会重新请求图片模型。渲染不会覆盖已有编辑文本。
+
+### J. 2026-08-04 收尾审计修复
+
+- 新增全局测试隔离 fixture：测试不再读取开发者真实 `.env`，并清除 `X2RED_*` 与代理变量；运行时加载 `.env` 的行为不变。
+- 轻内容来源切换只选择同一 `source_id` 的已有版本，不再被此前来源的 `currentVariant` 劫持；从其他工作台带来源进入时同样优先匹配该来源。
+- 写作项目深链恢复按 `data-project-id` 精确选择目标项目，不再无条件点击列表第一项。
+- 自定义 storyboard `mood` 会进入冻结模型输入和 fingerprint，不再被静默降级为 `quiet`。
+- README、根 `ARCHITECTURE.md` 和 `docs/WORKFLOW.md` 已统一到三层架构、MediaCrawler、语料池/批次与 Minimal Zine 本地合成合同。
 
 ## 五、关键领域对象
 
@@ -322,7 +352,11 @@ X 信号台 ───────────────┐
 
 ### 图片模型
 
-使用 OpenAI-compatible `/images/generations`。Minimal Zine 中只承担视觉锚点，不承担中文排版。
+使用 OpenAI-compatible `/images/generations`。Minimal Zine 中只承担 raw 视觉锚点，不承担中文、页码或最终排版；raw 和 final 的 provenance 必须可追踪，重排不能把 final 当作 raw。
+
+### 本地 CJK 排版
+
+Minimal Zine native render 需要通过字体 `cmap` 探针验证中文 glyph；优先使用配置的卡片字体，或 PingFang / Songti / Noto CJK 候选。无法验证覆盖时 native render 明确失败，避免把通用字体的 `.notdef` 假装成可发布中文。
 
 ### Guizang
 
@@ -351,11 +385,9 @@ X 信号台 ───────────────┐
 - 小红书和微信均由用户完成最终发布动作；
 - Review Agent 只提供报告，不应静默覆盖人工稿件。
 
-## 八、当前文档债务
+## 八、当前文档状态
 
-根目录旧 `ARCHITECTURE.md`、`docs/WORKFLOW.md` 和 README 的部分章节仍反映早期以 X 为中心或通用搜索 API 为主的架构。它们没有完整覆盖当前三层架构、MediaCrawler、语料池和 Minimal Zine 本地合成。
-
-在这些旧文档完成整体更新前，以本目录的上下文包和当前代码为准，并把“统一旧文档”作为合并前的重要清理项。
+截至 2026-08-04，README、根 `ARCHITECTURE.md`、`docs/WORKFLOW.md` 与本上下文包已经统一到当前三层架构。仍可能存在历史设计文档或已退役前端控制器中的旧术语；它们不得覆盖运行时入口和本上下文记录的产品合同。
 
 ## 九、未来 Agent 的工作方式
 
