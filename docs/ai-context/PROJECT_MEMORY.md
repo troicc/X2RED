@@ -1,6 +1,6 @@
 # X2RED 项目记忆
 
-更新时间：2026-08-04 15:56 +08:00
+更新时间：2026-08-04 16:16 +08:00
 
 ## 一、当前快照
 
@@ -16,11 +16,11 @@ PR：`#19 重构简中素材采集、语料池与三层创作工作区`
 
 Linux CI 便携性修复提交：`3063a9e`（非字体主题的 Minimal Zine 生命周期测试不再依赖宿主机预装 CJK 字体）。
 
-2026-08-04 检查时 PR 状态：open、draft、mergeable、clean、尚未合并到 `main`。远端检查为 green，但检查结果仍对应推送前的旧 head；推送后必须等待新 head 的 Actions。该状态和 head 都是易变化事实。
+2026-08-04 检查时 PR 状态：open、draft、mergeable、clean、尚未合并到 `main`。修复后远端验证 head `bc76e1b9ce550556ad892c81315f9ea0af453e63` 的 push/PR 两套 Python 3.12 和 3.13 共四个 Actions 均通过。该状态和 head 都是易变化事实。
 
 2026-08-04 的本地 CI 等价验证：完整测试 67 passed、8 warnings；compileall、Ruff、所有 active Node 脚本、发布助手选择器、shell/py_compile 和全新数据库 0001→0010 迁移均通过。真实浏览器在 1600、1440、1024 宽度检查无 console error 或横向溢出；轻内容第 3 阶段为 1 个展开页和 3 个紧凑页，第 4 阶段显示同一不可变版本的 manifest、预览、ZIP 和 4 张成品。来源切换能同步到该来源已有版本；写作项目深链用非首项 ID 验证后精确选中目标项目。
 
-首次推送后的 GitHub Ubuntu runner 暴露了 3 个测试的宿主字体耦合：产物集合、raw 拒绝和 staging 回滚测试在进入各自断言前，被真实 CJK 字体门禁提前拦截。生产合同没有放宽；`3063a9e` 只为这三个非字体主题测试注入已通过的 font preflight，专门的字体解析测试继续覆盖“有 CJK 字体成功、无 CJK 字体明确失败”。修复后本地完整套件仍为 67 passed、8 warnings，远端最新 head 需要重新确认。
+首次推送后的 GitHub Ubuntu runner 暴露了 3 个测试的宿主字体耦合：产物集合、raw 拒绝和 staging 回滚测试在进入各自断言前，被真实 CJK 字体门禁提前拦截。生产合同没有放宽；`3063a9e` 只为这三个非字体主题测试注入已通过的 font preflight，专门的字体解析测试继续覆盖“有 CJK 字体成功、无 CJK 字体明确失败”。修复后本地完整套件仍为 67 passed、8 warnings，远端 `bc76e1b` 四个矩阵任务均通过。
 
 以上 PR、head、CI 和浏览器结果均带有 2026-08-04 检查日期。新对话必须重新查询 GitHub 和实际代码，不能直接沿用。
 
@@ -315,6 +315,21 @@ Minimal Zine 渲染接口 `POST /api/native-skills/minimal-zine/variants/{varian
 - 写作项目深链恢复按 `data-project-id` 精确选择目标项目，不再无条件点击列表第一项。
 - 自定义 storyboard `mood` 会进入冻结模型输入和 fingerprint，不再被静默降级为 `quiet`。
 - README、根 `ARCHITECTURE.md` 和 `docs/WORKFLOW.md` 已统一到三层架构、MediaCrawler、语料池/批次与 Minimal Zine 本地合成合同。
+
+### K. GitHub Actions 额度优化
+
+由于仓库为 private，标准 GitHub-hosted runner 会消耗账户额度。旧工作流对 `agent/**` 同时监听 `push` 和 `pull_request`，每次 PR 推送再乘 Python 3.12/3.13，实际产生 4 个任务。
+
+当前策略：
+
+- `push` 只监听 `main`，PR 分支只由 `pull_request` 触发；
+- PR 以受支持的最低版本 Python 3.12 作为日常门禁；
+- `main` 和 `workflow_dispatch` 才运行 Python 3.12/3.13 完整矩阵；
+- 同一 PR/分支启用 `cancel-in-progress`，新提交取消旧运行；
+- 每个任务设置 15 分钟超时，防止异常挂起；
+- 不用 `paths-ignore` 跳过必需检查，避免 required check 长期 Pending。
+
+常规 PR 推送因此从 4 个任务降为 1 个；Python 3.13 的兼容性反馈延后到主分支或人工完整检查，这是额度紧张时的明确取舍。
 
 ## 五、关键领域对象
 

@@ -1,6 +1,6 @@
 # X2RED 未完成事项和风险
 
-更新时间：2026-08-04 15:56 +08:00
+更新时间：2026-08-04 16:16 +08:00
 
 ## P0：合并前必须确认
 
@@ -16,11 +16,11 @@
 - 本地测试必须拉取功能分支；
 - 准备合并前需要重新确认 base 是否前进、PR 是否仍 mergeable、CI 是否对应最新 head。
 
-### 3. 推送后确认最新 head 的远端 CI
-
-实现提交 `f48fff4` 已通过本地 CI 等价门禁。首次推送在 GitHub Ubuntu 上发现非字体测试依赖宿主 CJK 字体，已由 `3063a9e` 隔离；生产缺字体失败合同和专门字体测试未放宽。再次推送后仍必须确认 Python 3.12/3.13 矩阵对应最新 PR head。
-
 ## P1：高价值后续工作
+
+### 3. CI 节流后的 Python 3.13 反馈窗口
+
+额度紧张期间，PR 日常只跑 Python 3.12；Python 3.13 在 `main` 或手动 `workflow_dispatch` 中运行。涉及依赖升级、解释器差异、数据库驱动或打包逻辑的高风险 PR，应在合并前手动跑一次完整矩阵，避免兼容问题延后到合并后才暴露。
 
 ### 4. 清理 v15 之外的遗留前端控制器
 
@@ -115,6 +115,8 @@
 
 ## 已完成且不要重复修复
 
+- GitHub Actions 每次 PR 推送运行四个任务：已移除 `agent/**` 的重复 push 触发，PR 只跑 Python 3.12，main/手动运行双版本矩阵，并启用旧运行取消和 15 分钟超时。
+- 最新实现 head 的远端 CI：`bc76e1b` 上 push/PR 两套 Python 3.12 与 3.13 共四个任务均已通过，PR 当时为 CLEAN、MERGEABLE。
 - Minimal Zine 生命周期测试依赖 macOS 预装 CJK 字体：已为非字体主题测试注入 font preflight；独立字体测试仍验证真实可用/缺失路径。
 - 根 README、`ARCHITECTURE.md` 和 `docs/WORKFLOW.md` 的旧架构冲突：已统一到三层主架构、MediaCrawler、语料池/批次和 Minimal Zine 本地排版合同。
 - 测试受开发机 `.env`、模型配置或代理污染：已用 autouse fixture 隔离测试环境，生产运行时仍正常加载 `.env`。

@@ -2,16 +2,26 @@ name: CI
 
 on:
   push:
-    branches: [main, "agent/**"]
+    branches: [main]
   pull_request:
+  workflow_dispatch:
+
+# A PR branch push already emits pull_request.synchronize.  Do not also run the
+# push workflow for agent/** branches, and discard work for superseded commits.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12", "3.13"]
+        # Keep the supported minimum as the PR gate.  Full compatibility runs on
+        # main and explicit manual checks, where the extra minutes are intentional.
+        python-version: ${{ fromJSON(github.event_name == 'pull_request' && '["3.12"]' || '["3.12","3.13"]') }}
     env:
       X2RED_DATABASE_URL: sqlite:///./ci-migration.db
       X2RED_MEDIA_DIR: ./ci-data/assets

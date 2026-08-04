@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-04T15:56:00+08:00",
+  "updated_at": "2026-08-04T16:16:00+08:00",
   "repository": "troicc/X2RED",
   "snapshot": {
     "branch": "agent/replace-crawlers-with-api-adapters",
@@ -10,10 +10,23 @@
     "code_head_at_inspection": "417adb4640ee7411362bc7a943b42c2c806a341b",
     "implementation_commit": "f48fff4",
     "ci_portability_fix_commit": "3063a9e",
-    "github_checks_at_inspection": "first delivered head exposed host-CJK coupling in three non-font tests; fixed locally and latest head must be rechecked after push",
+    "verified_remote_ci_head": "bc76e1b9ce550556ad892c81315f9ea0af453e63",
+    "github_checks_at_inspection": "all four push/pull_request Python 3.12 and 3.13 checks passed; PR was CLEAN and MERGEABLE",
     "last_verified_test_result": "local CI-equivalent full suite: 67 passed, 8 warnings; compileall, Ruff, active JavaScript, publisher selector, shell, py_compile, and clean 0001-to-0010 migration passed",
     "browser_smoke_at_inspection": "1600/1440/1024 widths: no console errors or horizontal overflow; stage 3 had 1 expanded and 3 compact pages; stage 4 delivery files rendered; source switching and a non-first writing-project deep link selected the exact matching record",
     "volatile_fields_must_be_rechecked": true
+  },
+  "ci_policy": {
+    "reason": "private-repository Actions quota conservation",
+    "pull_request_python": ["3.12"],
+    "main_and_manual_python": ["3.12", "3.13"],
+    "push_branches": ["main"],
+    "workflow_dispatch": true,
+    "cancel_superseded_runs": true,
+    "timeout_minutes": 15,
+    "expected_pr_jobs_per_push": 1,
+    "previous_pr_jobs_per_push": 4,
+    "tradeoff": "Python 3.13 feedback moves to main or an explicit pre-merge manual run"
   },
   "product_architecture": [
     {
