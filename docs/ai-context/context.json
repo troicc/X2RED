@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-04T15:46:00+08:00",
+  "updated_at": "2026-08-04T15:56:00+08:00",
   "repository": "troicc/X2RED",
   "snapshot": {
     "branch": "agent/replace-crawlers-with-api-adapters",
@@ -9,7 +9,8 @@
     "state_at_snapshot": "open_draft_mergeable_clean_unmerged_inspected_2026-08-04",
     "code_head_at_inspection": "417adb4640ee7411362bc7a943b42c2c806a341b",
     "implementation_commit": "f48fff4",
-    "github_checks_at_inspection": "green for the pre-delivery head; latest head must be rechecked after push",
+    "ci_portability_fix_commit": "3063a9e",
+    "github_checks_at_inspection": "first delivered head exposed host-CJK coupling in three non-font tests; fixed locally and latest head must be rechecked after push",
     "last_verified_test_result": "local CI-equivalent full suite: 67 passed, 8 warnings; compileall, Ruff, active JavaScript, publisher selector, shell, py_compile, and clean 0001-to-0010 migration passed",
     "browser_smoke_at_inspection": "1600/1440/1024 widths: no console errors or horizontal overflow; stage 3 had 1 expanded and 3 compact pages; stage 4 delivery files rendered; source switching and a non-first writing-project deep link selected the exact matching record",
     "volatile_fields_must_be_rechecked": true
@@ -57,6 +58,7 @@
     "tests ignore developer .env, X2RED variables, and proxy variables while production config remains unchanged",
     "writing-project deep links restore the exact data-project-id instead of the first list item",
     "custom storyboard mood remains in the frozen model input and fingerprint",
+    "non-font Minimal Zine lifecycle tests inject the font preflight while the dedicated resolver test retains real CJK success/failure coverage",
     "root README, ARCHITECTURE, and workflow documents match the three-layer product architecture"
   ],
   "minimal_zine": {

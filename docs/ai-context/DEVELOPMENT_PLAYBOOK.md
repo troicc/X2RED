@@ -9,6 +9,7 @@
 - PR：`#19`
 - 远端基线 head：`417adb4640ee7411362bc7a943b42c2c806a341b`
 - 本轮实现提交：`f48fff4`
+- Linux CI 字体测试隔离：`3063a9e`
 - PR 仍为 open、draft、mergeable、clean，尚未合并到 `main`
 
 每次工作前都应重新检查，不要假设上述状态仍成立。
@@ -204,7 +205,7 @@ pytest -q
 ruff check apps/api --select E,F,I,B,UP --ignore E501,E701,E702,UP035,UP042,B008,I001
 ```
 
-2026-08-04 本地 CI 等价验证为 67 passed、8 warnings。测试数量会变化，不能把固定数字当成永久门槛；真正门槛是当前分支所有测试和两套 Python 均通过。该次还通过了 compileall、Ruff、active Node 脚本检查、发布助手选择器、shell/py_compile 和全新数据库 0001→0010 迁移。`apps/api/tests/conftest.py` 会隔离开发机 `.env`、`X2RED_*` 和代理变量，避免真实模型/代理配置污染测试；这不改变生产运行时配置加载。
+2026-08-04 本地 CI 等价验证为 67 passed、8 warnings。测试数量会变化，不能把固定数字当成永久门槛；真正门槛是当前分支所有测试和两套 Python 均通过。该次还通过了 compileall、Ruff、active Node 脚本检查、发布助手选择器、shell/py_compile 和全新数据库 0001→0010 迁移。`apps/api/tests/conftest.py` 会隔离开发机 `.env`、`X2RED_*` 和代理变量，避免真实模型/代理配置污染测试；这不改变生产运行时配置加载。Minimal Zine 的产物/回滚测试会注入 font preflight，避免依赖 CI 宿主字体；专门的字体解析测试仍使用真实环境验证 CJK 可用与缺失路径。
 
 ### 重要回归范围
 
