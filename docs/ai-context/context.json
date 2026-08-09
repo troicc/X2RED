@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-09T21:11:00+08:00",
+  "updated_at": "2026-08-09T21:34:00+08:00",
   "repository": "troicc/X2RED",
   "application_version": "0.12.0",
   "snapshot": {
@@ -9,7 +9,12 @@
     "baseline_commit": "9073a4bc8a71a76dbf6762d7fc64a425eb3c99fe",
     "pull_request": 19,
     "pull_request_title": "重构简中素材采集、语料池与三层创作工作区",
-    "pull_request_relation": "PR 19 is the baseline feature PR; C0 is an isolated local branch and is not stacked into PR 19",
+    "pull_request_relation": "PR 19 is the baseline feature PR; C0 is isolated in PR 20 targeting the PR 19 feature branch and is not stacked directly into PR 19",
+    "c0_pull_request": 20,
+    "c0_pull_request_title": "C0：冻结创作质量基线与可重放评测夹具",
+    "c0_pull_request_base": "agent/replace-crawlers-with-api-adapters",
+    "c0_initial_commit": "08c0920f154d51a7cdfa5d35a604d48b3d393672",
+    "c0_state_at_snapshot": "open_draft_created_2026-08-09",
     "state_at_snapshot": "open_draft_mergeable_unmerged_inspected_2026-08-09",
     "code_head_at_inspection": "9073a4bc8a71a76dbf6762d7fc64a425eb3c99fe",
     "implementation_commit": "f48fff4",
@@ -24,6 +29,9 @@
   "creative_quality_baseline": {
     "phase": "C0",
     "branch": "codex/x2red-c0-quality-baseline",
+    "pull_request": 20,
+    "pull_request_url": "https://github.com/troicc/X2RED/pull/20",
+    "initial_commit": "08c0920f154d51a7cdfa5d35a604d48b3d393672",
     "production_behavior_changed": false,
     "required_sequence": ["C0", "V1", "V2", "V3", "V4", "W1", "W2", "W3", "UI1", "OPS1"],
     "writing_fixture_count": 12,

@@ -1,6 +1,6 @@
 # X2RED 项目记忆
 
-更新时间：2026-08-09 21:11 +08:00
+更新时间：2026-08-09 21:34 +08:00
 
 ## 一、当前快照
 
@@ -10,7 +10,11 @@
 
 C0 基线分支来源：`agent/replace-crawlers-with-api-adapters`，基线 SHA `9073a4bc8a71a76dbf6762d7fc64a425eb3c99fe`
 
-PR：`#19 重构简中素材采集、语料池与三层创作工作区`
+基线 PR：`#19 重构简中素材采集、语料池与三层创作工作区`
+
+C0 Draft PR：`#20 C0：冻结创作质量基线与可重放评测夹具`
+
+C0 首个提交：`08c0920f154d51a7cdfa5d35a604d48b3d393672`
 
 PR #19 属于 C0 的基线功能分支，不是 C0 分支本身。
 
@@ -21,6 +25,8 @@ PR #19 属于 C0 的基线功能分支，不是 C0 分支本身。
 2026-08-06 20:29 再次查询 GitHub：PR #19 仍为 open、draft、mergeable，head 仍为 `e38c6f1353994e270dccef18684ba7e1f086f68a`，该 head 的 `test (3.12)` 成功；这些仍是易变化事实。
 
 2026-08-09 重新查询 GitHub：PR #19 仍为 open、draft、mergeable、未合并，head 已前进到 `9073a4bc8a71a76dbf6762d7fc64a425eb3c99fe`；该 head 的 PR CI run `811` 成功。C0 在该准确 head 上建立独立本地分支，未把质量基线继续堆入 PR #19。
+
+2026-08-09 21:34：C0 首个提交 `08c0920f154d51a7cdfa5d35a604d48b3d393672` 已推送到远端 `codex/x2red-c0-quality-baseline`，并创建 Draft PR #20，目标为 `agent/replace-crawlers-with-api-adapters`。PR #20 的 CI、mergeability 和 head 属于易变化事实，合并前必须重新查询。
 
 ### 2026-08-09 C0 创作质量基线
 

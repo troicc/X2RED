@@ -1,6 +1,6 @@
 # X2RED 未完成事项和风险
 
-更新时间：2026-08-09 21:11 +08:00
+更新时间：2026-08-09 21:34 +08:00
 
 ## P0：合并前必须确认
 
@@ -12,7 +12,7 @@
 
 当前状态：
 
-- C0 已在 `codex/x2red-c0-quality-baseline` 本地分支实施；基线是 `9073a4bc8a71a76dbf6762d7fc64a425eb3c99fe`。
+- C0 已在 `codex/x2red-c0-quality-baseline` 实施并推送；基线是 `9073a4bc8a71a76dbf6762d7fc64a425eb3c99fe`，首个提交是 `08c0920f154d51a7cdfa5d35a604d48b3d393672`，Draft PR 为 #20。
 - 修改前完整测试为 `94 passed, 8 warnings`；修改后完整套件为 `99 passed, 8 warnings`，新增 C0 定向测试为 `5 passed`。全仓 CI 范围 Ruff、compileall、导出脚本 py_compile、JSON 校验、敏感信息扫描和 diff check 通过。
 - 12 个写作 fixture、20 个视觉页、两套 rubric、Pydantic schema、旧 Prompt 逐字重放和只读脱敏导出器已经落地；未修改生产行为。
 - 已冻结的关键旧缺陷：`visual-firewall-03-comparison` 与 `visual-firewall-04-conclusion` 的 phrase、note、evidence 和 visual role 不同，但现有 Prompt 与 model fingerprint 相同。
@@ -51,13 +51,16 @@
 
 2026-08-09 00:43 轻内容文案与成图专项验收：已定位并删除“保存文章即从正文连续切句覆盖分镜”的破坏性同步，四页文案现在经过生成、候选采用和 storyboard API 三层跨页去重门禁；真实语料池范围（18 条全池记忆、40280 字、6 条详细来源）与逐页取材依据可追溯。旧 v10 保留，修复后的不可变 v11 使用四组互异文案；已有 raw anchor 的第 1、3 页由 compositor v6 重合成，主体完整、边缘裁切为 0、无本地伪造强调标记。第 2、4 页没有 raw anchor，继续标为待回传且不生成 ZIP。真实浏览器 console 0 error；完整套件 `94 passed, 8 warnings`，CI Ruff、compileall、JavaScript 语法、context JSON 和 diff check 通过。
 
-### 2. PR 仍为 Draft、尚未合并
+### 2. PR #19 和 C0 PR #20 均为 Draft、尚未合并
 
-2026-08-09 重新查询后，PR #19 仍为 open、draft、mergeable，head 已为 `9073a4bc8a71a76dbf6762d7fc64a425eb3c99fe`，该 head 的 PR CI run `811` 成功，尚未进入 `main`。C0 从这一 head 建立独立分支，不继续堆入 PR #19。因此：
+2026-08-09 重新查询后，PR #19 仍为 open、draft、mergeable，head 已为 `9073a4bc8a71a76dbf6762d7fc64a425eb3c99fe`，该 head 的 PR CI run `811` 成功，尚未进入 `main`。C0 从这一 head 建立独立分支，不继续堆入 PR #19。
+
+2026-08-09 21:34，C0 首个提交 `08c0920f154d51a7cdfa5d35a604d48b3d393672` 已推送并创建 Draft PR #20；其 base 是 `agent/replace-crawlers-with-api-adapters`，head 是 `codex/x2red-c0-quality-baseline`。本次记忆同步提交推送后，必须以新的 PR head 重新确认 CI 和 mergeability。因此：
 
 - `git pull main` 不会获得本轮功能；
-- 本地测试必须拉取功能分支；
-- 准备合并前需要重新确认 base 是否前进、PR 是否仍 mergeable、CI 是否对应最新 head。
+- C0 评审应查看 PR #20，而不是继续扩大 PR #19；
+- C0 未评审并合入其目标功能分支前，不创建或实施 V1；
+- 准备合并前需要重新确认两个 PR 的 base/head 是否前进、PR 是否仍 mergeable、CI 是否对应各自最新 head。
 
 ## P1：高价值后续工作
 
