@@ -1,8 +1,23 @@
 # X2RED 未完成事项和风险
 
-更新时间：2026-08-09 00:43 +08:00
+更新时间：2026-08-09 21:11 +08:00
 
 ## P0：合并前必须确认
+
+### 0. 执行任务书分阶段质量计划
+
+任务书要求严格按以下顺序交付，且每项使用独立分支、独立 PR、feature flag、创作质量验收和回滚说明：
+
+`C0 -> V1 -> V2 -> V3 -> V4 -> W1 -> W2 -> W3 -> UI1 -> OPS1`
+
+当前状态：
+
+- C0 已在 `codex/x2red-c0-quality-baseline` 本地分支实施；基线是 `9073a4bc8a71a76dbf6762d7fc64a425eb3c99fe`。
+- 修改前完整测试为 `94 passed, 8 warnings`；修改后完整套件为 `99 passed, 8 warnings`，新增 C0 定向测试为 `5 passed`。全仓 CI 范围 Ruff、compileall、导出脚本 py_compile、JSON 校验、敏感信息扫描和 diff check 通过。
+- 12 个写作 fixture、20 个视觉页、两套 rubric、Pydantic schema、旧 Prompt 逐字重放和只读脱敏导出器已经落地；未修改生产行为。
+- 已冻结的关键旧缺陷：`visual-firewall-03-comparison` 与 `visual-firewall-04-conclusion` 的 phrase、note、evidence 和 visual role 不同，但现有 Prompt 与 model fingerprint 相同。
+- 下一阶段只能是 V1 `visual-compiler-parity`。按照任务书“从最新已合并的前一阶段创建”，C0 未评审/合并前不要在同一分支继续 V1，更不要先做 UI 美化。
+- C0 fixture 是合成防回归材料，不是视觉质量已达标的证据；真实图片、真实长文和模型盲评仍须在后续阶段按权利与成本边界完成。
 
 ### 1. 真实浏览器端到端 smoke test（本轮已完成最新基线，仍需后续回归）
 
@@ -38,7 +53,7 @@
 
 ### 2. PR 仍为 Draft、尚未合并
 
-2026-08-06 20:29 重新查询后，PR #19 仍为 open、draft、mergeable，head 为 `e38c6f1`，该 head 的 Python 3.12 CI 成功，尚未进入 `main`。因此：
+2026-08-09 重新查询后，PR #19 仍为 open、draft、mergeable，head 已为 `9073a4bc8a71a76dbf6762d7fc64a425eb3c99fe`，该 head 的 PR CI run `811` 成功，尚未进入 `main`。C0 从这一 head 建立独立分支，不继续堆入 PR #19。因此：
 
 - `git pull main` 不会获得本轮功能；
 - 本地测试必须拉取功能分支；
