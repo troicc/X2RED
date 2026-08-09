@@ -6,9 +6,10 @@
 
 1. `docs/ai-context/README.md`
 2. `docs/ai-context/PROJECT_MEMORY.md`
-3. 与当前任务相关的 `docs/ai-context/WORKFLOWS.md` 或 `DEVELOPMENT_PLAYBOOK.md`
-4. `docs/ai-context/OPEN_ITEMS.md`
-5. 再读取实际代码、PR 和 CI；不要只凭本文假设仓库现状。
+3. 涉及写作、Prompt、生图或排版质量时读取 `docs/ai-context/CREATIVE_QUALITY_BASELINE.md`
+4. 与当前任务相关的 `docs/ai-context/WORKFLOWS.md` 或 `DEVELOPMENT_PLAYBOOK.md`
+5. `docs/ai-context/OPEN_ITEMS.md`
+6. 再读取实际代码、PR 和 CI；不要只凭本文假设仓库现状。
 
 ## 当前产品定义
 

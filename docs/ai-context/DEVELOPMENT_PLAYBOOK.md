@@ -2,6 +2,18 @@
 
 ## 1. 当前分支和 PR
 
+2026-08-09 C0 质量基线任务：
+
+- 基线分支：`agent/replace-crawlers-with-api-adapters`
+- 基线 SHA：`9073a4bc8a71a76dbf6762d7fc64a425eb3c99fe`
+- 当前本地任务分支：`codex/x2red-c0-quality-baseline`
+- PR #19 仍是基线功能 PR；C0 不继续堆入该 PR
+- 重新查询时 PR #19 open、draft、mergeable，head 为 `9073a4b`，PR CI run `811` 成功
+- 修改前完整基线：`94 passed, 8 warnings`
+- C0 修改后完整验证：`99 passed, 8 warnings`；定向 `5 passed`，Ruff、compileall、导出脚本 py_compile、JSON 与 diff check 通过
+
+任务书后续阶段必须从最新已合并的前一阶段创建独立分支；C0 后依次为 V1、V2、V3、V4、W1、W2、W3、UI1、OPS1。
+
 2026-08-04 检查时：
 
 - 仓库：`troicc/X2RED`
@@ -173,7 +185,7 @@ X2RED_AUTO_L2_DAILY_LIMIT=5
 
 ## 6. 数据库迁移
 
-当前功能分支包含 Alembic revision `0011`。`0010` 新增语料池和批次表；`0011` 新增 `pool_memory_snapshots` 和 `pool_memory_usages`，正式记忆卡继续复用 append-only `review_artifacts`。
+当前功能分支包含 Alembic revision `0012`。`0010` 新增语料池和批次表；`0011` 新增 `pool_memory_snapshots` 和 `pool_memory_usages`，正式记忆卡继续复用 append-only `review_artifacts`；`0012` 新增工作台隔离的 `source_workbench_states`。
 
 `./scripts/start.sh` 和 `x2red serve` 默认自动迁移，因此正常启动不需要先单独运行迁移。
 

@@ -1,20 +1,43 @@
 # X2RED 项目记忆
 
-更新时间：2026-08-09 00:43 +08:00
+更新时间：2026-08-09 21:34 +08:00
 
 ## 一、当前快照
 
 仓库：`troicc/X2RED`
 
-功能分支：`agent/replace-crawlers-with-api-adapters`
+当前本地任务分支：`codex/x2red-c0-quality-baseline`
 
-PR：`#19 重构简中素材采集、语料池与三层创作工作区`
+C0 基线分支来源：`agent/replace-crawlers-with-api-adapters`，基线 SHA `9073a4bc8a71a76dbf6762d7fc64a425eb3c99fe`
+
+基线 PR：`#19 重构简中素材采集、语料池与三层创作工作区`
+
+C0 Draft PR：`#20 C0：冻结创作质量基线与可重放评测夹具`
+
+C0 首个提交：`08c0920f154d51a7cdfa5d35a604d48b3d393672`
+
+PR #19 属于 C0 的基线功能分支，不是 C0 分支本身。
 
 2026-08-04 收尾前的远端基线 head：`417adb4640ee7411362bc7a943b42c2c806a341b`
 
 2026-08-05 本轮开始时的本地/远端 head：`e38c6f1353994e270dccef18684ba7e1f086f68a`。PR #19 重新检查为 open、draft、mergeable，最新 Python 3.12 CI 成功；这些仍是易变化事实。
 
 2026-08-06 20:29 再次查询 GitHub：PR #19 仍为 open、draft、mergeable，head 仍为 `e38c6f1353994e270dccef18684ba7e1f086f68a`，该 head 的 `test (3.12)` 成功；这些仍是易变化事实。
+
+2026-08-09 重新查询 GitHub：PR #19 仍为 open、draft、mergeable、未合并，head 已前进到 `9073a4bc8a71a76dbf6762d7fc64a425eb3c99fe`；该 head 的 PR CI run `811` 成功。C0 在该准确 head 上建立独立本地分支，未把质量基线继续堆入 PR #19。
+
+2026-08-09 21:34：C0 首个提交 `08c0920f154d51a7cdfa5d35a604d48b3d393672` 已推送到远端 `codex/x2red-c0-quality-baseline`，并创建 Draft PR #20，目标为 `agent/replace-crawlers-with-api-adapters`。PR #20 的 CI、mergeability 和 head 属于易变化事实，合并前必须重新查询。
+
+### 2026-08-09 C0 创作质量基线
+
+- 用户提供的执行任务书被拆为 `C0 -> V1 -> V2 -> V3 -> V4 -> W1 -> W2 -> W3 -> UI1 -> OPS1`。根据“独立分支、独立 PR、可回滚”和停止条件，本轮只实施 C0，不提前改 Prompt compiler、写作检索或 UI。
+- 修改前完整套件在 Python 3.13.5 上为 `94 passed, 8 warnings`。C0 不改变 API、数据库、迁移、前端、模型或发布行为。
+- `apps/api/tests/evals/writing_cases.json` 冻结 12 个合成、无用户隐私的写作案例：技术解释 4、新闻解释 2、观点评论 2、轻内容 2、公众号长文 2。每个案例保存输入证据、约束、旧版输出、claims、pipeline trace、已知问题和 SHA-256。
+- `apps/api/tests/evals/visual_cases.json` 冻结 20 个 Minimal Zine 页面，保存文章摘要、页面职责、phrase、note、证据摘要、storyboard、完整旧 Prompt、Skill pin、compiler 路径和指纹。`visual-firewall-03/04` 有意证明现状缺陷：文字、证据和页面职责不同，但旧 Prompt 与 model fingerprint 相同。
+- 写作 rubric 固定 evidence、clarity、specificity、structure、hook、title、style、AI clichés、usefulness；视觉 rubric 固定 semantic match、imageability、composition、thumbnail、distinctness、series consistency、texture、color anchor、typography、artifacts。每项有 1/3/5 分锚点和阻断项。
+- `scripts/export-creative-baseline.py` 以 SQLite 只读模式导出 DraftRevision、PlatformVariant、WritingArtifact 和视觉 Prompt；不加载 `.env`、不调用模型、不修改数据库，并清理密钥、Bearer、Cookie、会话、敏感 URL 参数、结构化内部 ID 和本机绝对路径。真实数据库小样本 smoke 成功，临时私有导出随后删除。
+- 完整设计、fixture 清单、旧 web/API Prompt 数据流、重放命令、隐私边界和当前已知问题记录在 `docs/ai-context/CREATIVE_QUALITY_BASELINE.md`。V1 必须从这个基线比较，不能通过改 fixture 掩盖行为差异。
+- 修改后完整套件为 `99 passed, 8 warnings`；C0 定向测试 `5 passed`，全仓 CI 范围 Ruff、compileall、导出脚本 py_compile、JSON 校验、敏感信息扫描和 `git diff --check` 通过。C0 没有受影响的 JavaScript 或需要浏览器验证的生产行为。
 
 2026-08-05 至 2026-08-09 严肃精简与证据修复：
 

@@ -25,6 +25,7 @@
 - `WORKFLOWS.md`：发现、来源、语料池、工作台、池子记忆、制图、审核和发布的完整流程。
 - `DEVELOPMENT_PLAYBOOK.md`：开发和运维操作手册。
 - `OPEN_ITEMS.md`：未完成事项、风险、验证边界和建议顺序。
+- `CREATIVE_QUALITY_BASELINE.md`：任务书 C0 的写作/视觉 fixture、rubric、旧 Prompt 数据流、重放与隐私边界。
 - `context.json`：供模型或脚本快速解析的结构化摘要。
 - 根目录 `AGENTS.md`：Agent 入口和不可违反的约束。
 
