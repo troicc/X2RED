@@ -508,10 +508,16 @@ def test_platform_frontend_and_health_contracts() -> None:
     assert 'storyboardSelectField(item, "anchor", "视觉锚点", ANCHOR_OPTIONS)' in light_v15_js
     assert 'storyboardSelectField(item, "texture", "质感", TEXTURE_OPTIONS)' in light_v15_js
     assert "storyboardAccentField(item)" in light_v15_js
+    assert "冻结 PageVisualBrief" in light_v15_js
+    assert 'storyboardSelectField(item, "page_visual_role", "页面职责", VISUAL_ROLE_OPTIONS)' in light_v15_js
+    assert 'storyboardField(item, "concrete_subject", "具体主体"' in light_v15_js
+    assert "Visual Bible 不变量" in light_v15_js
     assert 'type: "number", min: 0, max: 1, step: 0.01' in light_v15_js
     assert 'type: "number", min: 0.65, max: 2, step: 0.05' in light_v15_js
     assert ".light-storyboard-card-compact" in light_v15_css
     assert ".light-storyboard-summary" in light_v15_css
+    assert ".light-visual-brief-editor" in light_v15_css
+    assert ".light-visual-brief-summary" in light_v15_css
     assert ".light-action-bar {\n  position: static;" in light_v15_css
     assert "position: sticky;\n  bottom: 16px;" not in light_v15_css
     assert "@media (min-width: 801px) and (max-width: 900px)" in product_shell_css

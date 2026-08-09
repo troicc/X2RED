@@ -39,6 +39,7 @@ from app.services.platform_studio import PlatformStudioError, PlatformStudioServ
 from app.services.pool_memory import PoolMemoryError, PoolMemoryService
 from app.services.skill_packs import pack_payloads
 from app.services.skills import ensure_bindings
+from app.services.visual_brief import VisualBriefError
 from app.services.wechat_themes import list_theme_payloads
 
 router = APIRouter(prefix="/api/platforms", tags=["platform-studio"])
@@ -159,6 +160,21 @@ def _carry_storyboard_trace(
     ):
         if key in previous:
             current[key] = previous[key]
+
+
+def _drop_storyboard_trace(current: dict) -> None:
+    for key in (
+        "final_prompt",
+        "visual_prompt_spec",
+        "native_zine_recipe",
+        "native_zine_interpretation",
+        "model_input_fingerprint",
+        "raw_anchor_fingerprint",
+        "raw_anchor_source_variant_id",
+        "text_rendering",
+        "model_text_forbidden",
+    ):
+        current.pop(key, None)
 
 
 def _carry_storyboard_copy_provenance(previous: dict, current: dict) -> None:
@@ -455,6 +471,7 @@ def revise_wechat_light_storyboard(
     replacement_specs: list[dict] = []
     model_changed_pages: list[int] = []
     local_changed_pages: list[int] = []
+    visual_brief_mode = str(current_metadata.get("visual_brief_mode") or "legacy")
     configured_mode = str(
         current_metadata.get("visual_prompt_mode")
         or get_settings().minimal_zine_prompt_mode
@@ -481,24 +498,20 @@ def revise_wechat_light_storyboard(
             or "minimal_zine"
         )
         _carry_storyboard_copy_provenance(previous, replacement)
-        model_changed = storyboard_model_input_changed(
-            previous,
-            replacement,
-            feature_mode=configured_mode,  # type: ignore[arg-type]
-            semantic_context=semantic_context,
-        )
-        local_changed = _storyboard_page_changed(previous, replacement)
-        if model_changed:
-            model_changed_pages.append(page)
-        else:
-            # A phrase/note/crop-only revision keeps the exact prompt and recipe so
-            # the renderer can copy the parent raw anchor into the child staging set.
-            _carry_storyboard_trace(previous, replacement)
-        if local_changed or model_changed:
-            local_changed_pages.append(page)
-            replacement.pop("final_composition_fingerprint", None)
-            replacement.pop("compositor_version", None)
-            replacement.pop("composition_diagnostics", None)
+        if visual_brief_mode == "production":
+            raw_brief = replacement.get("page_visual_brief")
+            if not isinstance(raw_brief, dict):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"第 {page} 页缺少冻结 PageVisualBrief",
+                )
+            previous_brief = previous.get("page_visual_brief")
+            if isinstance(previous_brief, dict):
+                raw_brief["evidence_refs"] = previous_brief.get("evidence_refs") or previous.get(
+                    "source_refs"
+                ) or ["当前来源"]
+            replacement["page_visual_brief"] = raw_brief
+            replacement["visual_bible"] = current_metadata.get("visual_bible") or {}
         replacement_specs.append(replacement)
 
     copy_issues = poster_copy_issues(replacement_specs)
@@ -510,6 +523,48 @@ def revise_wechat_light_storyboard(
                 "各页短句与说明也不能彼此近似重复。请逐页写成独立观点。"
             ),
         )
+
+    if visual_brief_mode == "production":
+        strategy = current_metadata.get("strategy")
+        strategy = strategy if isinstance(strategy, dict) else {}
+        try:
+            frozen_bundle, replacement_specs = service.visual_briefs.refreeze_after_human_edit(
+                previous_bundle=current_metadata.get("visual_brief") or {},
+                posters=replacement_specs,
+                article_thesis=str(
+                    strategy.get("content_thesis") or current.summary or current.title
+                ),
+            )
+        except VisualBriefError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        metadata["visual_bible"] = frozen_bundle.visual_bible.model_dump(mode="json")
+        metadata["visual_brief"] = frozen_bundle.model_dump(mode="json")
+        metadata["visual_distinctness"] = frozen_bundle.distinctness.model_dump(
+            mode="json"
+        )
+
+    for page, (previous, replacement) in enumerate(
+        zip(current_specs, replacement_specs, strict=True),
+        start=1,
+    ):
+        model_changed = storyboard_model_input_changed(
+            previous,
+            replacement,
+            feature_mode=configured_mode,  # type: ignore[arg-type]
+            semantic_context=semantic_context,
+        )
+        local_changed = _storyboard_page_changed(previous, replacement)
+        if model_changed:
+            model_changed_pages.append(page)
+            _drop_storyboard_trace(replacement)
+        else:
+            # Copy-only or crop-only revisions can keep the exact image prompt.
+            _carry_storyboard_trace(previous, replacement)
+        if local_changed or model_changed:
+            local_changed_pages.append(page)
+            replacement.pop("final_composition_fingerprint", None)
+            replacement.pop("compositor_version", None)
+            replacement.pop("composition_diagnostics", None)
 
     metadata.update(
         {

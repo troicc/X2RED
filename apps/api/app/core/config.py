@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     minimal_zine_prompt_mode: Literal["legacy", "skill_v03", "production"] = (
         "production"
     )
+    visual_brief_mode: Literal["legacy", "production"] = "production"
     request_timeout_seconds: float = 20.0
 
     material_user_agent: str = "X2RED-MaterialResearch/0.13 (+local research)"

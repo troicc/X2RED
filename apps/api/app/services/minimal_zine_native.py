@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.domain.platforms import PlatformVariant, PlatformVariantState
+from app.domain.visual_brief_schemas import PageVisualBrief
 from app.domain.visual_prompt_schemas import (
     VisualPromptContext,
     VisualPromptFeatureMode,
@@ -211,6 +212,13 @@ def _semantic_model_input_fingerprint(
         "visual_bible": spec.get("visual_bible")
         if isinstance(spec.get("visual_bible"), dict)
         else {},
+        "page_visual_brief": spec.get("page_visual_brief")
+        if isinstance(spec.get("page_visual_brief"), dict)
+        else {},
+        "visual_brief_source_fingerprint": _clean(
+            spec.get("visual_brief_source_fingerprint"),
+            128,
+        ),
         "semantic_context": semantic_context or {},
         "skill_sha": NativeSkillManager.definition(V03_SKILL_NAME).commit,
         "compiler_version": COMPILER_VERSION,
@@ -1243,6 +1251,23 @@ class MinimalZineNativeService:
         spec = specs[page - 1]
         strategy = self._object_value(metadata.get("strategy"))
         controls = _storyboard_controls(spec)
+        frozen_brief: PageVisualBrief | None = None
+        raw_brief = spec.get("page_visual_brief")
+        if isinstance(raw_brief, dict):
+            try:
+                frozen_brief = PageVisualBrief.model_validate(raw_brief)
+            except ValidationError as exc:
+                if str(metadata.get("visual_brief_mode") or "") == "production":
+                    raise NativeSkillError(
+                        f"第 {page} 页冻结视觉简报损坏，拒绝绕过简报编译 Prompt"
+                    ) from exc
+        if (
+            str(metadata.get("visual_brief_mode") or "") == "production"
+            and frozen_brief is None
+        ):
+            raise NativeSkillError(
+                f"第 {page} 页缺少冻结 PageVisualBrief，production 不允许回退到自由隐喻"
+            )
         article_thesis = _clean(
             spec.get("article_thesis")
             or strategy.get("content_thesis")
@@ -1254,14 +1279,21 @@ class MinimalZineNativeService:
             spec.get("section_title") or spec.get("phrase") or variant.title,
             300,
         ) or f"第 {page} 页"
-        role = _clean(spec.get("page_visual_role"), 100)
+        role = _clean(
+            frozen_brief.visual_role if frozen_brief else spec.get("page_visual_role"),
+            100,
+        )
         if not role:
             role = "cover" if page == 1 else "conclusion" if page == len(specs) else "scene"
         evidence = _clean(
             spec.get("evidence_summary") or spec.get("evidence_basis"),
             1200,
         )
-        refs = spec.get("source_refs")
+        refs = (
+            frozen_brief.evidence_refs
+            if frozen_brief is not None
+            else spec.get("source_refs")
+        )
         if isinstance(refs, list) and refs:
             ref_text = "、".join(_clean(value, 120) for value in refs if _clean(value, 120))
             evidence = _clean(f"{evidence}；来源：{ref_text}" if evidence else f"来源：{ref_text}", 1600)
@@ -1278,12 +1310,53 @@ class MinimalZineNativeService:
             if index < 0 or index >= len(specs):
                 return ""
             value = specs[index]
+            candidate_brief = value.get("page_visual_brief")
+            if isinstance(candidate_brief, dict):
+                try:
+                    parsed = PageVisualBrief.model_validate(candidate_brief)
+                except ValidationError:
+                    parsed = None
+                if parsed is not None:
+                    return _clean(
+                        "，".join(
+                            item
+                            for item in (
+                                parsed.concrete_subject,
+                                parsed.action_or_relation,
+                                parsed.setting,
+                            )
+                            if item
+                        ),
+                        800,
+                    )
             return _clean(
                 value.get("current_page_concept")
                 or value.get("visual_metaphor")
                 or value.get("photo_direction"),
                 800,
             )
+
+        current_concept = (
+            _clean(
+                "，".join(
+                    item
+                    for item in (
+                        frozen_brief.concrete_subject,
+                        frozen_brief.action_or_relation,
+                        frozen_brief.setting,
+                    )
+                    if item
+                ),
+                800,
+            )
+            if frozen_brief is not None
+            else concept(page - 1) or controls["visual_metaphor"]
+        )
+        main_hue = (
+            frozen_brief.palette_delta[0]
+            if frozen_brief is not None and frozen_brief.palette_delta
+            else controls["accent"]
+        )
 
         return VisualPromptContext(
             variant_id=variant.id,
@@ -1297,22 +1370,33 @@ class MinimalZineNativeService:
             evidence_summary=evidence,
             audience=_clean(metadata.get("audience"), 500),
             emotion=_clean(
-                spec.get("emotion")
+                frozen_brief.reader_emotion
+                if frozen_brief is not None
+                else spec.get("emotion")
                 or strategy.get("emotional_job")
                 or controls["mood"],
                 300,
             ),
-            current_page_concept=concept(page - 1) or controls["visual_metaphor"],
+            current_page_concept=current_concept,
             visual_bible=visual_bible,
+            page_visual_brief=frozen_brief,
             previous_page_concept=concept(page - 2),
             next_page_concept=concept(page),
             content_recipe=_clean(metadata.get("recipe"), 100),
             source_fit=_clean(strategy.get("source_fit"), 800),
-            layout_hint=controls["layout"],
+            layout_hint=(
+                frozen_brief.layout_family
+                if frozen_brief is not None
+                else controls["layout"]
+            ),
             anchor_hint=controls["anchor"],
             texture_hint=controls["texture"],
-            main_hue_hint=controls["accent"],
-            mood_hint=controls["mood"],
+            main_hue_hint=main_hue,
+            mood_hint=(
+                frozen_brief.reader_emotion
+                if frozen_brief is not None
+                else controls["mood"]
+            ),
         )
 
     def _expected_model_fingerprint(

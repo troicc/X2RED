@@ -254,13 +254,17 @@ class VisualPromptCompiler:
             if feature_mode == "production"
             else "Follow the upstream v0.3 prompt compiler faithfully while keeping final Chinese local."
         )
+        model_context = self._model_context_payload(context)
         return f"""
 Execute the complete pinned Skill compiler below for exactly one page. {safety}
 Use the article and neighboring-page context to choose a distinct, imageable relation.
 Do not replace the chosen recipe with defaults after selecting it.
+When page_visual_brief is present, it is the sole page-level visual authority. Treat phrase
+and note only as local-typography/cache inputs; do not infer a second subject, action, layout,
+palette or mood from them. Never override the frozen Visual Bible or PageVisualBrief.
 
-PAGE CONTEXT (all fields are semantic inputs):
-{json.dumps(context.model_dump(mode="json"), ensure_ascii=False, indent=2)}
+PAGE CONTEXT (only the fields below may influence the image):
+{json.dumps(model_context, ensure_ascii=False, indent=2)}
 
 PINNED SKILL AND REFERENCES:
 {bundle}
@@ -282,6 +286,25 @@ Return JSON only:
   "warnings": []
 }}
 """.strip()
+
+    @staticmethod
+    def _model_context_payload(context: VisualPromptContext) -> dict[str, Any]:
+        """Exclude copy-only fields once V2 has frozen the visual authority."""
+
+        brief = context.page_visual_brief
+        if brief is None:
+            return context.model_dump(mode="json")
+        return {
+            "variant_id": context.variant_id,
+            "page": context.page,
+            "total_pages": context.total_pages,
+            "visual_bible": context.visual_bible,
+            "page_visual_brief": brief.model_dump(mode="json"),
+            "previous_page_concept": context.previous_page_concept,
+            "next_page_concept": context.next_page_concept,
+            "content_recipe": context.content_recipe,
+            "source_fit": context.source_fit,
+        }
 
     @staticmethod
     def _positive_prompt(response: dict[str, Any]) -> str:
@@ -323,9 +346,11 @@ Return JSON only:
         decorative = raw.get("decorative_system")
         if not isinstance(decorative, list):
             decorative = []
+        brief = context.page_visual_brief
         return VisualPromptRecipe(
             layout_family=str(
-                raw.get("layout_family")
+                (brief.layout_family if brief is not None else "")
+                or raw.get("layout_family")
                 or raw.get("layout")
                 or context.layout_hint
                 or "center-fragment"
@@ -337,7 +362,10 @@ Return JSON only:
                 or "object-specimen"
             ),
             typography_mode=str(
-                raw.get("typography_mode") or raw.get("typography") or "local-cjk"
+                (brief.typography_mode if brief is not None else "")
+                or raw.get("typography_mode")
+                or raw.get("typography")
+                or "local-cjk"
             ),
             texture_mode=str(
                 raw.get("texture_mode")
@@ -347,12 +375,19 @@ Return JSON only:
             ),
             decorative_system=[str(item) for item in decorative],
             main_hue=str(
-                raw.get("main_hue")
+                (brief.palette_delta[0] if brief is not None and brief.palette_delta else "")
+                or raw.get("main_hue")
                 or raw.get("accent")
                 or context.main_hue_hint
                 or "cobalt"
             ),
-            mood=str(raw.get("mood") or context.mood_hint or context.emotion or "quiet"),
+            mood=str(
+                (brief.reader_emotion if brief is not None else "")
+                or raw.get("mood")
+                or context.mood_hint
+                or context.emotion
+                or "quiet"
+            ),
         )
 
     def _build_spec(
@@ -401,6 +436,7 @@ Return JSON only:
         context: VisualPromptContext,
         recipe: VisualPromptRecipe,
     ) -> str:
+        brief = context.page_visual_brief
         previous = (
             f"The preceding page uses {context.previous_page_concept}; avoid repeating its silhouette."
             if context.previous_page_concept
@@ -411,7 +447,25 @@ Return JSON only:
             if context.next_page_concept
             else "Resolve the series without introducing a second subject."
         )
-        evidence = context.evidence_summary or "the supplied page evidence"
+        evidence = (
+            " / ".join(brief.evidence_refs)
+            if brief is not None
+            else context.evidence_summary
+        ) or "the supplied page evidence"
+        current_concept = (
+            ", ".join(
+                value
+                for value in (
+                    brief.concrete_subject,
+                    brief.action_or_relation,
+                    brief.setting,
+                )
+                if value
+            )
+            if brief is not None
+            else context.current_page_concept
+        )
+        thesis = brief.claim if brief is not None else context.article_thesis
         return "\n\n".join(
             [
                 (
@@ -421,7 +475,7 @@ Return JSON only:
                 ),
                 (
                     f"Build one concrete {recipe.anchor_form} from this page concept: "
-                    f"{context.current_page_concept}. Let it embody the thesis ‘{context.article_thesis}’ "
+                    f"{current_concept}. Let it embody the thesis ‘{thesis}’ "
                     f"through visible material evidence from {evidence}, not through a literal caption."
                 ),
                 (

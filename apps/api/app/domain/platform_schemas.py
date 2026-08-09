@@ -5,6 +5,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.domain.visual_brief_schemas import PageVisualBrief
+
 WechatTheme = Literal[
     "auto",
     "editorial_blue",
@@ -91,6 +93,7 @@ class MinimalZineStoryboardPage(BaseModel):
     emotion: str = Field(default="", max_length=300)
     current_page_concept: str = Field(default="", max_length=800)
     visual_bible: dict[str, Any] = Field(default_factory=dict)
+    page_visual_brief: PageVisualBrief | None = None
     visual_metaphor: str = Field(min_length=1, max_length=240)
     layout: MinimalZineLayout
     anchor: MinimalZineAnchor
@@ -144,6 +147,12 @@ class MinimalZineStoryboardPage(BaseModel):
         ):
             return cleaned
         raise ValueError("accent 必须是支持的强调色名称或 #RRGGBB")
+
+    @model_validator(mode="after")
+    def brief_matches_page(self) -> MinimalZineStoryboardPage:
+        if self.page_visual_brief is not None and self.page_visual_brief.page != self.page:
+            raise ValueError("页面视觉简报页码必须与故事板页码一致")
+        return self
 
 
 class MinimalZineStoryboardRevisionRequest(BaseModel):
