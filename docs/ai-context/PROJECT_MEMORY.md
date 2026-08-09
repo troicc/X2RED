@@ -1,18 +1,20 @@
 # X2RED 项目记忆
 
-更新时间：2026-08-09 22:05 +08:00
+更新时间：2026-08-09 23:06 +08:00
 
 ## 一、当前快照
 
 仓库：`troicc/X2RED`
 
-当前本地任务分支：`codex/x2red-v1-visual-compiler-parity`
+当前本地任务分支：`codex/x2red-v2-visual-bible-page-brief`
 
-V1 分支来源：已合并 C0 的 `agent/replace-crawlers-with-api-adapters`，准确基线 SHA `02aa1db7f5eef45e438c8776bad0703c3e3ef441`
+V2 分支来源：已合并 V1 的 `agent/replace-crawlers-with-api-adapters`，准确基线 SHA `a7b00d0005d024ab16a770dd7513031f5e21d548`
 
 基线 PR：`#19 重构简中素材采集、语料池与三层创作工作区`
 
 C0 PR：`#20 C0：冻结创作质量基线与可重放评测夹具`，已于 2026-08-09 squash merge 到功能基线分支。
+
+V1 PR：`#21 V1：对齐 Minimal Zine v0.3 视觉 Prompt compiler`，head `291d6a13ca8606628d1c2c781f7f15e298e57bc2` 的 `test (3.12)` 成功后已于 2026-08-09 squash merge，功能基线前进到 `a7b00d0005d024ab16a770dd7513031f5e21d548`。
 
 C0 首个提交：`08c0920f154d51a7cdfa5d35a604d48b3d393672`
 
@@ -29,6 +31,16 @@ PR #19 属于 C0 的基线功能分支，不是 C0 分支本身。
 2026-08-09 21:34：C0 首个提交 `08c0920f154d51a7cdfa5d35a604d48b3d393672` 已推送到远端 `codex/x2red-c0-quality-baseline`，并创建 Draft PR #20，目标为 `agent/replace-crawlers-with-api-adapters`。PR #20 的 CI、mergeability 和 head 属于易变化事实，合并前必须重新查询。
 
 2026-08-09 随后重新查询并完成 C0：PR #20 head `dd10c9f959c2b518be6f9ef1b910e3e9b7a9b261` 的 CI run `813` 成功，PR 标记 ready 后 squash merge；功能基线分支的新 head 为 `02aa1db7f5eef45e438c8776bad0703c3e3ef441`。V1 从这个已合并 head 创建独立分支。
+
+### 2026-08-09 V2 Visual Bible 与逐页视觉简报
+
+- 新增严格 `VisualBible` / `PageVisualBrief` / 每页三候选 / 冻结 bundle schema。生产路径先生成不含页面物件的文章级 Bible，再为每页生成恰好 3 个具体、可画、有 evidence ref 的概念；模型或 schema 失败时显式记录 `DEGRADED_VISUAL_BRIEF`，不伪称模型已生效。
+- `VisualDistinctnessService` 在整组 3^N 候选上先选“通过阻断门禁”的组合，再比较质量分；拦截重复/仅换页码的主体、全组同 anchor、少于规定 layout、视觉陈词、复合抽象和缺证据页。4 页默认至少 3 种 layout，每页具体主体不重复。
+- 轻内容生成管线升至 `light-lab-v14`，新版 `PlatformVariant` 冻结 `visual_brief_mode` / `visual_bible` / `visual_brief` / `visual_distinctness`；不再将 `series_motif` 复制到全页。旧版本无 V2 mode 时保持 legacy 读取，无迁移、无历史回填。
+- 正文编辑继续字节级保留已有 storyboard。分镜编辑必须提交冻结 brief，后端保留原 evidence refs 和 Bible 不变量，重跑 distinctness 后生成新 fingerprint；任何 brief 语义变化会清除旧 Prompt/recipe/raw trace 和合成指纹。
+- V1 Prompt compiler 在 PageVisualBrief 存在时只能使用该冻结简报的主体、动作、场景、职责、layout、palette 和情绪；`phrase` / `note` 仅供本地中文排版和缓存，不再推导第二套画面。
+- 轻内容 UI 显示冻结 PageVisualBrief、三候选数、页面职责、具体主体、动作/场景/视点/裁切/光线、evidence refs 与 Visual Bible 不变量；历史版本仍显示旧“视觉隐喻”编辑器。
+- Feature flag `X2RED_VISUAL_BRIEF_MODE=production|legacy` 默认 production。详细合同、升级和回滚见 `docs/ai-context/VISUAL_BIBLE_PAGE_BRIEF_V2.md`。C0 的 5 组 20 个视觉页已全部通过 V2 确定性主编验收；完整 API 套件 `118 passed, 8 warnings`，V2 定向 `9 passed`，V1/V2 联合 `18 passed`，轻内容端到端 `3 passed`。临时数据库的 1280×800 / 375×812 真实浏览器验收无横向溢出、console 0 error，四页主体/layout/职责差异在 UI 实际可见；未调用模型或写用户主数据库。
 
 ### 2026-08-09 V1 Minimal Zine Prompt compiler 对齐
 

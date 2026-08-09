@@ -397,7 +397,9 @@ class LightContentService:
 4. 中老年读者不是被教育对象；避免“老人就该”“上了年纪只能”。
 5. 时令饮食只写文化习惯与日常选择，明确因地区、体感和个人情况调整。
 6. 只从来源提炼现实判断，不编造人物、数字、节气日期或营养功效。
-7. 视觉隐喻必须是可画的单一物件或小场景，例如窗、茶杯、树影、旧椅、碗、果实、月亮、门、衣角。
+7. 每页必须有不重复的具体主体或可见事件，不得用同一 motif 换词填满全组，也不得只写“本页变化”。
+8. 每页的 evidence_basis 要说明它由来源中哪个事实、案例或判断支撑；source_refs 至少一项。
+9. 不用“希望灯塔、人生迷宫、通往未来的门、黑暗中的一束光”等陈词滥调；技术材料不得改写成泛鸡汤物件。
 
 来源：
 {source_text[:12000]}
@@ -410,7 +412,7 @@ class LightContentService:
   "body_markdown":"120-500字短正文",
   "tags":["标签"],
   "posters":[
-    {{"phrase":"6-24字主句","note":"0-36字小注","visual_metaphor":"单一可画物件","layout":"center-fragment|lower-fragment|lower-left-float|upper-right-block|dual-panel|irregular-cutout|type-led|single-specimen","accent":"#1646d8","mood":"quiet|summer|solitude|childhood|seaside|afternoon|night|memory"}}
+    {{"phrase":"6-24字主句","note":"0-36字小注","visual_metaphor":"本页独有的具体主体+动作或关系","evidence_basis":"来源中支撑本页画面的事实或判断","source_refs":["来源标题或段落索引"],"layout":"center-fragment|lower-fragment|lower-left-float|upper-right-block|dual-panel|irregular-cutout|type-led|single-specimen","accent":"#1646d8","mood":"quiet|summer|solitude|childhood|seaside|afternoon|night|memory"}}
   ]
 }}
 """.strip()

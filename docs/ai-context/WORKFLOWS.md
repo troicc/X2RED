@@ -232,14 +232,17 @@ X2RED 可以打开发布准备页面，但不点击最终发布。
 
 v15 工作台固定为四阶段：任务设置、文案候选、视觉分镜、成品交付。进入视觉阶段前必须先持久化当前候选和编辑框，不能只依赖旧版本 ID。
 
+新建 production 版本先从文章与当前证据生成不含逐页物件的 `VisualBible`，再为每页生成恰好 3 个具体概念。全组通过主体、anchor、layout、cliché、复合抽象与 evidence ref 门禁后，主编选择才能冻结为 `PageVisualBrief`。四页至少使用三种 layout，具体主体不重复；不允许再把一个 `series_motif` 复制到全组。模型/结构失败时必须显示 `DEGRADED_VISUAL_BRIEF`，并进入可审计的确定性候选。
+
 阶段 3 的分镜编辑：
 
 1. 只展开当前选中的一页，其他页面显示紧凑摘要；
-2. 编辑短句、说明或视觉隐喻等字段时，UI 标记分镜为未保存，枚举控件使用中文标签；
+2. 新版编辑短句、说明、页面职责、具体主体、动作/关系和镜头字段；旧版本才继续显示自由“视觉隐喻”；UI 标记分镜为未保存，枚举控件使用中文标签；
 3. 保存时向 `POST /api/platforms/wechat/light/variants/{variant_id}/storyboard` 提交完整、唯一且覆盖所有页码的合同；
 4. 接口创建新的不可变子 `PlatformVariant`，保留 `parent_variant_id` 和模型输入/本地构图变更追踪，父版本不变；
-5. 接口再次检查同页/跨页文案碰撞，不合格时返回可读错误而不是保存串页合同；
-6. 该接口只冻结视觉合同，不生成文案，也不在请求中调用图片模型。
+5. 接口再次检查同页/跨页文案碰撞，并保留原 evidence refs 与 Visual Bible 不变量，重新冻结全组 brief 并运行 distinctness；
+6. 任何 PageVisualBrief 语义修改使旧 Prompt、recipe、raw trace 与合成指纹过期；仅保存正文不自动改分镜；
+7. 该接口只冻结视觉合同，不生成文案，也不在请求中调用图片模型。
 
 渲染阶段：
 
@@ -304,11 +307,13 @@ v15 工作台固定为四阶段：任务设置、文案候选、视觉分镜、�
 
 ### 8.1 Prompt 编译
 
-生产默认由统一 `VisualPromptCompiler` 读取固定的 v0.3.0 `SKILL.md`、`references/` 和 `evals/`。网页 handoff 与 API render 都调用这一入口；网页路径允许调用文本模型，但绝不调用图片 API。输入上下文必须包含文章主旨、章节标题、页面视觉职责、phrase、note、证据摘要、受众、情绪、当前页概念、Visual Bible 和前后页概念。
+生产默认由统一 `VisualPromptCompiler` 读取固定的 v0.3.0 `SKILL.md`、`references/` 和 `evals/`。网页 handoff 与 API render 都调用这一入口；网页路径允许调用文本模型，但绝不调用图片 API。输入上下文必须包含文章主旨、章节标题、页面视觉职责、phrase、note、证据摘要、受众、情绪、当前页概念、Visual Bible、冻结 PageVisualBrief 和前后页概念。PageVisualBrief 存在时是唯一页面级视觉权威；compiler 不得再从 phrase/note 猜测第二个主体、动作、layout、palette 或 mood。
 
 编译结果持久化为 `VisualPromptSpec`：compiler mode、Skill 名称/版本、四段正向 Prompt、invariants、compact exclusions、完整上游 recipe、source fingerprint、Prompt fingerprint 和 warnings。recipe 不得再被本地默认值覆盖；只有文本编译失败时才调用确定性页面合同，并写入 `DEGRADED_FALLBACK`。
 
 `source_fingerprint` 覆盖 phrase、note、evidence、visual role、article thesis、Visual Bible、Skill SHA 和 compiler version；任一变化都会让旧 Prompt 与 raw anchor 失效。生产 `_four_paragraph_prompt(VisualPromptSpec)` 只追加“图片模型不写可读文字、本地合成中文”的 text-safe invariant，不重新选择主题、layout、anchor、texture 或 hue。
+
+V2 还将 PageVisualBrief 及其 source fingerprint 纳入模型输入指纹。`X2RED_VISUAL_BRIEF_MODE=legacy` 可单独回滚视觉简报层，不改动 V1 Prompt compiler 模式或历史工件。
 
 输出必须是结构化 JSON，其中图片 Prompt 明确要求：
 

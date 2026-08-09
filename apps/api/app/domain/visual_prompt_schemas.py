@@ -4,6 +4,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.domain.visual_brief_schemas import PageVisualBrief
+
 VisualPromptMode = Literal["faithful_skill", "production_text_safe", "legacy"]
 VisualPromptFeatureMode = Literal["legacy", "skill_v03", "production"]
 
@@ -50,6 +52,7 @@ class VisualPromptContext(StrictVisualPromptModel):
     emotion: str = Field(default="", max_length=300)
     current_page_concept: str = Field(min_length=1, max_length=800)
     visual_bible: dict[str, Any] = Field(default_factory=dict)
+    page_visual_brief: PageVisualBrief | None = None
     previous_page_concept: str = Field(default="", max_length=800)
     next_page_concept: str = Field(default="", max_length=800)
     content_recipe: str = Field(default="", max_length=100)

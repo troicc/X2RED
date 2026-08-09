@@ -56,6 +56,18 @@
     ["edge-counterweight", "边缘配重 · 非对称留白"],
   ];
 
+  const VISUAL_ROLE_OPTIONS = [
+    ["cover", "封面 · 建立主张"],
+    ["scene", "场景 · 落入现实"],
+    ["explanation", "解释 · 说明机制"],
+    ["evidence", "证据 · 展示依据"],
+    ["comparison", "对照 · 比较差异"],
+    ["process", "过程 · 显示步骤"],
+    ["limitation", "限制 · 标出边界"],
+    ["transition", "转场 · 改变节奏"],
+    ["conclusion", "结论 · 收束判断"],
+  ];
+
   const ANCHOR_OPTIONS = [
     ["tiny-faded-photo", "小幅褪色照片"],
     ["torn-paper-clipping", "撕纸剪贴"],
@@ -357,6 +369,9 @@
     const count = Math.max(3, Math.min(6, raw.length || Number(meta.image_count || state.brief.imageCount || 4)));
     return Array.from({ length: count }, (_, index) => {
       const source = raw[index] && typeof raw[index] === "object" ? raw[index] : {};
+      const brief = source.page_visual_brief && typeof source.page_visual_brief === "object"
+        ? structuredClone(source.page_visual_brief)
+        : null;
       return {
         ...source,
         page: index + 1,
@@ -369,6 +384,15 @@
         emotion: String(source.emotion || strategy.emotional_job || source.mood || "quiet").slice(0, 300),
         current_page_concept: String(source.current_page_concept || source.visual_metaphor || source.photo_direction || "真实生活中的单一物件或场景").slice(0, 800),
         visual_bible: source.visual_bible && typeof source.visual_bible === "object" ? source.visual_bible : (meta.visual_bible && typeof meta.visual_bible === "object" ? meta.visual_bible : {}),
+        page_visual_brief: brief,
+        concrete_subject: String(brief?.concrete_subject || source.current_page_concept || source.visual_metaphor || "").slice(0, 240),
+        secondary_subject: String(brief?.secondary_subject || "").slice(0, 240),
+        action_or_relation: String(brief?.action_or_relation || "").slice(0, 320),
+        setting: String(brief?.setting || source.photo_direction || "").slice(0, 240),
+        viewpoint: String(brief?.viewpoint || "").slice(0, 160),
+        crop: String(brief?.crop || "").slice(0, 160),
+        lighting: String(brief?.lighting || "").slice(0, 160),
+        reader_emotion: String(brief?.reader_emotion || source.emotion || source.mood || "").slice(0, 160),
         visual_metaphor: String(source.visual_metaphor || source.photo_direction || "真实生活中的单一物件或场景").slice(0, 240),
         layout: allowed(source.layout, LAYOUTS, "center-fragment"),
         anchor: allowed(source.anchor, ANCHORS, "object-specimen"),
@@ -383,27 +407,62 @@
   }
 
   function storyboardPayload() {
-    return state.storyboard.map((item, index) => ({
-      page: index + 1,
-      article_thesis: String(item.article_thesis || "").trim().slice(0, 1200),
-      section_title: String(item.section_title || item.phrase || "").trim().slice(0, 300),
-      page_visual_role: String(item.page_visual_role || (index === 0 ? "cover" : index === state.storyboard.length - 1 ? "conclusion" : "scene")),
-      phrase: String(item.phrase || "").trim().slice(0, 80),
-      note: String(item.note || "").trim().slice(0, 180),
-      evidence_summary: String(item.evidence_summary || item.evidence_basis || "").trim().slice(0, 1600),
-      emotion: String(item.emotion || item.mood || "").trim().slice(0, 300),
-      current_page_concept: String(item.current_page_concept || item.visual_metaphor || "").trim().slice(0, 800),
-      visual_bible: item.visual_bible && typeof item.visual_bible === "object" ? item.visual_bible : {},
-      visual_metaphor: String(item.visual_metaphor || "").trim().slice(0, 240),
-      layout: allowed(item.layout, LAYOUTS, "center-fragment"),
-      anchor: allowed(item.anchor, ANCHORS, "object-specimen"),
-      accent: normalizeAccent(item.accent),
-      texture: allowed(item.texture, TEXTURES, "xerox-softness"),
-      mood: String(item.mood || "quiet").trim().slice(0, 80),
-      focus_x: clamp(item.focus_x, 0, 1, 0.5),
-      focus_y: clamp(item.focus_y, 0, 1, 0.42),
-      zoom: clamp(item.zoom, 0.65, 2, 1),
-    }));
+    return state.storyboard.map((item, index) => {
+      const page = index + 1;
+      const phrase = String(item.phrase || "").trim().slice(0, 80);
+      const note = String(item.note || "").trim().slice(0, 180);
+      const evidence = String(item.evidence_summary || item.evidence_basis || "").trim().slice(0, 1600);
+      const role = String(item.page_visual_role || (index === 0 ? "cover" : index === state.storyboard.length - 1 ? "conclusion" : "scene"));
+      const layout = allowed(item.layout, LAYOUTS, "center-fragment");
+      const accent = normalizeAccent(item.accent);
+      const concreteSubject = String(item.concrete_subject || item.current_page_concept || item.visual_metaphor || "").trim().slice(0, 240);
+      const actionOrRelation = String(item.action_or_relation || "").trim().slice(0, 320);
+      const setting = String(item.setting || item.photo_direction || "").trim().slice(0, 240);
+      const currentConcept = [concreteSubject, actionOrRelation, setting].filter(Boolean).join("，").slice(0, 800);
+      const existingBrief = item.page_visual_brief && typeof item.page_visual_brief === "object"
+        ? item.page_visual_brief
+        : null;
+      const pageBrief = existingBrief ? {
+        ...existingBrief,
+        page,
+        section_id: String(existingBrief.section_id || `page-${String(page).padStart(2, "0")}`).slice(0, 120),
+        visual_role: role,
+        claim: [phrase, note, evidence].filter(Boolean).join("；").slice(0, 600) || "承接当前页面判断",
+        reader_emotion: String(item.reader_emotion || item.emotion || item.mood || existingBrief.reader_emotion || "克制、清晰").slice(0, 160),
+        concrete_subject: concreteSubject || String(existingBrief.concrete_subject || "具体证据材料").slice(0, 240),
+        secondary_subject: String(item.secondary_subject || existingBrief.secondary_subject || "").slice(0, 240),
+        action_or_relation: actionOrRelation || String(existingBrief.action_or_relation || "形成一个可见关系").slice(0, 320),
+        setting: setting || String(existingBrief.setting || "与证据一致的真实现场").slice(0, 240),
+        viewpoint: String(item.viewpoint || existingBrief.viewpoint || "正俯视，空间关系清楚").slice(0, 160),
+        crop: String(item.crop || existingBrief.crop || "完整保留主体轮廓与中文安全区").slice(0, 160),
+        lighting: String(item.lighting || existingBrief.lighting || "低对比漫射光").slice(0, 160),
+        layout_family: layout,
+        palette_delta: [accent],
+      } : null;
+      const payload = {
+        page,
+        article_thesis: String(item.article_thesis || "").trim().slice(0, 1200),
+        section_title: String(item.section_title || phrase || "").trim().slice(0, 300),
+        page_visual_role: role,
+        phrase,
+        note,
+        evidence_summary: evidence,
+        emotion: String(item.emotion || item.mood || "").trim().slice(0, 300),
+        current_page_concept: currentConcept || String(item.current_page_concept || item.visual_metaphor || "").trim().slice(0, 800),
+        visual_bible: item.visual_bible && typeof item.visual_bible === "object" ? item.visual_bible : {},
+        visual_metaphor: currentConcept || String(item.visual_metaphor || "").trim().slice(0, 240),
+        layout,
+        anchor: allowed(item.anchor, ANCHORS, "object-specimen"),
+        accent,
+        texture: allowed(item.texture, TEXTURES, "xerox-softness"),
+        mood: String(item.mood || "quiet").trim().slice(0, 80),
+        focus_x: clamp(item.focus_x, 0, 1, 0.5),
+        focus_y: clamp(item.focus_y, 0, 1, 0.42),
+        zoom: clamp(item.zoom, 0.65, 2, 1),
+      };
+      if (pageBrief) payload.page_visual_brief = pageBrief;
+      return payload;
+    });
   }
 
   function status(text, type = "") {
@@ -1600,7 +1659,13 @@
     const copy = create("span", "light-storyboard-summary-copy");
     copy.append(
       create("strong", "light-storyboard-summary-phrase", item.phrase || "未填写短句"),
-      create("span", "light-storyboard-summary-metaphor", `视觉隐喻 · ${item.visual_metaphor || "未填写"}`),
+      create(
+        "span",
+        "light-storyboard-summary-metaphor",
+        item.page_visual_brief
+          ? `具体主体 · ${item.concrete_subject || "未填写"}`
+          : `视觉隐喻 · ${item.visual_metaphor || "未填写"}`,
+      ),
     );
     selectPage.append(
       create("span", "light-storyboard-summary-page", `第 ${item.page} 页`),
@@ -1623,9 +1688,42 @@
     card.appendChild(head);
     card.append(storyboardField(item, "phrase", "短句", { maxLength: 80 }));
     card.append(storyboardField(item, "note", "说明", { multiline: true, rows: 2, maxLength: 180 }));
+    if (item.page_visual_brief) {
+      const briefPanel = create("section", "light-visual-brief-editor");
+      const briefHead = create("div", "light-visual-brief-head");
+      briefHead.append(
+        create("strong", "", "冻结 PageVisualBrief"),
+        create(
+          "span",
+          "",
+          `${Array.isArray(item.visual_concept_candidates) ? item.visual_concept_candidates.length : 3} 个候选 · 主编已选择`,
+        ),
+      );
+      briefPanel.appendChild(briefHead);
+      const briefGrid = create("div", "light-field-grid");
+      briefGrid.append(
+        storyboardSelectField(item, "page_visual_role", "页面职责", VISUAL_ROLE_OPTIONS),
+        storyboardField(item, "concrete_subject", "具体主体", { maxLength: 240 }),
+        storyboardField(item, "action_or_relation", "动作 / 关系", { multiline: true, rows: 2, maxLength: 320 }),
+        storyboardField(item, "setting", "场景", { maxLength: 240 }),
+        storyboardField(item, "viewpoint", "视点", { maxLength: 160 }),
+        storyboardField(item, "crop", "裁切", { maxLength: 160 }),
+        storyboardField(item, "lighting", "光线", { maxLength: 160 }),
+        storyboardField(item, "reader_emotion", "读者情绪", { maxLength: 160 }),
+      );
+      briefPanel.appendChild(briefGrid);
+      const refs = Array.isArray(item.page_visual_brief.evidence_refs)
+        ? item.page_visual_brief.evidence_refs.filter(Boolean)
+        : [];
+      briefPanel.appendChild(create(
+        "p",
+        "light-visual-brief-evidence",
+        `证据引用 · ${refs.length ? refs.join(" · ") : "缺失（保存时会被拒绝）"}`,
+      ));
+      card.appendChild(briefPanel);
+    }
     const row = create("div", "light-field-grid");
-    row.append(
-      storyboardField(item, "visual_metaphor", "视觉隐喻", { maxLength: 240 }),
+    const controls = [
       storyboardSelectField(item, "layout", "版式", LAYOUT_OPTIONS),
       storyboardSelectField(item, "anchor", "视觉锚点", ANCHOR_OPTIONS),
       storyboardAccentField(item),
@@ -1640,7 +1738,11 @@
       storyboardField(item, "zoom", "缩放", {
         type: "number", min: 0.65, max: 2, step: 0.05, inputMode: "decimal",
       }),
-    );
+    ];
+    if (!item.page_visual_brief) {
+      controls.unshift(storyboardField(item, "visual_metaphor", "视觉隐喻", { maxLength: 240 }));
+    }
+    row.append(...controls);
     card.appendChild(row);
     const prompt = create("details", "light-prompt");
     prompt.append(create("summary", "", "查看编译 Prompt"), create("pre", "", pagePrompt(item)));
@@ -1666,6 +1768,27 @@
     }
     card.appendChild(create("h4", "", `第 ${page.page} 页 · 证据与操作`));
     card.appendChild(create("p", "light-page-inspector-copy", "原始视觉锚点与最终海报分开保存；最终中文排版始终由本地合成。"));
+    if (page.page_visual_brief) {
+      const brief = page.page_visual_brief;
+      const roleLabel = VISUAL_ROLE_OPTIONS.find(([value]) => value === brief.visual_role)?.[1] || brief.visual_role;
+      const briefSummary = create("section", "light-visual-brief-summary");
+      briefSummary.append(
+        create("strong", "", `冻结视觉简报 · ${roleLabel}`),
+        create("p", "", `${brief.concrete_subject} · ${brief.action_or_relation}`),
+        create("small", "", `版式 ${brief.layout_family} · 证据 ${(brief.evidence_refs || []).join(" / ")}`),
+      );
+      const bible = page.visual_bible && typeof page.visual_bible === "object" ? page.visual_bible : {};
+      const invariants = Array.isArray(bible.invariants) ? bible.invariants.filter(Boolean) : [];
+      if (invariants.length) {
+        const details = create("details", "light-visual-bible-summary");
+        details.append(
+          create("summary", "", "查看 Visual Bible 不变量"),
+          create("p", "", invariants.join("；")),
+        );
+        briefSummary.appendChild(details);
+      }
+      card.appendChild(briefSummary);
+    }
     const sourceRefs = Array.isArray(page.source_refs) ? page.source_refs.filter(Boolean) : [];
     const evidenceBasis = String(page.evidence_basis || "").trim();
     if (evidenceBasis || sourceRefs.length) {
@@ -1708,7 +1831,7 @@
     }
     const grid = create("div", "light-visual-grid");
     const listCard = create("section", "light-section-card");
-    listCard.append(create("h4", "", "逐页视觉分镜"), create("p", "", "编辑短句、说明或视觉隐喻会创建新的不可变版本；它们不会混进渲染请求。"));
+    listCard.append(create("h4", "", "逐页视觉分镜"), create("p", "", "编辑短句、说明或具体主体与画面关系会创建新的不可变版本；渲染始终读取冻结合同。"));
     const storyboard = create("div", "light-storyboard-list");
     state.storyboard.forEach((item) => storyboard.appendChild(renderStoryboardCard(item)));
     listCard.appendChild(storyboard);

@@ -33,6 +33,7 @@ from app.services.light_visual_renderer import (
 from app.services.pool_memory import PoolMemoryService
 from app.services.publication_safety import strip_internal_markers
 from app.services.skills import binding_for
+from app.services.visual_brief import VisualBriefError, VisualBriefService
 
 
 class LightContentLabService:
@@ -47,6 +48,7 @@ class LightContentLabService:
         self.editorial = editorial
         self.legacy = LightContentService(settings, editorial)
         self.renderer = LightVisualRenderer()
+        self.visual_briefs = VisualBriefService(settings, editorial)
 
     async def create_variant(
         self,
@@ -233,12 +235,39 @@ class LightContentLabService:
             "final_issues": final_issues,
             "contract": "all page phrases and notes are distinct; no N.note equals N+1.phrase",
         }
-        final["posters"] = self._apply_visual_direction(
-            final["posters"],
-            pipeline.get("visual_direction") or {},
-            resolved_style,
-            recipe,
-        )
+        self._ensure_visual_evidence(final["posters"], evidence_scope)
+        visual_brief_bundle = None
+        if self.settings.visual_brief_mode == "production":
+            strategy = pipeline.get("strategy")
+            strategy = strategy if isinstance(strategy, dict) else {}
+            article_thesis = str(
+                strategy.get("content_thesis") or final.get("title") or source.title
+            ).strip()
+            try:
+                visual_brief_bundle = await self.visual_briefs.build(
+                    article_thesis=article_thesis,
+                    posters=final["posters"],
+                    audience=audience,
+                    visual_style=resolved_style,
+                    content_recipe=recipe,
+                    model_name=visual_binding.model_name or self.settings.model_name,
+                    reasoning_effort=visual_binding.reasoning_effort,
+                    use_model=bool(model_ready and quality_mode == "studio"),
+                    visual_memory=memory_prompts.get("visual", ""),
+                )
+            except VisualBriefError as exc:
+                raise LightContentError(f"视觉简报冻结失败：{exc}") from exc
+            final["posters"] = self.visual_briefs.apply_bundle(
+                final["posters"],
+                visual_brief_bundle,
+            )
+        else:
+            final["posters"] = self._apply_visual_direction(
+                final["posters"],
+                pipeline.get("visual_direction") or {},
+                resolved_style,
+                recipe,
+            )
         iteration_round = 1
         if previous_variant is not None:
             iteration_round = int(previous_meta.get("iteration_round") or 1) + 1
@@ -246,7 +275,7 @@ class LightContentLabService:
         metadata = {
             "generator": generator,
             "content_mode": "light_series",
-            "pipeline_version": "light-lab-v13",
+            "pipeline_version": "light-lab-v14",
             "recipe": recipe,
             "recipe_label": RECIPE_LABELS[recipe],
             "audience": audience.strip(),
@@ -269,6 +298,22 @@ class LightContentLabService:
             "evidence_scope": evidence_scope,
             "poster_copy_quality": poster_copy_quality,
             "poster_specs": final["posters"],
+            "visual_brief_mode": self.settings.visual_brief_mode,
+            "visual_bible": (
+                visual_brief_bundle.visual_bible.model_dump(mode="json")
+                if visual_brief_bundle is not None
+                else {}
+            ),
+            "visual_brief": (
+                visual_brief_bundle.model_dump(mode="json")
+                if visual_brief_bundle is not None
+                else {"mode": "legacy"}
+            ),
+            "visual_distinctness": (
+                visual_brief_bundle.distinctness.model_dump(mode="json")
+                if visual_brief_bundle is not None
+                else {}
+            ),
             "corpus_item_ids": memory_summary["memory_ids"],
             "memory_snapshot_id": memory_summary["snapshot_id"],
             "memory_snapshot_hash": memory_summary["snapshot_hash"],
@@ -391,23 +436,67 @@ class LightContentLabService:
             image_count=len(metadata.get("poster_specs") or []) or 4,
             seasonal_topic=str(metadata.get("seasonal_topic") or ""),
         )
+        evidence_scope = metadata.get("evidence_scope")
+        self._ensure_visual_evidence(
+            normalized["posters"],
+            evidence_scope if isinstance(evidence_scope, dict) else {},
+        )
         copy_issues = poster_copy_issues(normalized["posters"])
         if copy_issues:
             raise LightContentError(
                 "该候选的逐页文案未通过独立性检查：存在跨页复用或说明被当成下一页短句。"
                 "请改选其他候选或带反馈重新生成。"
             )
-        normalized["posters"] = self._apply_visual_direction(
-            normalized["posters"],
-            raw.get("visual_direction") if isinstance(raw.get("visual_direction"), dict) else {},
-            str(metadata.get("visual_style") or "minimal_zine"),
-            str(metadata.get("recipe") or "short_commentary"),
-        )
+        visual_brief_bundle = None
+        if str(metadata.get("visual_brief_mode") or self.settings.visual_brief_mode) == "production":
+            strategy = metadata.get("strategy")
+            strategy = strategy if isinstance(strategy, dict) else {}
+            try:
+                visual_brief_bundle = self.visual_briefs.build_deterministic(
+                    article_thesis=str(
+                        strategy.get("content_thesis") or normalized["title"]
+                    ),
+                    posters=normalized["posters"],
+                    visual_style=str(metadata.get("visual_style") or "minimal_zine"),
+                    content_recipe=str(metadata.get("recipe") or "short_commentary"),
+                )
+            except VisualBriefError as exc:
+                raise LightContentError(f"候选视觉简报冻结失败：{exc}") from exc
+            normalized["posters"] = self.visual_briefs.apply_bundle(
+                normalized["posters"],
+                visual_brief_bundle,
+            )
+        else:
+            normalized["posters"] = self._apply_visual_direction(
+                normalized["posters"],
+                raw.get("visual_direction") if isinstance(raw.get("visual_direction"), dict) else {},
+                str(metadata.get("visual_style") or "minimal_zine"),
+                str(metadata.get("recipe") or "short_commentary"),
+            )
         revised_meta = dict(metadata)
         revised_meta.update(
             {
+                "pipeline_version": "light-lab-v14",
                 "selected_candidate_index": candidate_index,
                 "poster_specs": normalized["posters"],
+                "visual_brief_mode": str(
+                    metadata.get("visual_brief_mode") or self.settings.visual_brief_mode
+                ),
+                "visual_bible": (
+                    visual_brief_bundle.visual_bible.model_dump(mode="json")
+                    if visual_brief_bundle is not None
+                    else metadata.get("visual_bible") or {}
+                ),
+                "visual_brief": (
+                    visual_brief_bundle.model_dump(mode="json")
+                    if visual_brief_bundle is not None
+                    else metadata.get("visual_brief") or {"mode": "legacy"}
+                ),
+                "visual_distinctness": (
+                    visual_brief_bundle.distinctness.model_dump(mode="json")
+                    if visual_brief_bundle is not None
+                    else metadata.get("visual_distinctness") or {}
+                ),
                 "poster_copy_quality": {
                     "passed": True,
                     "chief_editor_issues": [],
@@ -1078,6 +1167,30 @@ class LightContentLabService:
             "submitted_chars": min(len(source_text), 12000),
             "contract": "current source defines the evidence boundary",
         }
+
+    @staticmethod
+    def _ensure_visual_evidence(
+        posters: list[dict[str, Any]],
+        evidence_scope: dict[str, Any],
+    ) -> None:
+        raw_ids = evidence_scope.get("detailed_source_ids")
+        source_ids = (
+            [str(value).strip() for value in raw_ids if str(value).strip()]
+            if isinstance(raw_ids, list)
+            else []
+        )
+        fallback_id = str(evidence_scope.get("input_source_id") or "").strip()
+        if not source_ids and fallback_id:
+            source_ids = [fallback_id]
+        for index, poster in enumerate(posters):
+            raw_refs = poster.get("source_refs")
+            refs = (
+                [str(value).strip() for value in raw_refs if str(value).strip()]
+                if isinstance(raw_refs, list)
+                else []
+            )
+            if not refs and source_ids:
+                poster["source_refs"] = [source_ids[index % len(source_ids)]]
 
     @staticmethod
     def _corpus_prompt(corpus: list[dict[str, Any]]) -> str:

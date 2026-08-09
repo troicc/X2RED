@@ -21,6 +21,13 @@
 
 ## 3. ChatGPT 网页生图回传
 
+### 冻结视觉简报
+
+- production 分镜卡片显示“冻结 PageVisualBrief”、三候选数和主编已选择状态；不再用一个自由视觉隐喻字段代替整个画面决策。
+- 展开页可编辑职责、具体主体、动作/关系、场景、视点、裁切、光线与读者情绪；evidence refs 只读显示，不允许用空值绕过。
+- 页检查器同时显示选中简报、layout、evidence refs 和可展开的 Visual Bible 不变量。历史 legacy 版本才显示旧“视觉隐喻”。
+- 窄屏下简报字段单列，标题/候选状态纵向排列，长 evidence ref 可换行；不得产生页面横向滚动。
+
 - 网页版 ChatGPT 是人工交接，不得被包装成隐藏 API，也不得自动接管登录态、点击生成或抓取用户成图。
 - 每页顺序固定为：冻结当前不可变分镜 → 用统一文本 compiler 编译并直接显示完整无字 3:5 Prompt → 人工检查并复制 → 用户在 ChatGPT Images 生成并保存 → 回传 PNG/JPEG/WebP → X2RED 本地排中文并重建预览。
 - 网页 handoff 可以调用与 API render 相同的文本 compiler，但绝不调用图片 API；视觉模型只提供 raw anchor，中文、页码和最终版式继续由本地合成。

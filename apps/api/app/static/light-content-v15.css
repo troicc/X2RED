@@ -394,6 +394,31 @@
 
 .light-page-state { color: #68748a; font-size: 12px; }
 .light-storyboard-card .light-field-grid { margin-top: 10px; }
+.light-visual-brief-editor {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid #ded7cd;
+  border-radius: 10px;
+  background: #fbf8f2;
+}
+.light-visual-brief-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #3a3530;
+  font-size: 13px;
+}
+.light-visual-brief-head span { color: #756d65; font-size: 11px; }
+.light-visual-brief-evidence {
+  margin: 0;
+  color: #625b54;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
 .light-accent-control { display: grid; min-width: 0; align-content: start; }
 .light-accent-control .light-field { margin-bottom: 0; }
 .light-accent-custom { margin-top: 10px !important; }
@@ -412,6 +437,21 @@
 .light-page-inspector { position: sticky; top: calc(var(--shell-bar) + 18px); }
 .light-page-inspector h4 { margin-bottom: 7px; }
 .light-page-inspector-copy { margin: 0 0 12px; color: #67748a; font-size: 13px; line-height: 1.5; }
+.light-visual-brief-summary {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 10px 11px;
+  border: 1px solid #ded7cd;
+  border-radius: 9px;
+  color: #4f4841;
+  background: #fbf8f2;
+}
+.light-visual-brief-summary strong { font-size: 12px; }
+.light-visual-brief-summary p { margin: 0; font-size: 13px; line-height: 1.5; }
+.light-visual-brief-summary small { color: #756d65; font-size: 11px; line-height: 1.45; }
+.light-visual-bible-summary summary { min-height: 32px; cursor: pointer; font-size: 12px; font-weight: 700; }
+.light-visual-bible-summary p { margin-top: 6px; color: #625b54; font-size: 12px; }
 .light-copy-evidence { margin: 0 0 12px; padding: 10px 11px; border: 1px solid #dce7e2; border-radius: 9px; background: #f4faf7; }
 .light-copy-evidence strong { color: #315f4e; font-size: 12px; }
 .light-copy-evidence p { margin: 5px 0 0; color: #4d6259; font-size: 13px; line-height: 1.5; }
@@ -630,6 +670,7 @@
   .light-evidence-grid { grid-template-columns: 1fr; }
   .light-web-handoff-head { display: grid; }
   .light-web-badge { justify-self: start; }
+  .light-visual-brief-head { align-items: start; flex-direction: column; }
   .light-compiler-grid { grid-template-columns: 1fr; gap: 2px; }
   .light-compiler-grid dd { margin-bottom: 7px; }
   .light-storyboard-summary {

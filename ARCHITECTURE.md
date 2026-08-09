@@ -91,6 +91,8 @@ For each light-content `PlatformVariant`, all final files live under `data/expor
 
 Prompt compilation is a separate boundary before image generation. The pinned v0.3 Skill snapshot feeds one `VisualPromptCompiler`, and both manual web handoff and API rendering persist the same `VisualPromptSpec`. The spec binds semantic page context and provenance to source/Prompt fingerprints, preserves the upstream recipe, and exposes explicit degraded warnings. `production`, faithful `skill_v03`, and pinned v0.1 `legacy` modes are selected through one feature flag; no database migration or artifact relocation is required to roll back.
 
+Before that compiler boundary, V2 freezes one article-level `VisualBible` and one selected `PageVisualBrief` per page from exactly three candidates. The Bible contains only project rendering invariants; current evidence determines page subjects. A series-level editor blocks repeated subjects/anchors, insufficient layout diversity, visual clichés, compound abstractions and missing evidence. The compiler treats the selected brief as the sole page-level visual authority, and any storyboard-semantic change invalidates prior Prompt/raw/composition traces. `X2RED_VISUAL_BRIEF_MODE=legacy` rolls back this layer without mutating historical variants.
+
 ## Isolation and review invariants
 
 - Corpus-batch context flows one way and one layer deep; shared sources cannot pull an older batch's full memory into a newer one.

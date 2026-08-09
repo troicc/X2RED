@@ -34,6 +34,7 @@ from app.services.input_materials import (
 from app.services.pool_memory import PoolMemoryService
 from app.services.skills import binding_for
 from app.services.source_graph import connected_sources
+from app.services.visual_brief import VisualBriefService
 from app.services.wechat_cover_renderer import WeChatCoverRenderer
 from app.services.wechat_renderer import WeChatHtmlRenderer, WeChatValidation
 from app.services.wechat_themes import auto_theme, get_theme
@@ -49,6 +50,7 @@ class PlatformStudioService:
         self.editorial = editorial
         self.renderer = WeChatHtmlRenderer()
         self.cover_renderer = WeChatCoverRenderer()
+        self.visual_briefs = VisualBriefService(settings, editorial)
 
     async def create_wechat_variant(
         self,
@@ -191,12 +193,17 @@ class PlatformStudioService:
         tags = self._tags(model_output.get("tags"), draft.tags if draft else "")
         memory_summary = memory_service.snapshot_summary(memory_snapshot)
         illustration_plan = model_output.get("illustration_plan") or []
+        visual_bible = self.visual_briefs.default_bible(
+            visual_style=f"wechat-{selected_theme}",
+            content_recipe="longform",
+        )
         visual_prompts = self._build_visual_handoff(
             title=title,
             summary=summary,
             body_markdown=body_markdown,
             theme_id=selected_theme,
             illustration_plan=illustration_plan,
+            visual_bible=visual_bible.model_dump(mode="json"),
         ) if include_illustration_plan else []
         metadata = {
             "generator": generator,
@@ -209,6 +216,7 @@ class PlatformStudioService:
             "short_share_title": short_title[:24],
             "illustration_plan": illustration_plan,
             "visual_prompts": visual_prompts,
+            "visual_bible": visual_bible.model_dump(mode="json"),
             "visual_handoff_mode": "codex_skill_prompt_upload",
             "citations": model_output.get("citations") or [],
             "input_materials": compact_material_provenance(input_materials),
@@ -291,6 +299,7 @@ class PlatformStudioService:
                 theme_id=resolved_theme,
                 illustration_plan=metadata.get("illustration_plan") or [],
                 previous=metadata.get("visual_prompts") or [],
+                visual_bible=metadata.get("visual_bible") or {},
             )
         revised = PlatformVariant(
             source_id=current.source_id,
@@ -367,6 +376,7 @@ class PlatformStudioService:
                 body_markdown=repaired.body_markdown,
                 theme_id=repaired.theme,
                 illustration_plan=repaired_metadata.get("illustration_plan") or [],
+                visual_bible=repaired_metadata.get("visual_bible") or {},
             )
             repaired.metadata_json = json.dumps(repaired_metadata, ensure_ascii=False)
             db.flush()
@@ -553,6 +563,7 @@ class PlatformStudioService:
             body_markdown=repaired.body_markdown,
             theme_id=repaired.theme,
             illustration_plan=repaired_metadata["illustration_plan"],
+            visual_bible=repaired_metadata.get("visual_bible") or {},
         )
         repaired.metadata_json = json.dumps(repaired_metadata, ensure_ascii=False)
         db.flush()
@@ -1500,6 +1511,7 @@ written_version 只作为待整合稿件，事实仍须由 primary/supporting �
         theme_id: str,
         illustration_plan: Any,
         previous: Any = None,
+        visual_bible: Any = None,
     ) -> list[dict[str, Any]]:
         theme = get_theme(theme_id)
         sections = self._markdown_sections(body_markdown)
@@ -1527,9 +1539,23 @@ written_version 只作为待整合稿件，事实仍须由 primary/supporting �
                         slot[key] = old[key]
             return slot
 
+        bible = visual_bible if isinstance(visual_bible, dict) else {}
+        bible_rules = ""
+        if bible:
+            raw_invariants = bible.get("invariants")
+            invariants = raw_invariants if isinstance(raw_invariants, list) else []
+            bible_rules = (
+                f"冻结 Visual Bible：纸张系统 {bible.get('paper_system') or '统一纸本'}；"
+                f"强调色政策 {bible.get('accent_policy') or '单一强调色'}；"
+                f"摄影处理 {bible.get('photographic_treatment') or '克制纪实'}；"
+                f"插画处理 {bible.get('illustration_treatment') or '单一具体主体'}；"
+                f"整组不变量 {'；'.join(str(item) for item in invariants)}。"
+                "这些规则只决定怎么画，不得替代当前章节证据决定画什么。"
+            )
         shared_rules = (
             f"整体视觉语言：{theme.label}，纸张底色 {theme.paper}，正文深色 {theme.text}，"
             f"只使用一个强调色 {theme.accent}；克制、编辑感、真实材质、清晰焦点。"
+            f"{bible_rules}"
             "画面中不得出现中文、英文、字母、数字、Logo、水印、签名、角标、二维码、UI 或标签；"
             "不要虚构具有事实含义的数据图表、真实产品界面、机构标识或人物身份。"
             "不要套模板边框，不要廉价 3D 图标堆叠，不要赛博霓虹，不要多主体抢焦点。"

@@ -168,7 +168,14 @@ def test_light_content_lab_candidates_corpus_iteration_and_distinct_visuals(
         assert dark_created.status_code == 201, dark_created.text
         dark = dark_created.json()
         dark_meta = json.loads(dark["metadata_json"])
-        assert dark_meta["pipeline_version"] == "light-lab-v13"
+        assert dark_meta["pipeline_version"] == "light-lab-v14"
+        assert dark_meta["visual_brief_mode"] == "production"
+        assert dark_meta["visual_distinctness"]["passed"] is True
+        assert len(dark_meta["visual_distinctness"]["layout_families"]) >= 3
+        assert all(
+            len(page["candidates"]) == 3
+            for page in dark_meta["visual_brief"]["pages"]
+        )
         assert dark_meta["visual_style"] == "dark_contemplative"
         assert dark_meta["source_fit"]["score"] > 0.8
         assert len(dark_meta["candidates"]) == 3
@@ -219,6 +226,11 @@ def test_light_content_lab_candidates_corpus_iteration_and_distinct_visuals(
         selected_specs = selected_meta["poster_specs"]
         selected_first_phrase = selected_specs[0]["phrase"]
         assert selected_meta["selected_candidate_index"] == 1
+        assert selected_meta["pipeline_version"] == "light-lab-v14"
+        assert all(
+            spec["page_visual_brief"]["evidence_refs"] != ["当前来源"]
+            for spec in selected_specs
+        )
         assert selected_payload["version"] > dark["version"]
 
         invalid_storyboard = []
@@ -226,6 +238,7 @@ def test_light_content_lab_candidates_corpus_iteration_and_distinct_visuals(
             invalid_storyboard.append(
                 {
                     "page": index,
+                    "page_visual_brief": spec.get("page_visual_brief"),
                     "phrase": spec["phrase"],
                     "note": spec.get("note", ""),
                     "visual_metaphor": spec.get("visual_metaphor") or "一件日常物件",
