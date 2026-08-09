@@ -25,6 +25,8 @@ class NativeSkillDefinition:
     license_file: str
     entry_file: str
     description: str
+    vendor_subdir: str = ""
+    required_paths: tuple[str, ...] = ()
 
 
 NATIVE_SKILLS: dict[str, NativeSkillDefinition] = {
@@ -46,6 +48,17 @@ NATIVE_SKILLS: dict[str, NativeSkillDefinition] = {
         entry_file="SKILL.md",
         description="GC minimal zine poster prompt and image workflow",
     ),
+    "gc-minimal-zine-poster-v0-3": NativeSkillDefinition(
+        name="gc-minimal-zine-poster-v0-3",
+        repository="https://github.com/LiamGvchi/gc-minimal-zine-poster.git",
+        commit="342b5c11d6fa9be261841ec722c12a683a9fa5e9",
+        license="MIT",
+        license_file="LICENSE",
+        entry_file="SKILL.md",
+        description="GC Minimal Zine v0.3 prompt compiler, references, and eval suite",
+        vendor_subdir="gc-minimal-zine-poster-v0-3",
+        required_paths=("SKILL.md", "LICENSE", "references", "evals/evals.json"),
+    ),
 }
 
 
@@ -62,6 +75,17 @@ class NativeSkillManager:
         return self.root / name
 
     @staticmethod
+    def vendor_path(definition: NativeSkillDefinition) -> Path | None:
+        if not definition.vendor_subdir:
+            return None
+        return (
+            Path(__file__).resolve().parents[1]
+            / "vendor"
+            / "native-skills"
+            / definition.vendor_subdir
+        ).resolve()
+
+    @staticmethod
     def definition(name: str) -> NativeSkillDefinition:
         definition = NATIVE_SKILLS.get(name)
         if definition is None:
@@ -71,7 +95,7 @@ class NativeSkillManager:
     def status(self, name: str) -> dict[str, Any]:
         definition = self.definition(name)
         path = self.path_for(name)
-        installed = path.is_dir() and (path / definition.entry_file).is_file()
+        installed = path.is_dir() and self._definition_complete(path, definition)
         current_commit = ""
         clean = False
         if installed and (path / ".git").is_dir() and shutil.which("git"):
@@ -82,6 +106,10 @@ class NativeSkillManager:
                 ["git", "status", "--porcelain"], cwd=path, timeout=30, check=False
             ).stdout.strip()
             clean = not dirty
+        elif installed and definition.vendor_subdir:
+            manifest = self._read_vendor_manifest(path)
+            current_commit = str(manifest.get("commit") or "")
+            clean = self._vendor_snapshot_matches(path, definition)
         validator_ready = False
         if name == "guizang-social-card-skill":
             validator_ready = bool(
@@ -97,6 +125,9 @@ class NativeSkillManager:
             "current_commit": current_commit,
             "pinned_commit_match": current_commit == definition.commit,
             "clean_checkout": clean,
+            "vendor_complete": bool(
+                definition.vendor_subdir and installed and clean
+            ),
             "validator_ready": validator_ready,
             "source_offer": definition.repository.removesuffix(".git"),
         }
@@ -114,32 +145,38 @@ class NativeSkillManager:
 
     def install(self, name: str, *, install_runtime: bool = True) -> Path:
         definition = self.definition(name)
-        if not shutil.which("git"):
-            raise NativeSkillError("系统没有 git，无法安装上游 Skill")
         target = self.path_for(name)
         staging = self.root / f".{name}.installing"
         if staging.exists():
             shutil.rmtree(staging)
         try:
-            self._run(
-                ["git", "clone", "--no-checkout", definition.repository, str(staging)],
-                cwd=self.root,
-                timeout=300,
-            )
-            self._run(
-                ["git", "fetch", "--depth", "1", "origin", definition.commit],
-                cwd=staging,
-                timeout=300,
-            )
-            self._run(
-                ["git", "checkout", "--detach", definition.commit],
-                cwd=staging,
-                timeout=120,
-            )
-            if not (staging / definition.entry_file).is_file():
-                raise NativeSkillError(f"上游仓库缺少 {definition.entry_file}")
-            if not (staging / definition.license_file).is_file():
-                raise NativeSkillError(f"上游仓库缺少 {definition.license_file}")
+            vendor = self.vendor_path(definition)
+            if vendor is not None:
+                if not self._definition_complete(vendor, definition):
+                    raise NativeSkillError(
+                        f"内置 Skill 快照不完整：{definition.name}"
+                    )
+                shutil.copytree(vendor, staging)
+            else:
+                if not shutil.which("git"):
+                    raise NativeSkillError("系统没有 git，无法安装上游 Skill")
+                self._run(
+                    ["git", "clone", "--no-checkout", definition.repository, str(staging)],
+                    cwd=self.root,
+                    timeout=300,
+                )
+                self._run(
+                    ["git", "fetch", "--depth", "1", "origin", definition.commit],
+                    cwd=staging,
+                    timeout=300,
+                )
+                self._run(
+                    ["git", "checkout", "--detach", definition.commit],
+                    cwd=staging,
+                    timeout=120,
+                )
+            if not self._definition_complete(staging, definition):
+                raise NativeSkillError(f"上游 Skill 文件不完整：{definition.name}")
             if target.exists():
                 backup = self.root / f".{name}.previous"
                 if backup.exists():
@@ -166,6 +203,48 @@ class NativeSkillManager:
         if not path.is_file():
             raise NativeSkillError(f"Skill 文件不存在：{relative_path}")
         return path.read_text(encoding="utf-8")[:max_chars]
+
+    @staticmethod
+    def _definition_complete(
+        path: Path,
+        definition: NativeSkillDefinition,
+    ) -> bool:
+        required = definition.required_paths or (
+            definition.entry_file,
+            definition.license_file,
+        )
+        return all((path / relative).exists() for relative in required)
+
+    @staticmethod
+    def _read_vendor_manifest(path: Path) -> dict[str, Any]:
+        manifest = path / "X2RED-UPSTREAM.json"
+        if not manifest.is_file():
+            return {}
+        try:
+            payload = json.loads(manifest.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+        return payload if isinstance(payload, dict) else {}
+
+    def _vendor_snapshot_matches(
+        self,
+        target: Path,
+        definition: NativeSkillDefinition,
+    ) -> bool:
+        vendor = self.vendor_path(definition)
+        if vendor is None or not vendor.is_dir():
+            return False
+        for source in vendor.rglob("*"):
+            if not source.is_file():
+                continue
+            relative = source.relative_to(vendor)
+            candidate = target / relative
+            try:
+                if not candidate.is_file() or candidate.read_bytes() != source.read_bytes():
+                    return False
+            except OSError:
+                return False
+        return True
 
     def _install_node_runtime(self, target: Path) -> None:
         if not shutil.which("npm") or not shutil.which("node"):

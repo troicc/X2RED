@@ -131,13 +131,29 @@ def test_native_skill_definitions_are_pinned_and_licensed(tmp_path: Path) -> Non
     manager = NativeSkillManager(settings(tmp_path))
     guizang = NATIVE_SKILLS["guizang-social-card-skill"]
     zine = NATIVE_SKILLS["gc-minimal-zine-poster-v0-1"]
+    zine_v03 = NATIVE_SKILLS["gc-minimal-zine-poster-v0-3"]
     assert guizang.license == "AGPL-3.0"
     assert len(guizang.commit) == 40
     assert zine.license == "MIT"
     assert len(zine.commit) == 40
+    assert zine_v03.license == "MIT"
+    assert zine_v03.commit == "342b5c11d6fa9be261841ec722c12a683a9fa5e9"
+    assert zine_v03.vendor_subdir == "gc-minimal-zine-poster-v0-3"
     statuses = manager.statuses()
     assert {item["name"] for item in statuses} == set(NATIVE_SKILLS)
     assert all(item["installed"] is False for item in statuses)
+
+
+def test_minimal_zine_v03_vendored_snapshot_installs_offline(tmp_path: Path) -> None:
+    manager = NativeSkillManager(settings(tmp_path))
+    path = manager.install("gc-minimal-zine-poster-v0-3", install_runtime=False)
+    status = manager.status("gc-minimal-zine-poster-v0-3")
+
+    assert (path / "SKILL.md").is_file()
+    assert (path / "references" / "prompt-compiler.md").is_file()
+    assert (path / "evals" / "evals.json").is_file()
+    assert status["pinned_commit_match"] is True
+    assert status["vendor_complete"] is True
 
 
 def test_guizang_seed_replacement_removes_placeholder_demo() -> None:

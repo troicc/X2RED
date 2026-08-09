@@ -52,6 +52,8 @@
     ["type-led", "文字主导 · 画面退后"],
     ["dot-orbit", "点阵环绕 · 中央视觉"],
     ["single-specimen", "单件标本 · 右下标签区"],
+    ["diagonal-notes", "斜向注记 · 对角节奏"],
+    ["edge-counterweight", "边缘配重 · 非对称留白"],
   ];
 
   const ANCHOR_OPTIONS = [
@@ -350,6 +352,7 @@
 
   function normalizeStoryboard(variant = state.currentVariant) {
     const meta = metadata(variant);
+    const strategy = meta.strategy && typeof meta.strategy === "object" ? meta.strategy : {};
     const raw = Array.isArray(meta.poster_specs) ? meta.poster_specs : [];
     const count = Math.max(3, Math.min(6, raw.length || Number(meta.image_count || state.brief.imageCount || 4)));
     return Array.from({ length: count }, (_, index) => {
@@ -357,8 +360,15 @@
       return {
         ...source,
         page: index + 1,
+        article_thesis: String(source.article_thesis || strategy.content_thesis || variant?.summary || variant?.title || "").slice(0, 1200),
+        section_title: String(source.section_title || source.phrase || fallbackPhrase(index)).slice(0, 300),
+        page_visual_role: String(source.page_visual_role || (index === 0 ? "cover" : index === count - 1 ? "conclusion" : "scene")),
         phrase: String(source.phrase || fallbackPhrase(index)).slice(0, 80),
         note: String(source.note || "").slice(0, 180),
+        evidence_summary: String(source.evidence_summary || source.evidence_basis || "").slice(0, 1600),
+        emotion: String(source.emotion || strategy.emotional_job || source.mood || "quiet").slice(0, 300),
+        current_page_concept: String(source.current_page_concept || source.visual_metaphor || source.photo_direction || "真实生活中的单一物件或场景").slice(0, 800),
+        visual_bible: source.visual_bible && typeof source.visual_bible === "object" ? source.visual_bible : (meta.visual_bible && typeof meta.visual_bible === "object" ? meta.visual_bible : {}),
         visual_metaphor: String(source.visual_metaphor || source.photo_direction || "真实生活中的单一物件或场景").slice(0, 240),
         layout: allowed(source.layout, LAYOUTS, "center-fragment"),
         anchor: allowed(source.anchor, ANCHORS, "object-specimen"),
@@ -375,8 +385,15 @@
   function storyboardPayload() {
     return state.storyboard.map((item, index) => ({
       page: index + 1,
+      article_thesis: String(item.article_thesis || "").trim().slice(0, 1200),
+      section_title: String(item.section_title || item.phrase || "").trim().slice(0, 300),
+      page_visual_role: String(item.page_visual_role || (index === 0 ? "cover" : index === state.storyboard.length - 1 ? "conclusion" : "scene")),
       phrase: String(item.phrase || "").trim().slice(0, 80),
       note: String(item.note || "").trim().slice(0, 180),
+      evidence_summary: String(item.evidence_summary || item.evidence_basis || "").trim().slice(0, 1600),
+      emotion: String(item.emotion || item.mood || "").trim().slice(0, 300),
+      current_page_concept: String(item.current_page_concept || item.visual_metaphor || "").trim().slice(0, 800),
+      visual_bible: item.visual_bible && typeof item.visual_bible === "object" ? item.visual_bible : {},
       visual_metaphor: String(item.visual_metaphor || "").trim().slice(0, 240),
       layout: allowed(item.layout, LAYOUTS, "center-fragment"),
       anchor: allowed(item.anchor, ANCHORS, "object-specimen"),
@@ -1271,7 +1288,7 @@
     return currentWebHandoff(item.page)?.prompt
       || item.final_prompt
       || state.pageEvidence.get(item.page)?.final_prompt
-      || "尚未生成本页 ChatGPT 网页 Prompt。点击右侧“生成并显示本页 Prompt”；这一步不会调用图片模型。";
+      || "尚未生成本页 ChatGPT 网页 Prompt。点击右侧“编译并显示本页 Prompt”；这一步不会调用图片模型。";
   }
 
   function currentWebHandoff(page) {
@@ -1302,8 +1319,8 @@
     }
   }
 
-  async function prepareChatGptWebHandoff(page) {
-    await run("正在冻结当前分镜并生成可见的 ChatGPT 网页 Prompt…", async () => {
+  async function prepareChatGptWebHandoff(page, forceRecompile = false) {
+    await run(forceRecompile ? "正在重新编译并比较本页 Prompt…" : "正在冻结当前分镜并编译可见的 ChatGPT 网页 Prompt…", async () => {
       let variant = await persistCurrent({ adoptCandidate: true });
       variant = await saveStoryboardIfDirty(variant);
       if (!isMinimalZine(variant)) {
@@ -1315,7 +1332,7 @@
           `/api/native-skills/minimal-zine/variants/${encodeURIComponent(variant.id)}/web-handoff`,
           {
             method: "POST",
-            body: JSON.stringify({ pages: [page] }),
+            body: JSON.stringify({ pages: [page], force_recompile: forceRecompile }),
           },
         );
       } catch (error) {
@@ -1327,7 +1344,15 @@
       const handoff = Array.isArray(result?.pages) ? result.pages[0] : null;
       if (!handoff?.prompt) throw new Error("当前页没有可用的网页生图 Prompt。 ");
       state.webHandoffs.set(page, { ...handoff, variant_id: variant.id });
-      status(`第 ${page} 页 Prompt 已生成并显示。请先检查，再复制到 ChatGPT Images。`, "ok");
+      const degraded = Array.isArray(handoff.warnings) && handoff.warnings.some((value) => String(value).startsWith("DEGRADED_FALLBACK"));
+      status(
+        degraded
+          ? `第 ${page} 页已使用显式降级配方编译；请先检查警告和 Prompt，再决定是否生图。`
+          : forceRecompile
+            ? `第 ${page} 页 Prompt 已重新编译；请检查版本、配方和差异。`
+            : `第 ${page} 页 Prompt 已编译并显示。请先检查，再复制到 ChatGPT Images。`,
+        degraded ? "error" : "ok",
+      );
       render();
     });
   }
@@ -1393,6 +1418,68 @@
     });
   }
 
+  function compilerModeLabel(value) {
+    return {
+      production_text_safe: "Production · 本地中文安全",
+      faithful_skill: "Skill v0.3 · 忠实编译",
+      legacy: "Legacy · 回滚模式",
+    }[String(value || "")] || String(value || "未知模式");
+  }
+
+  function renderPromptProvenance(stored) {
+    const panel = create("section", "light-compiler-trace");
+    panel.setAttribute("aria-label", "视觉 Prompt 编译溯源");
+    panel.appendChild(create("strong", "light-compiler-title", "编译溯源"));
+    const grid = create("dl", "light-compiler-grid");
+    const add = (label, value, className = "") => {
+      const term = create("dt", "", label);
+      const description = create("dd", className, value || "—");
+      grid.append(term, description);
+    };
+    add("模式", compilerModeLabel(stored.compiler_mode || stored.visual_prompt_spec?.mode));
+    add("Skill", stored.skill_version || stored.visual_prompt_spec?.skill_version || "—");
+    add("来源指纹", stored.source_fingerprint || "—", "light-compiler-fingerprint");
+    add("Prompt 指纹", stored.prompt_fingerprint || "—", "light-compiler-fingerprint");
+    panel.appendChild(grid);
+
+    const recipe = stored.recipe && typeof stored.recipe === "object" ? stored.recipe : {};
+    const recipeLine = [
+      recipe.layout_family && `版式 ${recipe.layout_family}`,
+      recipe.anchor_form && `锚点 ${recipe.anchor_form}`,
+      recipe.texture_mode && `质感 ${recipe.texture_mode}`,
+      recipe.main_hue && `主色 ${recipe.main_hue}`,
+      recipe.mood && `情绪 ${recipe.mood}`,
+    ].filter(Boolean);
+    const recipeBlock = create("div", "light-compiler-recipe");
+    recipeBlock.appendChild(create("span", "", "上游配方"));
+    const chips = create("div", "light-compiler-chips");
+    (recipeLine.length ? recipeLine : ["尚无结构化配方"]).forEach((value) => chips.appendChild(create("code", "", value)));
+    recipeBlock.appendChild(chips);
+    panel.appendChild(recipeBlock);
+
+    const warnings = Array.isArray(stored.warnings) ? stored.warnings : [];
+    if (warnings.length) {
+      const warning = create("div", "light-compiler-warnings");
+      warning.setAttribute("role", "alert");
+      warning.appendChild(create("strong", "", "编译警告"));
+      const list = document.createElement("ul");
+      warnings.forEach((value) => list.appendChild(create("li", "", String(value))));
+      warning.appendChild(list);
+      panel.appendChild(warning);
+    }
+
+    const diff = stored.prompt_diff && typeof stored.prompt_diff === "object" ? stored.prompt_diff : {};
+    const details = create("details", "light-prompt-diff");
+    details.appendChild(create("summary", "", diff.changed ? "Prompt diff · 已发生变化" : "Prompt diff · 无文本变化"));
+    details.appendChild(create(
+      "pre",
+      "",
+      diff.changed ? String(diff.unified || "Prompt 已变化，但没有可显示的逐行差异。") : "本次编译结果与上一版 Prompt 相同。",
+    ));
+    panel.appendChild(details);
+    return panel;
+  }
+
   function renderChatGptWebHandoff(page) {
     const section = create("section", "light-web-handoff");
     section.dataset.page = String(page.page);
@@ -1427,18 +1514,19 @@
       prompt.spellcheck = false;
       prompt.setAttribute("aria-label", `第 ${page.page} 页完整生图 Prompt`);
       promptPanel.appendChild(prompt);
+      promptPanel.appendChild(renderPromptProvenance(stored));
     } else {
       promptPanel.appendChild(create(
         "p",
         "light-web-prompt-empty",
         stale
           ? "分镜已修改，上一版 Prompt 已作废。请重新生成后再复制或上传。"
-          : "尚未生成。点击下方“生成并显示本页 Prompt”；只做本地编译，不调用文本或图片模型。",
+          : "尚未生成。点击下方按钮后会运行统一文本编译器；网页 handoff 永远不会调用图片 API。",
       ));
     }
     const actions = create("div", "light-web-actions");
-    const prepare = button(ready ? "1 · 重新生成本页 Prompt" : "1 · 生成并显示本页 Prompt", ready ? "light-web-secondary" : "light-web-primary", () => {
-      void prepareChatGptWebHandoff(page.page);
+    const prepare = button(ready ? "1 · 重新编译 Prompt" : "1 · 编译并显示本页 Prompt", ready ? "light-web-secondary" : "light-web-primary", () => {
+      void prepareChatGptWebHandoff(page.page, ready);
     });
     prepare.dataset.lightAction = "true";
     const copyPrompt = button("2 · 复制完整 Prompt", "light-web-primary", () => {

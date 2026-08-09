@@ -89,6 +89,8 @@ For each light-content `PlatformVariant`, all final files live under `data/expor
 
 `render_missing` fills absent work, `recompose` requires a verified raw anchor and never calls the image model, and `regenerate` explicitly replaces selected raw anchors. A complete artifact set is staged and validated before atomic promotion; failure preserves the previous package and database references.
 
+Prompt compilation is a separate boundary before image generation. The pinned v0.3 Skill snapshot feeds one `VisualPromptCompiler`, and both manual web handoff and API rendering persist the same `VisualPromptSpec`. The spec binds semantic page context and provenance to source/Prompt fingerprints, preserves the upstream recipe, and exposes explicit degraded warnings. `production`, faithful `skill_v03`, and pinned v0.1 `legacy` modes are selected through one feature flag; no database migration or artifact relocation is required to roll back.
+
 ## Isolation and review invariants
 
 - Corpus-batch context flows one way and one layer deep; shared sources cannot pull an older batch's full memory into a newer one.

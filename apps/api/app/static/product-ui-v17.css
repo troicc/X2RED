@@ -3500,6 +3500,17 @@ body.source-inspector-open .app-main {
     overflow: hidden;
   }
 
+  .light-v15-layout,
+  .light-visual-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .light-page-inspector {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+
   .source-pane-toolbar {
     position: static;
     align-items: flex-start;

@@ -22,6 +22,16 @@ X2RED remains licensed under the MIT License. Some external projects inform capa
 - Integration: X2RED reads the complete upstream `SKILL.md` Standard Mode Prompt Compiler, selects the six-axis visual recipe per page, calls the explicitly configured image-generation API, and stores the final prompt, recipe, interpretation, model and output.
 - When no image model is configured, X2RED reports that requirement instead of presenting a reduced placeholder as an original Skill render.
 
+### LiamGvchi/gc-minimal-zine-poster v0.3.0
+
+- License: MIT
+- Upstream: https://github.com/LiamGvchi/gc-minimal-zine-poster
+- Tag: `v0.3.0`
+- Pinned commit: `342b5c11d6fa9be261841ec722c12a683a9fa5e9`
+- Vendored snapshot: `apps/api/app/vendor/native-skills/gc-minimal-zine-poster-v0-3`
+- Runtime location: `data/native-skills/gc-minimal-zine-poster-v0-3`
+- Integration: the unmodified `SKILL.md`, `references/`, `evals/` and referenced examples are kept together. X2RED installs this snapshot in a directory parallel to v0.1 and uses one structured compiler entry for web handoff and API rendering.
+
 See also `THIRD_PARTY_NATIVE_SKILLS.md`.
 
 ## Native adaptations under permissive licenses

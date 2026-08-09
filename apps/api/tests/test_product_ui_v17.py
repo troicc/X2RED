@@ -126,6 +126,9 @@ def test_xhs_source_rail_has_unambiguous_types_and_workbench_archive_actions() -
 def test_product_ui_v17_mobile_navigation_and_accessibility_contracts() -> None:
     script = (STATIC / "product-ui-v17.js").read_text(encoding="utf-8")
     stylesheet = (STATIC / "product-ui-v17.css").read_text(encoding="utf-8")
+    narrow_rules = stylesheet.split("@media (max-width: 860px)", 1)[1].split(
+        "@media (max-width: 680px)", 1
+    )[0]
 
     assert 'skip.href = "#main-content"' in script
     assert 'main.inert = true' in script
@@ -138,6 +141,11 @@ def test_product_ui_v17_mobile_navigation_and_accessibility_contracts() -> None:
     assert "min-height: 44px" in stylesheet
     assert "document.querySelectorAll(\".url-field > span\")" in script
     assert 'holder.dataset.uiIconReady = "true"' in script
+    assert ".light-v15-layout," in narrow_rules
+    assert ".light-visual-grid" in narrow_rules
+    assert ".light-page-inspector" in narrow_rules
+    assert "grid-template-columns: minmax(0, 1fr)" in narrow_rules
+    assert "max-height: none" in narrow_rules
 
 
 def test_wechat_pipeline_uses_progressive_disclosure_and_stage_actions() -> None:
@@ -197,12 +205,16 @@ def test_wechat_light_mode_is_isolated_and_supports_manual_chatgpt_web_handoff()
     assert 'view?.classList.toggle("is-wechat-light-mode", mode === "light")' in light_script
     assert "#wechat-view.is-wechat-light-mode #wechat-production-pipeline" in stylesheet
     assert 'open.href = "https://chatgpt.com/images"' in light_script
-    assert "1 · 生成并显示本页 Prompt" in light_script
+    assert "1 · 编译并显示本页 Prompt" in light_script
+    assert "1 · 重新编译 Prompt" in light_script
     assert "2 · 复制完整 Prompt" in light_script
     assert "本页完整 Prompt" in light_script
     assert "这一步不会调用图片模型" in light_script
     assert "|| state.storyboardDirty" in light_script
     assert "旧 Prompt 已过期" in light_script
+    assert "编译溯源" in light_script
+    assert "Prompt diff" in light_script
+    assert "来源指纹" in light_script
     assert "当前本地服务仍是旧进程" in light_script
     assert ".light-web-prompt-text" in (STATIC / "light-content-v15.css").read_text(
         encoding="utf-8"

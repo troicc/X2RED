@@ -304,7 +304,11 @@ v15 工作台固定为四阶段：任务设置、文案候选、视觉分镜、�
 
 ### 8.1 Prompt 编译
 
-文本模型读取完整上游 Skill，根据每页短句、视觉隐喻、mood 和最近页面配方，选择 layout、anchor、typography、accent、texture 和 mood。
+生产默认由统一 `VisualPromptCompiler` 读取固定的 v0.3.0 `SKILL.md`、`references/` 和 `evals/`。网页 handoff 与 API render 都调用这一入口；网页路径允许调用文本模型，但绝不调用图片 API。输入上下文必须包含文章主旨、章节标题、页面视觉职责、phrase、note、证据摘要、受众、情绪、当前页概念、Visual Bible 和前后页概念。
+
+编译结果持久化为 `VisualPromptSpec`：compiler mode、Skill 名称/版本、四段正向 Prompt、invariants、compact exclusions、完整上游 recipe、source fingerprint、Prompt fingerprint 和 warnings。recipe 不得再被本地默认值覆盖；只有文本编译失败时才调用确定性页面合同，并写入 `DEGRADED_FALLBACK`。
+
+`source_fingerprint` 覆盖 phrase、note、evidence、visual role、article thesis、Visual Bible、Skill SHA 和 compiler version；任一变化都会让旧 Prompt 与 raw anchor 失效。生产 `_four_paragraph_prompt(VisualPromptSpec)` 只追加“图片模型不写可读文字、本地合成中文”的 text-safe invariant，不重新选择主题、layout、anchor、texture 或 hue。
 
 输出必须是结构化 JSON，其中图片 Prompt 明确要求：
 
@@ -314,6 +318,14 @@ v15 工作台固定为四阶段：任务设置、文案候选、视觉分镜、�
 - 仅一个高饱和强调色；
 - 禁止所有文字、数字、Logo、水印、签名、角标、UI 和标签；
 - 按 layout 为本地中文保留一块约 28% 至 30% 的安全留白；它可以在上方或下方，不得用硬色块假造。
+
+Feature flag：
+
+- `X2RED_MINIMAL_ZINE_PROMPT_MODE=production`：默认 v0.3 + text-safe；
+- `skill_v03`：忠实 v0.3 Prompt；
+- `legacy`：完整回滚到固定 v0.1 编译行为。
+
+带历史 raw anchor 且没有 `visual_prompt_spec` 的旧版本自动按 legacy 读取，升级不会批量作废已审阅成品。
 
 ### 8.2 图片模型
 

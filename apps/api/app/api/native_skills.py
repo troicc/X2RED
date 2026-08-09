@@ -17,6 +17,7 @@ router = APIRouter(prefix="/api/native-skills", tags=["native-skills"])
 NativeSkillName = Literal[
     "guizang-social-card-skill",
     "gc-minimal-zine-poster-v0-1",
+    "gc-minimal-zine-poster-v0-3",
 ]
 
 
@@ -56,6 +57,7 @@ class MinimalZineWebHandoffRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     pages: list[int] | None = Field(default=None, max_length=6)
+    force_recompile: bool = False
 
     @field_validator("pages")
     @classmethod
@@ -141,11 +143,15 @@ def prepare_minimal_zine_web_handoff(
     if variant is None:
         raise HTTPException(status_code=404, detail="平台版本不存在")
     try:
-        return MinimalZineNativeService(get_settings()).prepare_web_handoff(
+        result = MinimalZineNativeService(get_settings()).prepare_web_handoff(
             variant,
             pages=body.pages,
+            force_recompile=body.force_recompile,
         )
+        db.commit()
+        return result
     except NativeSkillError as exc:
+        db.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
