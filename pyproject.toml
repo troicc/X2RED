@@ -41,7 +41,13 @@ include-package-data = true
 where = ["apps/api"]
 
 [tool.setuptools.package-data]
-app = ["static/*"]
+app = [
+  "static/*",
+  "vendor/native-skills/gc-minimal-zine-poster-v0-3/*",
+  "vendor/native-skills/gc-minimal-zine-poster-v0-3/references/*",
+  "vendor/native-skills/gc-minimal-zine-poster-v0-3/evals/*",
+  "vendor/native-skills/gc-minimal-zine-poster-v0-3/examples/*",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["apps/api"]

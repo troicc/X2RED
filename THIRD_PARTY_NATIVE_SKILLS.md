@@ -19,6 +19,15 @@ X2RED does not relabel the Guizang code as MIT and does not copy a reduced subse
 - License: MIT
 - Integration: separate checkout; the full `SKILL.md` Standard Mode Prompt Compiler is used to compile prompts before calling the configured image-generation API
 
+The v0.1 checkout remains available for explicit legacy rollback. The production compiler uses the parallel, unmodified v0.3.0 snapshot:
+
+- Tag: `v0.3.0`
+- Pinned commit: `342b5c11d6fa9be261841ec722c12a683a9fa5e9`
+- License: MIT
+- Vendored source: `apps/api/app/vendor/native-skills/gc-minimal-zine-poster-v0-3`
+- Included upstream material: `SKILL.md`, `references/`, `evals/`, and referenced examples
+- Runtime integration: offline install into `data/native-skills/gc-minimal-zine-poster-v0-3`; web handoff and API image generation consume the same structured `VisualPromptSpec`
+
 ## Public-web material research
 
 The material harvester is X2RED code, not part of either upstream Skill. It is limited to public HTTP/HTTPS resources and:

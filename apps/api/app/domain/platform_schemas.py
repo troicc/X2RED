@@ -41,6 +41,8 @@ MinimalZineLayout = Literal[
     "type-led",
     "dot-orbit",
     "single-specimen",
+    "diagonal-notes",
+    "edge-counterweight",
 ]
 MinimalZineAnchor = Literal[
     "tiny-faded-photo",
@@ -70,8 +72,25 @@ class MinimalZineStoryboardPage(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     page: int = Field(ge=1, le=6)
+    article_thesis: str = Field(default="", max_length=1200)
+    section_title: str = Field(default="", max_length=300)
+    page_visual_role: Literal[
+        "cover",
+        "scene",
+        "explanation",
+        "evidence",
+        "comparison",
+        "process",
+        "limitation",
+        "transition",
+        "conclusion",
+    ] = "scene"
     phrase: str = Field(min_length=1, max_length=80)
     note: str = Field(max_length=180)
+    evidence_summary: str = Field(default="", max_length=1600)
+    emotion: str = Field(default="", max_length=300)
+    current_page_concept: str = Field(default="", max_length=800)
+    visual_bible: dict[str, Any] = Field(default_factory=dict)
     visual_metaphor: str = Field(min_length=1, max_length=240)
     layout: MinimalZineLayout
     anchor: MinimalZineAnchor
@@ -82,7 +101,17 @@ class MinimalZineStoryboardPage(BaseModel):
     focus_y: float = Field(ge=0.0, le=1.0)
     zoom: float = Field(ge=0.65, le=2.0)
 
-    @field_validator("phrase", "note", "visual_metaphor", "mood")
+    @field_validator(
+        "article_thesis",
+        "section_title",
+        "phrase",
+        "note",
+        "evidence_summary",
+        "emotion",
+        "current_page_concept",
+        "visual_metaphor",
+        "mood",
+    )
     @classmethod
     def clean_storyboard_text(cls, value: str) -> str:
         return " ".join(value.split())

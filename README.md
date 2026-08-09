@@ -92,9 +92,12 @@ X2RED_IMAGE_BASE_URL=
 X2RED_IMAGE_API_KEY=
 X2RED_IMAGE_MODEL=glm-image
 X2RED_IMAGE_SIZE=1024x1536
+X2RED_MINIMAL_ZINE_PROMPT_MODE=production
 ```
 
 When `IMAGE_BASE_URL` or `IMAGE_API_KEY` is empty, X2RED reuses the corresponding text-provider setting. Without `X2RED_IMAGE_MODEL`, the application keeps the reviewed prompt but does not falsely label a local placeholder as an original Skill render.
+
+`X2RED_MINIMAL_ZINE_PROMPT_MODE` defaults to `production`: the pinned v0.3 compiler chooses the visual recipe and X2RED applies only a text-safe transformation before image generation. `skill_v03` preserves the faithful v0.3 prompt, while `legacy` rolls both web handoff and API rendering back to the pinned v0.1 behavior. Existing raw anchors without a structured v0.3 trace are read as legacy automatically.
 
 ## Simplified-Chinese material research
 
@@ -164,17 +167,19 @@ In **公众号工作台 → 轻内容图组**, move through task setup, copy can
 
 The native chain:
 
-1. reads the complete upstream `SKILL.md`;
-2. freezes each page's phrase, note, metaphor, layout, anchor, accent, texture, mood, focus and zoom in an immutable child `PlatformVariant`;
-3. compiles a strict text-free visual prompt and calls the configured image model only for raw visual anchors;
-4. stores raw `anchor-XX.png` files separately from final `poster-XX.png` files;
-5. composes Chinese text and page numbers locally with a cmap-verified CJK font;
-6. supports `render_missing`, local-only `recompose`, and model-calling `regenerate` modes;
-7. atomically rebuilds `article.md`, `manifest.json`, `preview.html` and the release ZIP under `data/exports/wechat/{variant_id}/`.
+1. reads the pinned v0.3 `SKILL.md`, `references/` and `evals/` through one `VisualPromptCompiler`;
+2. freezes each page's article thesis, section title, visual role, phrase, note, evidence, audience, emotion, page concept, Visual Bible, neighboring concepts and manual controls in an immutable child `PlatformVariant`;
+3. returns and persists one structured `VisualPromptSpec` with compiler mode, Skill version, upstream recipe, warnings, source fingerprint and Prompt fingerprint;
+4. lets both ChatGPT web handoff and API rendering consume that same spec; the web route may call the text compiler but never calls an image API;
+5. calls the configured image model only for raw visual anchors and labels model/compiler failure as `DEGRADED_FALLBACK` instead of silently claiming faithful Skill execution;
+6. stores raw `anchor-XX.png` files separately from final `poster-XX.png` files;
+7. composes Chinese text and page numbers locally with a cmap-verified CJK font;
+8. supports `render_missing`, local-only `recompose`, and model-calling `regenerate` modes;
+9. atomically rebuilds `article.md`, `manifest.json`, `preview.html` and the release ZIP under `data/exports/wechat/{variant_id}/`.
 
 The release ZIP uses an explicit allowlist and excludes raw anchors. Negative prompts, constrained high-risk edge cleanup and local recomposition reduce watermark/badge risk but cannot prove that an image model will never emit one; final visual, copyright and factual review remains mandatory.
 
-The upstream project is MIT and is installed as a pinned separate checkout under `data/native-skills/gc-minimal-zine-poster-v0-1`.
+The upstream project is MIT. The v0.1 rollback checkout remains under `data/native-skills/gc-minimal-zine-poster-v0-1`; the unmodified v0.3.0 snapshot is vendored with its Skill, references, evals and examples, then installed in parallel under `data/native-skills/gc-minimal-zine-poster-v0-3` at commit `342b5c11d6fa9be261841ec722c12a683a9fa5e9`.
 
 ## Native Skill installation and licenses
 

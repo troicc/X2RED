@@ -1,18 +1,18 @@
 # X2RED 项目记忆
 
-更新时间：2026-08-09 21:34 +08:00
+更新时间：2026-08-09 22:05 +08:00
 
 ## 一、当前快照
 
 仓库：`troicc/X2RED`
 
-当前本地任务分支：`codex/x2red-c0-quality-baseline`
+当前本地任务分支：`codex/x2red-v1-visual-compiler-parity`
 
-C0 基线分支来源：`agent/replace-crawlers-with-api-adapters`，基线 SHA `9073a4bc8a71a76dbf6762d7fc64a425eb3c99fe`
+V1 分支来源：已合并 C0 的 `agent/replace-crawlers-with-api-adapters`，准确基线 SHA `02aa1db7f5eef45e438c8776bad0703c3e3ef441`
 
 基线 PR：`#19 重构简中素材采集、语料池与三层创作工作区`
 
-C0 Draft PR：`#20 C0：冻结创作质量基线与可重放评测夹具`
+C0 PR：`#20 C0：冻结创作质量基线与可重放评测夹具`，已于 2026-08-09 squash merge 到功能基线分支。
 
 C0 首个提交：`08c0920f154d51a7cdfa5d35a604d48b3d393672`
 
@@ -27,6 +27,20 @@ PR #19 属于 C0 的基线功能分支，不是 C0 分支本身。
 2026-08-09 重新查询 GitHub：PR #19 仍为 open、draft、mergeable、未合并，head 已前进到 `9073a4bc8a71a76dbf6762d7fc64a425eb3c99fe`；该 head 的 PR CI run `811` 成功。C0 在该准确 head 上建立独立本地分支，未把质量基线继续堆入 PR #19。
 
 2026-08-09 21:34：C0 首个提交 `08c0920f154d51a7cdfa5d35a604d48b3d393672` 已推送到远端 `codex/x2red-c0-quality-baseline`，并创建 Draft PR #20，目标为 `agent/replace-crawlers-with-api-adapters`。PR #20 的 CI、mergeability 和 head 属于易变化事实，合并前必须重新查询。
+
+2026-08-09 随后重新查询并完成 C0：PR #20 head `dd10c9f959c2b518be6f9ef1b910e3e9b7a9b261` 的 CI run `813` 成功，PR 标记 ready 后 squash merge；功能基线分支的新 head 为 `02aa1db7f5eef45e438c8776bad0703c3e3ef441`。V1 从这个已合并 head 创建独立分支。
+
+### 2026-08-09 V1 Minimal Zine Prompt compiler 对齐
+
+- 固定并 vendor 上游 `gc-minimal-zine-poster` v0.3.0 commit `342b5c11d6fa9be261841ec722c12a683a9fa5e9`，完整保留 `SKILL.md`、`references/`、`evals/` 和 eval examples；v0.1 目录保持不变。运行时管理器可离线安装 v0.3，并校验 manifest、必需文件、commit 和 vendor 内容。
+- 新增 `VisualPromptContext`、`VisualPromptRecipe`、`VisualPromptSpec` 与统一 `VisualPromptCompiler`。网页 handoff 和 API render 使用同一入口、同一结构化 recipe；网页可调用文本 compiler，但永不调用图片 API。
+- 编译上下文覆盖 article thesis、section title、page visual role、phrase、note、evidence、audience、emotion、current concept、Visual Bible 和前后页概念。source fingerprint 同时冻结 Skill SHA、compiler version 与 feature mode；这些字段任一变化都会使旧 Prompt/raw anchor 失效。
+- 上游 recipe 直接持久化；本地 compositor 只把新 schema 映射为旧六轴执行字段，不再在成功路径调用 `_recipe_for()` 覆盖。只有模型/Skill/JSON 校验失败时才使用页面控制 fallback，并显式写入 `DEGRADED_FALLBACK`。
+- `_four_paragraph_prompt(VisualPromptSpec)` 在 production 只追加无模型文字/本地中文 invariant，不重新决定视觉主题、layout、anchor、texture、hue 或 mood。旧 C0 字节级 replay 接口保留，避免修改基线 fixture。
+- Feature flag `X2RED_MINIMAL_ZINE_PROMPT_MODE=production|skill_v03|legacy` 默认 production；历史 raw anchor 若没有新结构化 trace，会自动按 legacy 读取，避免升级误作废已审阅成品。
+- 轻内容 UI 显示 compiler mode、Skill version、recipe、warnings、source/Prompt fingerprint、重新编译和 Prompt diff；降级状态有文本警告和 `role=alert`，按钮保持至少 44px，窄屏溯源表改单列。
+- 无数据库迁移；raw/final 分离、CJK 排版、原子 staging、预览/manifest/ZIP allowlist 和人工事实/版权/水印复核合同不变。详细升级与回滚见 `docs/ai-context/VISUAL_PROMPT_COMPILER_V1.md`。
+- V1 完整测试为 `109 passed, 8 warnings`；编译器/native/UI 定向回归为 `48 passed, 2 warnings`。新增模块 Ruff 通过，完整 compileall、静态 JavaScript、context JSON 和 diff check 继续作为提交门禁。
 
 ### 2026-08-09 C0 创作质量基线
 
@@ -519,10 +533,11 @@ Minimal Zine native render 需要通过字体 `cmap` 探针验证中文 glyph；
 
 ### Minimal Zine
 
-- 上游：`gc-minimal-zine-poster-v0-1`；
+- 上游：生产为 `gc-minimal-zine-poster-v0-3`（v0.3.0 / `342b5c11d6fa9be261841ec722c12a683a9fa5e9`），v0.1 保留为 legacy rollback；
 - 许可证：MIT；
-- 独立固定版本 checkout；
-- 当前采用上游视觉决策 + X2RED 本地中文合成。
+- v0.3 的 Skill、references、evals/examples 以未修改固定快照 vendor，并离线安装到独立 runtime 目录；
+- web handoff 与 API render 共用结构化 `VisualPromptSpec`；生产采用上游视觉决策 + 仅 text-safe 转换 + X2RED 本地中文合成；
+- 编译失败必须标记 `DEGRADED_FALLBACK`，不得声称 faithful Skill 已生效。
 
 ## 七、安全、权利和许可原则
 

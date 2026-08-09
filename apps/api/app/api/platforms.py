@@ -148,6 +148,7 @@ def _carry_storyboard_trace(
 ) -> None:
     for key in (
         "final_prompt",
+        "visual_prompt_spec",
         "native_zine_recipe",
         "native_zine_interpretation",
         "model_input_fingerprint",
@@ -454,6 +455,22 @@ def revise_wechat_light_storyboard(
     replacement_specs: list[dict] = []
     model_changed_pages: list[int] = []
     local_changed_pages: list[int] = []
+    configured_mode = str(
+        current_metadata.get("visual_prompt_mode")
+        or get_settings().minimal_zine_prompt_mode
+    )
+    if any(
+        item.get("raw_anchor_fingerprint") and not item.get("visual_prompt_spec")
+        for item in current_specs
+    ):
+        configured_mode = "legacy"
+    semantic_context = {
+        "article_thesis": current_metadata.get("strategy", {}).get("content_thesis")
+        if isinstance(current_metadata.get("strategy"), dict)
+        else "",
+        "visual_bible": current_metadata.get("visual_bible") or {},
+        "audience": current_metadata.get("audience") or "",
+    }
     for submitted in sorted(body.pages, key=lambda page: page.page):
         page = submitted.page
         previous = current_specs[page - 1]
@@ -464,7 +481,12 @@ def revise_wechat_light_storyboard(
             or "minimal_zine"
         )
         _carry_storyboard_copy_provenance(previous, replacement)
-        model_changed = storyboard_model_input_changed(previous, replacement)
+        model_changed = storyboard_model_input_changed(
+            previous,
+            replacement,
+            feature_mode=configured_mode,  # type: ignore[arg-type]
+            semantic_context=semantic_context,
+        )
         local_changed = _storyboard_page_changed(previous, replacement)
         if model_changed:
             model_changed_pages.append(page)

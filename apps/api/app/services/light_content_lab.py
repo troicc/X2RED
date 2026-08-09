@@ -237,6 +237,7 @@ class LightContentLabService:
             final["posters"],
             pipeline.get("visual_direction") or {},
             resolved_style,
+            recipe,
         )
         iteration_round = 1
         if previous_variant is not None:
@@ -277,10 +278,12 @@ class LightContentLabService:
             "human_approved": False,
             "source_skill": {
                 "repository": "LiamGvchi/gc-minimal-zine-poster",
-                "skill_name": "gc-minimal-zine-poster-v0-1",
+                "skill_name": "gc-minimal-zine-poster-v0-3",
+                "commit": "342b5c11d6fa9be261841ec722c12a683a9fa5e9",
                 "license": "MIT",
                 "integration_mode": "native-adaptation",
             },
+            "visual_prompt_mode": self.settings.minimal_zine_prompt_mode,
             "safety": {
                 "medical_claims_forbidden": recipe in {"mature_life", "seasonal"},
                 "human_review_required": True,
@@ -312,7 +315,7 @@ class LightContentLabService:
                         "model": visual_binding.model_name or self.settings.model_name,
                         "reasoning_effort": visual_binding.reasoning_effort,
                     },
-                    "gc-minimal-zine-poster-v0-1": {
+                    "gc-minimal-zine-poster-v0-3": {
                         "enabled": True,
                         "integration_mode": "native-adaptation",
                     },
@@ -398,6 +401,7 @@ class LightContentLabService:
             normalized["posters"],
             raw.get("visual_direction") if isinstance(raw.get("visual_direction"), dict) else {},
             str(metadata.get("visual_style") or "minimal_zine"),
+            str(metadata.get("recipe") or "short_commentary"),
         )
         revised_meta = dict(metadata)
         revised_meta.update(
@@ -993,10 +997,11 @@ class LightContentLabService:
         posters: list[dict[str, Any]],
         direction: dict[str, Any],
         fallback_style: str,
+        recipe: str,
     ) -> list[dict[str, Any]]:
         # The author's route selection is frozen.  The visual-director model may
         # refine layout and metaphor, but it must not silently switch renderers.
-        style = self.renderer.resolve_style(fallback_style, "comfort")
+        style = self.renderer.resolve_style(fallback_style, recipe)
         series_motif = str(direction.get("series_motif") or "").strip()
         page_directions = direction.get("poster_directions")
         page_map: dict[int, dict[str, Any]] = {}

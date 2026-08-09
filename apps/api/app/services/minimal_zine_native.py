@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import difflib
 import hashlib
 import html
 import io
@@ -16,13 +17,26 @@ from typing import Any, Literal
 
 import httpx
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageOps
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.domain.platforms import PlatformVariant, PlatformVariantState
+from app.domain.visual_prompt_schemas import (
+    VisualPromptContext,
+    VisualPromptFeatureMode,
+    VisualPromptRecipe,
+    VisualPromptSpec,
+)
 from app.services.light_visual_renderer import CJKFontError, LightVisualRenderer
 from app.services.model_client import ModelClient, ModelClientError
 from app.services.native_skill_manager import NativeSkillError, NativeSkillManager
+from app.services.visual_prompt_compiler import (
+    COMPILER_VERSION,
+    DEGRADED_FALLBACK,
+    V03_SKILL_NAME,
+    VisualPromptCompiler,
+)
 
 RenderMode = Literal["render_missing", "recompose", "regenerate"]
 
@@ -36,6 +50,8 @@ STORYBOARD_LAYOUTS = (
     "type-led",
     "dot-orbit",
     "single-specimen",
+    "diagonal-notes",
+    "edge-counterweight",
 )
 _LEGACY_LAYOUT_ALIASES = {
     "三分法构图，文字在画面上方": "lower-fragment",
@@ -168,17 +184,63 @@ def _model_input_fingerprint(spec: dict[str, Any]) -> str:
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
+def _semantic_model_input_fingerprint(
+    spec: dict[str, Any],
+    *,
+    semantic_context: dict[str, Any] | None = None,
+) -> str:
+    """Fingerprint the production compiler inputs while preserving C0 replay helpers."""
+
+    payload = {
+        "storyboard": _storyboard_controls(spec),
+        "phrase": _clean(spec.get("phrase"), 160),
+        "note": _clean(spec.get("note"), 500),
+        "evidence_summary": _clean(
+            spec.get("evidence_summary") or spec.get("evidence_basis"),
+            1600,
+        ),
+        "source_refs": [
+            _clean(value, 160)
+            for value in spec.get("source_refs", [])
+            if _clean(value, 160)
+        ]
+        if isinstance(spec.get("source_refs"), list)
+        else [],
+        "page_visual_role": _clean(spec.get("page_visual_role"), 100),
+        "article_thesis": _clean(spec.get("article_thesis"), 1200),
+        "visual_bible": spec.get("visual_bible")
+        if isinstance(spec.get("visual_bible"), dict)
+        else {},
+        "semantic_context": semantic_context or {},
+        "skill_sha": NativeSkillManager.definition(V03_SKILL_NAME).commit,
+        "compiler_version": COMPILER_VERSION,
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
 def storyboard_model_input_changed(
     previous: dict[str, Any],
     current: dict[str, Any],
+    *,
+    feature_mode: VisualPromptFeatureMode = "production",
+    semantic_context: dict[str, Any] | None = None,
 ) -> bool:
     """Public helper for immutable storyboard revisions.
 
-    Phrase, note and crop controls deliberately do not invalidate a raw model anchor:
-    they are composed locally.  Metaphor and visual recipe controls do.
+    Production Prompt inputs include copy, evidence and page role. Legacy mode keeps
+    the historical raw-anchor behavior for explicit rollback and C0 replay.
     """
 
-    return _model_input_fingerprint(previous) != _model_input_fingerprint(current)
+    if feature_mode == "legacy":
+        return _model_input_fingerprint(previous) != _model_input_fingerprint(current)
+    return _semantic_model_input_fingerprint(
+        previous,
+        semantic_context=semantic_context,
+    ) != _semantic_model_input_fingerprint(
+        current,
+        semantic_context=semantic_context,
+    )
 
 
 class MinimalZineNativeService:
@@ -199,6 +261,7 @@ class MinimalZineNativeService:
         self.settings = settings
         self.manager = NativeSkillManager(settings)
         self.model = ModelClient(settings)
+        self.prompt_compiler = VisualPromptCompiler(settings)
         self.local_renderer = LightVisualRenderer(settings)
 
     @property
@@ -214,13 +277,14 @@ class MinimalZineNativeService:
         variant: PlatformVariant,
         *,
         pages: list[int] | None = None,
+        force_recompile: bool = False,
     ) -> dict[str, Any]:
-        """Build ChatGPT Images prompts without calling an image or text API.
+        """Build ChatGPT Images prompts without ever calling an image API.
 
         ChatGPT's consumer web UI is intentionally treated as a human handoff:
-        X2RED prepares the frozen prompt, the user generates and saves the image in
-        ChatGPT, then uploads that file back.  We never automate the signed-in web
-        session or pretend it is an API.
+        X2RED runs the same text compiler used by API rendering, then the user
+        generates and saves the image in ChatGPT and uploads it back. We never
+        automate the signed-in web session or pretend it is an API.
         """
 
         self._require_light_variant(variant)
@@ -230,36 +294,61 @@ class MinimalZineNativeService:
         if not 3 <= total <= 6:
             raise NativeSkillError("Minimal Zine 故事板必须包含 3 到 6 页")
         selected = self._selected_pages(pages, total)
+        new_specs = [dict(item) for item in specs]
+        feature_mode = self._compiler_feature_mode(metadata, new_specs)
         results: list[dict[str, Any]] = []
         for page in selected:
-            spec = specs[page - 1]
-            controls = _storyboard_controls(spec)
-            safe_zone = self._safe_zone(controls["layout"])
-            raw_prompt = (
-                "Create one sparse, non-literal editorial visual symbol for this idea: "
-                f"{controls['visual_metaphor']}. Express it as one {controls['anchor']} "
-                f"with a {controls['texture']} material treatment and a {controls['mood']} mood. "
-                "Render only the visual object and paper texture; do not render the idea as words."
+            spec = new_specs[page - 1]
+            previous_prompt = str(spec.get("final_prompt") or "")
+            visual_spec = self._compile_visual_prompt_spec(
+                variant=variant,
+                metadata=metadata,
+                specs=new_specs,
+                page=page,
+                feature_mode=feature_mode,
+                force_recompile=force_recompile,
+            )
+            prompt = self._four_paragraph_prompt(visual_spec)
+            model_fingerprint = (
+                _model_input_fingerprint(spec)
+                if feature_mode == "legacy"
+                else visual_spec.source_fingerprint
+            )
+            spec.update(
+                {
+                    "final_prompt": prompt,
+                    "visual_prompt_spec": visual_spec.model_dump(mode="json"),
+                    "native_zine_recipe": visual_spec.recipe.model_dump(mode="json"),
+                    "model_input_fingerprint": model_fingerprint,
+                }
             )
             results.append(
                 {
                     "page": page,
-                    "prompt": self._four_paragraph_prompt(
-                        controls=controls,
-                        raw_prompt=raw_prompt,
-                        safe_zone=safe_zone,
-                    ),
-                    "recipe": self._recipe_for(spec),
-                    "model_input_fingerprint": _model_input_fingerprint(spec),
+                    "prompt": prompt,
+                    "recipe": visual_spec.recipe.model_dump(mode="json"),
+                    "visual_prompt_spec": visual_spec.model_dump(mode="json"),
+                    "compiler_mode": visual_spec.mode,
+                    "skill_version": visual_spec.skill_version,
+                    "source_fingerprint": visual_spec.source_fingerprint,
+                    "prompt_fingerprint": visual_spec.prompt_fingerprint,
+                    "warnings": visual_spec.warnings,
+                    "model_input_fingerprint": model_fingerprint,
+                    "prompt_diff": self._prompt_diff(previous_prompt, prompt),
                     "aspect_ratio": "3:5",
                     "text_policy": "no-model-text; x2red-local-cjk",
                 }
             )
+        metadata["poster_specs"] = new_specs
+        metadata["visual_prompt_mode"] = feature_mode
+        variant.metadata_json = json.dumps(metadata, ensure_ascii=False)
         return {
             "variant_id": variant.id,
             "provider": "chatgpt-web",
             "chatgpt_url": "https://chatgpt.com/images",
             "api_used": False,
+            "text_compiler": feature_mode != "legacy",
+            "compiler_mode": self.prompt_compiler.schema_mode(feature_mode),
             "automation": "manual-copy-save-upload",
             "pages": results,
         }
@@ -303,6 +392,10 @@ class MinimalZineNativeService:
         parent_specs = self._poster_specs(parent_metadata) if parent else []
         parent_paths = self._object(parent.output_paths_json) if parent else {}
         handoff = self.prepare_web_handoff(variant, pages=[page])["pages"][0]
+        handoff_visual_spec = VisualPromptSpec.model_validate(
+            handoff["visual_prompt_spec"]
+        )
+        feature_mode = self._compiler_feature_mode(metadata, specs)
 
         wechat_root = (self.settings.export_dir / "wechat").resolve()
         wechat_root.mkdir(parents=True, exist_ok=True)
@@ -327,17 +420,32 @@ class MinimalZineNativeService:
                 poster_key = f"poster_{current_page:02d}"
                 anchor_path = staging_dir / f"anchor-{current_page:02d}.png"
                 poster_path = staging_dir / f"poster-{current_page:02d}.png"
-                model_fingerprint = _model_input_fingerprint(spec)
-                recipe = self._recipe_for(spec)
+                model_fingerprint = self._expected_model_fingerprint(
+                    variant=variant,
+                    metadata=metadata,
+                    specs=new_specs,
+                    page=current_page,
+                    feature_mode=feature_mode,
+                )
+                stored_recipe = self._stored_visual_recipe(spec)
+                recipe = self._persisted_recipe(spec)
                 action = ""
                 raw_source_variant_id = variant.id
 
                 if current_page == page:
+                    model_fingerprint = (
+                        _model_input_fingerprint(spec)
+                        if feature_mode == "legacy"
+                        else handoff_visual_spec.source_fingerprint
+                    )
+                    stored_recipe = handoff_visual_spec.recipe.model_dump(mode="json")
+                    recipe = self._composer_recipe(handoff_visual_spec.recipe)
                     self._write_raw_anchor(image_bytes, anchor_path)
                     spec.update(
                         {
                             "final_prompt": str(handoff["prompt"]),
-                            "native_zine_recipe": recipe,
+                            "visual_prompt_spec": handoff_visual_spec.model_dump(mode="json"),
+                            "native_zine_recipe": stored_recipe,
                             "native_zine_interpretation": "由人工在 ChatGPT Images 网页生成并回传的无字视觉锚点。",
                             "model_input_fingerprint": model_fingerprint,
                             "raw_anchor_fingerprint": model_fingerprint,
@@ -354,6 +462,7 @@ class MinimalZineNativeService:
                         paths=current_paths,
                         page=current_page,
                         target_spec=spec,
+                        expected_model_fingerprint=model_fingerprint,
                     )
                     if final_source is None and parent is not None:
                         final_source = self._final_candidate(
@@ -362,6 +471,7 @@ class MinimalZineNativeService:
                             paths=parent_paths,
                             page=current_page,
                             target_spec=spec,
+                            expected_model_fingerprint=model_fingerprint,
                         )
                     if final_source is not None:
                         raw = final_source.get("raw")
@@ -371,6 +481,8 @@ class MinimalZineNativeService:
                         self._copy_raw_anchor(raw, anchor_path)
                         shutil.copy2(final_path, poster_path)
                         self._hydrate_trace(spec, raw.get("spec"), model_fingerprint)
+                        stored_recipe = self._stored_visual_recipe(spec)
+                        recipe = self._persisted_recipe(spec)
                         raw_source_variant_id = str(raw.get("variant_id") or variant.id)
                         action = "cached"
                     else:
@@ -388,6 +500,8 @@ class MinimalZineNativeService:
                             continue
                         self._copy_raw_anchor(raw, anchor_path)
                         self._hydrate_trace(spec, raw.get("spec"), model_fingerprint)
+                        stored_recipe = self._stored_visual_recipe(spec)
+                        recipe = self._persisted_recipe(spec)
                         raw_source_variant_id = str(raw.get("variant_id") or variant.id)
                         action = "recomposed"
 
@@ -407,7 +521,7 @@ class MinimalZineNativeService:
 
                 spec.update(
                     {
-                        "native_zine_recipe": recipe,
+                        "native_zine_recipe": stored_recipe or recipe,
                         "model_input_fingerprint": model_fingerprint,
                         "raw_anchor_fingerprint": model_fingerprint,
                         "final_composition_fingerprint": self._composition_fingerprint(spec, recipe),
@@ -449,12 +563,17 @@ class MinimalZineNativeService:
             previous_native = self._object_value(metadata.get("native_zine"))
             new_metadata = dict(metadata)
             new_metadata["poster_specs"] = new_specs
-            new_metadata["render_engine"] = "gc-minimal-zine-local-compositor-v6"
+            new_metadata["render_engine"] = "gc-minimal-zine-local-compositor-v7"
+            new_metadata["visual_prompt_mode"] = feature_mode
             new_metadata["native_zine"] = {
                 **previous_native,
                 "repository": "https://github.com/LiamGvchi/gc-minimal-zine-poster",
-                "commit": self.manager.definition(self.skill_name).commit,
+                "commit": self.manager.definition(
+                    self.skill_name if feature_mode == "legacy" else V03_SKILL_NAME
+                ).commit,
                 "license": "MIT",
+                "prompt_compiler": COMPILER_VERSION,
+                "prompt_compiler_mode": self.prompt_compiler.schema_mode(feature_mode),
                 "compositor_version": self.compositor_version,
                 "model_role": "visual-anchor-only",
                 "local_typography": True,
@@ -570,6 +689,17 @@ class MinimalZineNativeService:
         total = len(specs)
         if not 3 <= total <= 6:
             raise NativeSkillError("Minimal Zine 故事板必须包含 3 到 6 页")
+        feature_mode = self._compiler_feature_mode(metadata, specs)
+        expected_fingerprints = {
+            page: self._expected_model_fingerprint(
+                variant=variant,
+                metadata=metadata,
+                specs=specs,
+                page=page,
+                feature_mode=feature_mode,
+            )
+            for page in range(1, total + 1)
+        }
         selected_pages = self._selected_pages(pages, total)
         selected_set = set(selected_pages)
 
@@ -593,6 +723,7 @@ class MinimalZineNativeService:
             parent_paths=parent_paths,
             selected_pages=selected_set,
             mode=selected_mode,
+            expected_fingerprints=expected_fingerprints,
         )
         needs_generation = any(
             page_plan["action"] == "regenerated" and page_plan["selected"]
@@ -605,7 +736,7 @@ class MinimalZineNativeService:
             )
 
         skill_text = ""
-        if needs_generation:
+        if needs_generation and feature_mode == "legacy":
             skill_dir = self.manager.ensure_installed(self.skill_name, install_runtime=False)
             # Deliberately read the full upstream instruction file; the compiler uses
             # its four-paragraph, variation and color engines as hard constraints.
@@ -640,29 +771,47 @@ class MinimalZineNativeService:
                 anchor_path = staging_dir / f"anchor-{page:02d}.png"
                 poster_path = staging_dir / f"poster-{page:02d}.png"
                 action = str(page_plan["action"])
-                model_fingerprint = _model_input_fingerprint(spec)
-                recipe = self._recipe_for(spec)
+                model_fingerprint = expected_fingerprints[page]
+                stored_recipe = self._stored_visual_recipe(spec)
+                recipe = self._persisted_recipe(spec)
                 composition: dict[str, Any] = {}
 
                 if action == "regenerated":
-                    compiled = self._compile_prompt(
-                        skill_text=skill_text,
-                        variant=variant,
-                        spec=spec,
-                        page=page,
-                        total=total,
-                        recent_recipes=recent_recipes,
-                    )
-                    recipe = compiled["recipe"]
-                    image_bytes = self._generate_image(str(compiled["final_prompt"]))
+                    if feature_mode == "legacy":
+                        compiled = self._compile_prompt(
+                            skill_text=skill_text,
+                            variant=variant,
+                            spec=spec,
+                            page=page,
+                            total=total,
+                            recent_recipes=recent_recipes,
+                        )
+                        final_prompt = str(compiled["final_prompt"])
+                        recipe = compiled["recipe"]
+                        stored_recipe = recipe
+                        interpretation = str(compiled.get("interpretation") or "")
+                    else:
+                        visual_spec = self._compile_visual_prompt_spec(
+                            variant=variant,
+                            metadata=metadata,
+                            specs=new_specs,
+                            page=page,
+                            feature_mode=feature_mode,
+                            force_recompile=selected_mode == "regenerate",
+                        )
+                        final_prompt = self._four_paragraph_prompt(visual_spec)
+                        stored_recipe = visual_spec.recipe.model_dump(mode="json")
+                        recipe = self._composer_recipe(visual_spec.recipe)
+                        model_fingerprint = visual_spec.source_fingerprint
+                        interpretation = self._visual_interpretation(visual_spec, spec)
+                        spec["visual_prompt_spec"] = visual_spec.model_dump(mode="json")
+                    image_bytes = self._generate_image(final_prompt)
                     self._write_raw_anchor(image_bytes, anchor_path)
                     spec.update(
                         {
-                            "final_prompt": str(compiled["final_prompt"]),
-                            "native_zine_recipe": recipe,
-                            "native_zine_interpretation": str(
-                                compiled.get("interpretation") or ""
-                            ),
+                            "final_prompt": final_prompt,
+                            "native_zine_recipe": stored_recipe,
+                            "native_zine_interpretation": interpretation,
                             "model_input_fingerprint": model_fingerprint,
                             "raw_anchor_fingerprint": model_fingerprint,
                             "raw_anchor_source_variant_id": variant.id,
@@ -688,7 +837,8 @@ class MinimalZineNativeService:
                     self._copy_raw_anchor(raw, anchor_path)
                     shutil.copy2(final_path, poster_path)
                     self._hydrate_trace(spec, raw.get("spec"), model_fingerprint)
-                    recipe = self._recipe_for(spec)
+                    stored_recipe = self._stored_visual_recipe(spec)
+                    recipe = self._persisted_recipe(spec)
                     composition = self._object_value(spec.get("composition_diagnostics"))
                     composition = {
                         **composition,
@@ -703,7 +853,8 @@ class MinimalZineNativeService:
                         )
                     self._copy_raw_anchor(raw, anchor_path)
                     self._hydrate_trace(spec, raw.get("spec"), model_fingerprint)
-                    recipe = self._recipe_for(spec)
+                    stored_recipe = self._stored_visual_recipe(spec)
+                    recipe = self._persisted_recipe(spec)
                     composition = self._compose_poster(
                         anchor_path.read_bytes(),
                         poster_path,
@@ -716,7 +867,7 @@ class MinimalZineNativeService:
 
                 spec.update(
                     {
-                        "native_zine_recipe": recipe,
+                        "native_zine_recipe": stored_recipe or recipe,
                         "model_input_fingerprint": model_fingerprint,
                         "raw_anchor_fingerprint": model_fingerprint,
                         "final_composition_fingerprint": self._composition_fingerprint(
@@ -762,7 +913,8 @@ class MinimalZineNativeService:
                             "recomposed": action == "recomposed",
                             "regenerated": action == "regenerated",
                             "final_prompt": str(spec.get("final_prompt") or ""),
-                            "recipe": recipe,
+                            "recipe": stored_recipe or recipe,
+                            "visual_prompt_spec": spec.get("visual_prompt_spec"),
                             "interpretation": str(
                                 spec.get("native_zine_interpretation") or ""
                             ),
@@ -772,11 +924,16 @@ class MinimalZineNativeService:
 
             new_metadata = dict(metadata)
             new_metadata["poster_specs"] = new_specs
-            new_metadata["render_engine"] = "gc-minimal-zine-local-compositor-v6"
+            new_metadata["render_engine"] = "gc-minimal-zine-local-compositor-v7"
+            new_metadata["visual_prompt_mode"] = feature_mode
             new_metadata["native_zine"] = {
                 "repository": "https://github.com/LiamGvchi/gc-minimal-zine-poster",
-                "commit": self.manager.definition(self.skill_name).commit,
+                "commit": self.manager.definition(
+                    self.skill_name if feature_mode == "legacy" else V03_SKILL_NAME
+                ).commit,
                 "license": "MIT",
+                "prompt_compiler": COMPILER_VERSION,
+                "prompt_compiler_mode": self.prompt_compiler.schema_mode(feature_mode),
                 "image_model": self.settings.image_model,
                 "image_size_requested": self.settings.image_size,
                 "generated_pages": sum(
@@ -850,6 +1007,7 @@ class MinimalZineNativeService:
         parent_paths: dict[str, Any],
         selected_pages: set[int],
         mode: RenderMode,
+        expected_fingerprints: dict[int, str],
     ) -> list[dict[str, Any]]:
         plans: list[dict[str, Any]] = []
         for page, spec in enumerate(specs, start=1):
@@ -861,7 +1019,7 @@ class MinimalZineNativeService:
                 parent_specs=parent_specs,
                 parent_paths=parent_paths,
                 page=page,
-                expected_fingerprint=_model_input_fingerprint(spec),
+                expected_fingerprint=expected_fingerprints[page],
             )
             current_final = self._final_candidate(
                 variant=variant,
@@ -869,6 +1027,7 @@ class MinimalZineNativeService:
                 paths=current_paths,
                 page=page,
                 target_spec=spec,
+                expected_model_fingerprint=expected_fingerprints[page],
             )
             parent_final = (
                 self._final_candidate(
@@ -877,6 +1036,7 @@ class MinimalZineNativeService:
                     paths=parent_paths,
                     page=page,
                     target_spec=spec,
+                    expected_model_fingerprint=expected_fingerprints[page],
                 )
                 if parent is not None
                 else None
@@ -1028,11 +1188,14 @@ class MinimalZineNativeService:
         paths: dict[str, Any],
         page: int,
         target_spec: dict[str, Any],
+        expected_model_fingerprint: str | None = None,
     ) -> dict[str, Any] | None:
         if variant is None or page > len(specs):
             return None
         source_spec = specs[page - 1]
-        expected_model = _model_input_fingerprint(target_spec)
+        expected_model = expected_model_fingerprint or _model_input_fingerprint(
+            target_spec
+        )
         raw = self._raw_from_variant(
             variant, specs, paths, page, expected_model
         )
@@ -1042,13 +1205,269 @@ class MinimalZineNativeService:
         if poster_path is None or not self._is_parseable_image(poster_path):
             return None
         expected_composition = self._composition_fingerprint(
-            target_spec, self._recipe_for(target_spec)
+            target_spec, self._persisted_recipe(target_spec)
         )
         if str(source_spec.get("final_composition_fingerprint") or "") != expected_composition:
             return None
         if str(source_spec.get("compositor_version") or "") != self.compositor_version:
             return None
         return {"raw": raw, "poster_path": poster_path, "variant_id": variant.id}
+
+    def _compiler_feature_mode(
+        self,
+        metadata: dict[str, Any],
+        specs: list[dict[str, Any]],
+    ) -> VisualPromptFeatureMode:
+        explicit = str(metadata.get("visual_prompt_mode") or "")
+        if explicit in {"legacy", "skill_v03", "production"}:
+            return explicit  # type: ignore[return-value]
+        if self.settings.minimal_zine_prompt_mode == "legacy":
+            return "legacy"
+        # Historical packages have raw anchors but no structured compiler trace.
+        # Treat those pages as legacy so a rollout cannot invalidate reviewed art.
+        if any(
+            spec.get("raw_anchor_fingerprint") and not spec.get("visual_prompt_spec")
+            for spec in specs
+        ):
+            return "legacy"
+        return self.settings.minimal_zine_prompt_mode
+
+    def _visual_prompt_context(
+        self,
+        *,
+        variant: PlatformVariant,
+        metadata: dict[str, Any],
+        specs: list[dict[str, Any]],
+        page: int,
+    ) -> VisualPromptContext:
+        spec = specs[page - 1]
+        strategy = self._object_value(metadata.get("strategy"))
+        controls = _storyboard_controls(spec)
+        article_thesis = _clean(
+            spec.get("article_thesis")
+            or strategy.get("content_thesis")
+            or variant.summary
+            or variant.title,
+            1200,
+        ) or "让当前页面以一个具体视觉关系承接文章判断"
+        section_title = _clean(
+            spec.get("section_title") or spec.get("phrase") or variant.title,
+            300,
+        ) or f"第 {page} 页"
+        role = _clean(spec.get("page_visual_role"), 100)
+        if not role:
+            role = "cover" if page == 1 else "conclusion" if page == len(specs) else "scene"
+        evidence = _clean(
+            spec.get("evidence_summary") or spec.get("evidence_basis"),
+            1200,
+        )
+        refs = spec.get("source_refs")
+        if isinstance(refs, list) and refs:
+            ref_text = "、".join(_clean(value, 120) for value in refs if _clean(value, 120))
+            evidence = _clean(f"{evidence}；来源：{ref_text}" if evidence else f"来源：{ref_text}", 1600)
+        visual_bible = metadata.get("visual_bible")
+        if not isinstance(visual_bible, dict):
+            visual_bible = {
+                "status": "pre-v2-page-context",
+                "content_recipe": str(metadata.get("recipe") or ""),
+                "series_style": str(metadata.get("visual_style") or "minimal_zine"),
+                "rule": "one visual event per page; local Chinese typography",
+            }
+
+        def concept(index: int) -> str:
+            if index < 0 or index >= len(specs):
+                return ""
+            value = specs[index]
+            return _clean(
+                value.get("current_page_concept")
+                or value.get("visual_metaphor")
+                or value.get("photo_direction"),
+                800,
+            )
+
+        return VisualPromptContext(
+            variant_id=variant.id,
+            page=page,
+            total_pages=len(specs),
+            article_thesis=article_thesis,
+            section_title=section_title,
+            page_visual_role=role,
+            phrase=_clean(spec.get("phrase"), 160),
+            note=_clean(spec.get("note"), 500),
+            evidence_summary=evidence,
+            audience=_clean(metadata.get("audience"), 500),
+            emotion=_clean(
+                spec.get("emotion")
+                or strategy.get("emotional_job")
+                or controls["mood"],
+                300,
+            ),
+            current_page_concept=concept(page - 1) or controls["visual_metaphor"],
+            visual_bible=visual_bible,
+            previous_page_concept=concept(page - 2),
+            next_page_concept=concept(page),
+            content_recipe=_clean(metadata.get("recipe"), 100),
+            source_fit=_clean(strategy.get("source_fit"), 800),
+            layout_hint=controls["layout"],
+            anchor_hint=controls["anchor"],
+            texture_hint=controls["texture"],
+            main_hue_hint=controls["accent"],
+            mood_hint=controls["mood"],
+        )
+
+    def _expected_model_fingerprint(
+        self,
+        *,
+        variant: PlatformVariant,
+        metadata: dict[str, Any],
+        specs: list[dict[str, Any]],
+        page: int,
+        feature_mode: VisualPromptFeatureMode,
+    ) -> str:
+        if feature_mode == "legacy":
+            return _model_input_fingerprint(specs[page - 1])
+        context = self._visual_prompt_context(
+            variant=variant,
+            metadata=metadata,
+            specs=specs,
+            page=page,
+        )
+        return self.prompt_compiler.source_fingerprint(
+            context,
+            feature_mode=feature_mode,
+        )
+
+    def _compile_visual_prompt_spec(
+        self,
+        *,
+        variant: PlatformVariant,
+        metadata: dict[str, Any],
+        specs: list[dict[str, Any]],
+        page: int,
+        feature_mode: VisualPromptFeatureMode,
+        force_recompile: bool,
+    ) -> VisualPromptSpec:
+        spec = specs[page - 1]
+        context = self._visual_prompt_context(
+            variant=variant,
+            metadata=metadata,
+            specs=specs,
+            page=page,
+        )
+        expected = self.prompt_compiler.source_fingerprint(
+            context,
+            feature_mode=feature_mode,
+        )
+        stored = spec.get("visual_prompt_spec")
+        if not force_recompile and isinstance(stored, dict):
+            try:
+                cached = VisualPromptSpec.model_validate(stored)
+            except ValidationError:
+                cached = None
+            if (
+                cached is not None
+                and cached.source_fingerprint == expected
+                and cached.mode == self.prompt_compiler.schema_mode(feature_mode)
+            ):
+                return cached
+
+        controls = _storyboard_controls(spec)
+        raw_prompt = (
+            "Create one sparse, non-literal editorial visual symbol for this idea: "
+            f"{controls['visual_metaphor']}. Express it as one {controls['anchor']} "
+            f"with a {controls['texture']} material treatment and a {controls['mood']} mood. "
+            "Render only the visual object and paper texture; do not render the idea as words."
+        )
+        legacy_prompt = self._four_paragraph_prompt(
+            controls=controls,
+            raw_prompt=raw_prompt,
+            safe_zone=self._safe_zone(controls["layout"]),
+        )
+        return self.prompt_compiler.compile(
+            context,
+            feature_mode=feature_mode,
+            fallback_recipe_factory=lambda: self._fallback_visual_recipe(spec),
+            legacy_positive_prompt=legacy_prompt,
+        )
+
+    def _fallback_visual_recipe(self, spec: dict[str, Any]) -> VisualPromptRecipe:
+        fallback = self._recipe_for(spec)
+        return VisualPromptRecipe(
+            layout_family=fallback["layout"],
+            anchor_form=fallback["anchor"],
+            typography_mode=fallback["typography"],
+            texture_mode=fallback["texture"],
+            decorative_system=[],
+            main_hue=fallback["accent"],
+            mood=fallback["mood"],
+        )
+
+    @staticmethod
+    def _stored_visual_recipe(spec: dict[str, Any]) -> dict[str, Any]:
+        visual_spec = spec.get("visual_prompt_spec")
+        if isinstance(visual_spec, dict) and isinstance(visual_spec.get("recipe"), dict):
+            return dict(visual_spec["recipe"])
+        value = spec.get("native_zine_recipe")
+        return dict(value) if isinstance(value, dict) else {}
+
+    def _persisted_recipe(self, spec: dict[str, Any]) -> dict[str, Any]:
+        stored = self._stored_visual_recipe(spec)
+        if stored:
+            return self._composer_recipe(stored)
+        # The deterministic page controls are the documented degraded/legacy fallback.
+        return self._recipe_for(spec)
+
+    @staticmethod
+    def _composer_recipe(
+        recipe: VisualPromptRecipe | dict[str, Any],
+    ) -> dict[str, Any]:
+        value = recipe.model_dump(mode="json") if isinstance(recipe, VisualPromptRecipe) else recipe
+        return {
+            "layout": str(value.get("layout_family") or value.get("layout") or "center-fragment"),
+            "anchor": str(value.get("anchor_form") or value.get("anchor") or "object-specimen"),
+            "typography": str(
+                value.get("typography_mode") or value.get("typography") or "local-cjk"
+            ),
+            "accent": str(value.get("main_hue") or value.get("accent") or "cobalt"),
+            "texture": str(
+                value.get("texture_mode") or value.get("texture") or "xerox-softness"
+            ),
+            "mood": str(value.get("mood") or "quiet"),
+            "decorative_system": list(value.get("decorative_system") or []),
+        }
+
+    @staticmethod
+    def _visual_interpretation(
+        visual_spec: VisualPromptSpec,
+        spec: dict[str, Any],
+    ) -> str:
+        warning = next(
+            (value for value in visual_spec.warnings if value.startswith(DEGRADED_FALLBACK)),
+            "",
+        )
+        base = _clean(spec.get("visual_metaphor"), 220)
+        return _clean(f"{base}。{warning}" if warning else base, 320)
+
+    @staticmethod
+    def _prompt_diff(previous: str, current: str) -> dict[str, Any]:
+        if not previous:
+            return {"changed": False, "before": "", "after": current, "unified": ""}
+        changed = previous != current
+        unified = "\n".join(
+            difflib.unified_diff(
+                previous.splitlines(),
+                current.splitlines(),
+                fromfile="previous-prompt",
+                tofile="compiled-prompt",
+                lineterm="",
+            )
+        )
+        return {
+            "changed": changed,
+            "before": previous,
+            "after": current,
+            "unified": unified[:12_000],
+        }
 
     def _compile_prompt(
         self,
@@ -1125,11 +1544,46 @@ class MinimalZineNativeService:
 
     def _four_paragraph_prompt(
         self,
+        visual_spec: VisualPromptSpec | None = None,
         *,
-        controls: dict[str, Any],
-        raw_prompt: str,
-        safe_zone: dict[str, Any],
+        controls: dict[str, Any] | None = None,
+        raw_prompt: str = "",
+        safe_zone: dict[str, Any] | None = None,
     ) -> str:
+        if visual_spec is not None:
+            positive = visual_spec.positive_prompt.strip()
+            if visual_spec.mode != "production_text_safe":
+                return positive
+            text_exclusions = [
+                value
+                for value in visual_spec.exclusions
+                if any(
+                    token in value.lower()
+                    for token in (
+                        "text",
+                        "chinese",
+                        "latin",
+                        "letter",
+                        "number",
+                        "logo",
+                        "watermark",
+                        "signature",
+                        "ui",
+                    )
+                )
+            ][:4]
+            suffix = (
+                "Production text-safety invariant — NO TEXT: render no readable Chinese, Latin letters, "
+                "numbers, logos, signatures, watermarks, badges or UI; keep the selected visual "
+                "theme, layout, anchor, texture and hue unchanged because X2RED composes final "
+                "Chinese locally. X2RED adds Chinese locally after generation."
+            )
+            if text_exclusions:
+                suffix += " Compact text exclusions: " + "; ".join(text_exclusions) + "."
+            return positive.rstrip() + "\n" + suffix
+
+        if controls is None or safe_zone is None:
+            raise NativeSkillError("Legacy Prompt 编译参数不完整")
         accent = controls["accent"]
         accent_word = accent if not accent.startswith("#") else f"opaque {accent} ink"
         return "\n\n".join(
@@ -1617,6 +2071,20 @@ class MinimalZineNativeService:
                 "title_size": 52,
                 "prompt": "a clean lower-right specimen-label paper zone for local Chinese",
             },
+            "diagonal-notes": {
+                "id": "upper-right-diagonal-counterfield",
+                "panel": (620, 150, 1130, 1080),
+                "text": (670, 250, 400),
+                "title_size": 52,
+                "prompt": "a continuous upper-right paper counterfield beside the diagonal visual rhythm",
+            },
+            "edge-counterweight": {
+                "id": "lower-right-edge-counterfield",
+                "panel": (520, 1120, 1130, 1840),
+                "text": (580, 1200, 490),
+                "title_size": 54,
+                "prompt": "a clean lower-right paper field counterbalancing the edge visual event",
+            },
         }
         return dict(layouts.get(layout, layouts["center-fragment"]))
 
@@ -1707,6 +2175,8 @@ class MinimalZineNativeService:
             "type-led": ((96, 60), "left-upper-margin", (180, 120, 1020, 520)),
             "dot-orbit": ((1010, 1240), "right-lower-margin", (180, 300, 1020, 1220)),
             "single-specimen": ((1010, 1000), "right-upper-margin", (120, 220, 660, 1120)),
+            "diagonal-notes": ((96, 1120), "left-lower-margin", (120, 220, 720, 1120)),
+            "edge-counterweight": ((1010, 900), "right-edge-margin", (80, 180, 500, 1300)),
         }
         return slots.get(layout, slots["center-fragment"])
 
@@ -1824,6 +2294,7 @@ class MinimalZineNativeService:
         if isinstance(source, dict):
             for key in (
                 "final_prompt",
+                "visual_prompt_spec",
                 "native_zine_recipe",
                 "native_zine_interpretation",
             ):

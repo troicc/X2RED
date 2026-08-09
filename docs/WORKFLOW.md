@@ -68,7 +68,9 @@ The current evidence pack is the fact boundary. Historical names, numbers, dates
 
 ## 6. Render Minimal Zine safely
 
-The text model reads the complete pinned upstream Skill and compiles a per-page recipe. The image prompt requires a sparse 3:5 composition, one visual cluster, reserved text space and no text, numbers, logos, signatures, UI, labels, watermarks or badges.
+One `VisualPromptCompiler` reads the pinned v0.3 Skill, references and evals and compiles a per-page `VisualPromptSpec`. Web handoff and API rendering use the same structured recipe and semantic source fingerprint. Web handoff may call this text compiler but never an image API. A compiler failure is labeled `DEGRADED_FALLBACK`; it is never presented as faithful Skill execution.
+
+The source fingerprint binds the article thesis, section title, page role, phrase, note, evidence, audience, emotion, current/neighboring concepts, Visual Bible, Skill SHA and compiler version. The production text-safe step preserves the selected visual recipe and adds only the no-readable-text/local-CJK invariant.
 
 The image model produces only raw visual anchors. X2RED then:
 
@@ -84,6 +86,8 @@ Rendering modes are:
 - `render_missing`: reuse valid complete pages, locally recompose valid raw anchors, and generate only genuinely missing selected work;
 - `recompose`: require stored raw anchors and call neither prompt compiler nor image model;
 - `regenerate`: explicitly call the image model for selected pages.
+
+Set `X2RED_MINIMAL_ZINE_PROMPT_MODE=legacy` to roll back new requests to the pinned v0.1 compiler. Historical raw anchors without a structured v0.3 trace are automatically interpreted as legacy.
 
 The complete directory is staged, validated and atomically promoted. A failure retains the previous directory, package and database references. Negative prompting and edge cleanup reduce—but cannot absolutely eliminate—model watermark or badge risk, so human visual review remains required.
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -32,6 +33,9 @@ class Settings(BaseSettings):
     image_api_key: str = ""
     image_model: str = ""
     image_size: str = "1024x1536"
+    minimal_zine_prompt_mode: Literal["legacy", "skill_v03", "production"] = (
+        "production"
+    )
     request_timeout_seconds: float = 20.0
 
     material_user_agent: str = "X2RED-MaterialResearch/0.13 (+local research)"

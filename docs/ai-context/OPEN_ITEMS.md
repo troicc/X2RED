@@ -1,6 +1,6 @@
 # X2RED 未完成事项和风险
 
-更新时间：2026-08-09 21:34 +08:00
+更新时间：2026-08-09 22:05 +08:00
 
 ## P0：合并前必须确认
 
@@ -12,11 +12,12 @@
 
 当前状态：
 
-- C0 已在 `codex/x2red-c0-quality-baseline` 实施并推送；基线是 `9073a4bc8a71a76dbf6762d7fc64a425eb3c99fe`，首个提交是 `08c0920f154d51a7cdfa5d35a604d48b3d393672`，Draft PR 为 #20。
-- 修改前完整测试为 `94 passed, 8 warnings`；修改后完整套件为 `99 passed, 8 warnings`，新增 C0 定向测试为 `5 passed`。全仓 CI 范围 Ruff、compileall、导出脚本 py_compile、JSON 校验、敏感信息扫描和 diff check 通过。
+- C0 PR #20 已通过最新 head CI 并 squash merge 到 `agent/replace-crawlers-with-api-adapters`；合并后准确 head 为 `02aa1db7f5eef45e438c8776bad0703c3e3ef441`。
+- V1 已从该 head 创建独立分支 `codex/x2red-v1-visual-compiler-parity`。v0.3 vendor、统一 `VisualPromptCompiler`、结构化 recipe、语义指纹、显式 degraded、legacy flag、UI 溯源与回滚文档已经落地；V1 完整套件为 `109 passed, 8 warnings`，定向回归为 `48 passed, 2 warnings`。仍须完成 latest-head CI、PR 与合并门禁。
+- C0 修改前完整测试为 `94 passed, 8 warnings`；C0 修改后完整套件为 `99 passed, 8 warnings`，新增 C0 定向测试为 `5 passed`。全仓 CI 范围 Ruff、compileall、导出脚本 py_compile、JSON 校验、敏感信息扫描和 diff check 通过。
 - 12 个写作 fixture、20 个视觉页、两套 rubric、Pydantic schema、旧 Prompt 逐字重放和只读脱敏导出器已经落地；未修改生产行为。
 - 已冻结的关键旧缺陷：`visual-firewall-03-comparison` 与 `visual-firewall-04-conclusion` 的 phrase、note、evidence 和 visual role 不同，但现有 Prompt 与 model fingerprint 相同。
-- 下一阶段只能是 V1 `visual-compiler-parity`。按照任务书“从最新已合并的前一阶段创建”，C0 未评审/合并前不要在同一分支继续 V1，更不要先做 UI 美化。
+- 下一阶段只能是 V2 `visual-bible-and-page-brief`，且必须等待 V1 独立 PR 的最新 head CI 通过并合入功能基线后再创建新分支；不得把 V2 堆进 V1。
 - C0 fixture 是合成防回归材料，不是视觉质量已达标的证据；真实图片、真实长文和模型盲评仍须在后续阶段按权利与成本边界完成。
 
 ### 1. 真实浏览器端到端 smoke test（本轮已完成最新基线，仍需后续回归）
@@ -51,16 +52,17 @@
 
 2026-08-09 00:43 轻内容文案与成图专项验收：已定位并删除“保存文章即从正文连续切句覆盖分镜”的破坏性同步，四页文案现在经过生成、候选采用和 storyboard API 三层跨页去重门禁；真实语料池范围（18 条全池记忆、40280 字、6 条详细来源）与逐页取材依据可追溯。旧 v10 保留，修复后的不可变 v11 使用四组互异文案；已有 raw anchor 的第 1、3 页由 compositor v6 重合成，主体完整、边缘裁切为 0、无本地伪造强调标记。第 2、4 页没有 raw anchor，继续标为待回传且不生成 ZIP。真实浏览器 console 0 error；完整套件 `94 passed, 8 warnings`，CI Ruff、compileall、JavaScript 语法、context JSON 和 diff check 通过。
 
-### 2. PR #19 和 C0 PR #20 均为 Draft、尚未合并
+### 2. PR #19 仍需重查；C0 PR #20 已合并，V1 尚待独立 PR
 
 2026-08-09 重新查询后，PR #19 仍为 open、draft、mergeable，head 已为 `9073a4bc8a71a76dbf6762d7fc64a425eb3c99fe`，该 head 的 PR CI run `811` 成功，尚未进入 `main`。C0 从这一 head 建立独立分支，不继续堆入 PR #19。
 
-2026-08-09 21:34，C0 首个提交 `08c0920f154d51a7cdfa5d35a604d48b3d393672` 已推送并创建 Draft PR #20；其 base 是 `agent/replace-crawlers-with-api-adapters`，head 是 `codex/x2red-c0-quality-baseline`。本次记忆同步提交推送后，必须以新的 PR head 重新确认 CI 和 mergeability。因此：
+2026-08-09，C0 PR #20 已在 head `dd10c9f959c2b518be6f9ef1b910e3e9b7a9b261` 的 CI run `813` 成功后标记 ready 并 squash merge，功能基线前进到 `02aa1db7f5eef45e438c8776bad0703c3e3ef441`。V1 从该合并 head 建立，但尚未提交/推送/创建 PR。因此：
 
 - `git pull main` 不会获得本轮功能；
-- C0 评审应查看 PR #20，而不是继续扩大 PR #19；
-- C0 未评审并合入其目标功能分支前，不创建或实施 V1；
-- 准备合并前需要重新确认两个 PR 的 base/head 是否前进、PR 是否仍 mergeable、CI 是否对应各自最新 head。
+- C0 历史评审查看已合并 PR #20，不继续扩大 PR #19；
+- V1 必须作为新 PR 指向 `agent/replace-crawlers-with-api-adapters`，最新 CI 通过后才能合并；
+- V1 合并完成前不得创建 V2 分支；
+- 每次准备合并仍要重新确认 PR #19、V1 PR 的 base/head、mergeability 和 CI 是否对应最新 head。
 
 ## P1：高价值后续工作
 
@@ -96,10 +98,13 @@
 当前重构和探针已解决/验证的是：
 
 - 中文和模型图解耦；
+- v0.3 `SKILL.md` / references / evals 已固定 vendor，web handoff 与 API render 共用同一个结构化 compiler；
+- article thesis、page role、phrase、note、evidence、Visual Bible 和前后页概念已进入 source fingerprint；上游 recipe 不再被成功路径覆盖，失败明确显示 `DEGRADED_FALLBACK`；
+- production、faithful v0.3 与 legacy 三种模式可回滚，历史无结构化 trace 的 raw anchor 自动按 legacy 读取；
 - 保留完整 raw plate，用羽化纸色遮罩清理高风险外沿的供应商标题和角标（不是绝对预防）；
 - 文字安全区不再使用硬边色板，颜色贫乏时不再自动伪造 registration mark；
 - 旧中文 layout 归一和中文标题平衡换行，避免“下班 / 后”和单字尾行；
-- 图组共享母题，视觉导演不能静默切换作者冻结的 renderer；
+- 视觉导演不能静默切换作者冻结的 renderer；当前“共享母题”仍容易把不同页面压成同一物件的近似变化，必须由 V2 Visual Bible + page brief 改为统一世界观下的逐页不同职责；
 - 默认新任务使用稳定本地卡片，Minimal Zine 仅显式实验；
 - 文件路径；
 - preview/package 同步；
@@ -114,6 +119,8 @@
 - 中文字号、行宽和留白是否适合真实公众号题材；
 - 中央区域异常符号的人工检测或自动检测策略；
 - GLM 模型随机性及中央区域仍可能生成异常文字/水印的残余风险。
+
+V2 的代码范围应只处理 Visual Bible、逐页简报和 distinctness，不回头改 V1 compiler schema；V1 遇到真实 prompt/recipe 差异时应先保存可重放 spec 与 diff，再判断是上游 compiler、页面 brief 还是图片模型问题。
 
 不能把“测试通过”表述成“视觉质量已经达到上游示例水平”。
 

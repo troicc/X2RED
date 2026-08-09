@@ -167,9 +167,12 @@ X2RED_IMAGE_BASE_URL=
 X2RED_IMAGE_API_KEY=
 X2RED_IMAGE_MODEL=glm-image
 X2RED_IMAGE_SIZE=1024x1536
+X2RED_MINIMAL_ZINE_PROMPT_MODE=production
 ```
 
 图片 endpoint 未单独配置时可以继承文本模型 provider；`X2RED_IMAGE_MODEL` 为空时不得把本地占位图伪装成原版 Minimal Zine 生成结果。
+
+Minimal Zine Prompt 模式支持 `production`（默认 v0.3 + text-safe）、`skill_v03`（忠实 v0.3）和 `legacy`（v0.1 回滚）。修改后需要重启服务。历史 raw anchor 没有 `visual_prompt_spec` 时自动按 legacy 读取，不能通过切换模式批量重写旧版本。
 
 ### 调度器
 
