@@ -7,12 +7,113 @@ from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.domain.models import utcnow
-from app.domain.studio import AgentRun, AgentRunStatus, WritingArtifact, WritingProject, WritingState
+from app.domain.studio import (
+    AgentRun,
+    AgentRunStatus,
+    WritingArtifact,
+    WritingProject,
+    WritingState,
+)
+from app.services.platform_studio import PlatformStudioService
 from app.services.skills import binding_for
 from app.services.writing_core import ROLE_SKILLS
 
 
 class WritingAgentsMixin:
+    @staticmethod
+    def _longform_completion_issues(
+        payload: dict,
+        *,
+        minimum_chars: int = 1200,
+        reference_body: str = "",
+    ) -> list[str]:
+        completion = payload.get("_completion")
+        if not isinstance(completion, dict):
+            # Deterministic fallbacks and older cached artifacts do not expose a
+            # provider finish reason. Keep them readable, but only model-backed
+            # longform can pass the strict completion gate below.
+            return []
+        issues = PlatformStudioService._article_completion_issues(
+            {
+                "body_markdown": str(payload.get("body") or ""),
+                "illustration_plan": [],
+            },
+            response_meta=completion,
+        )
+        body_chars = len("".join(str(payload.get("body") or "").split()))
+        if body_chars < minimum_chars:
+            issues.append(f"正文只有 {body_chars} 字符，未达到深度长文最低 {minimum_chars} 字符")
+        reference_chars = len("".join(reference_body.split()))
+        retention_floor = int(reference_chars * 0.7)
+        if reference_chars >= minimum_chars and body_chars < retention_floor:
+            issues.append(
+                f"终稿仅保留初稿约 {body_chars}/{reference_chars} 字符，疑似过度压缩"
+            )
+        return list(dict.fromkeys(issues))
+
+    async def _run_complete_longform(
+        self,
+        db: Session,
+        *,
+        project: WritingProject,
+        role: str,
+        stage: str,
+        artifact_type: str,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float,
+        reference_body: str = "",
+    ) -> WritingArtifact:
+        artifact = await self._run_agent(
+            db,
+            project=project,
+            role=role,
+            stage=stage,
+            artifact_type=artifact_type,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=temperature,
+            max_tokens=12000,
+            capture_response_meta=True,
+            request_timeout_seconds=360,
+        )
+        first = self._json(artifact.content_json, {})
+        issues = self._longform_completion_issues(first, reference_body=reference_body)
+        if not issues:
+            return artifact
+
+        repair_prompt = f"""
+上一轮公众号长文未通过完整度检查。禁止只续写尾部，请根据原任务从开头到结尾重新交付完整文章。
+
+检测到的问题：{json.dumps(issues, ensure_ascii=False)}
+原任务：{user_prompt}
+上一轮输出：{json.dumps(first, ensure_ascii=False)[:50000]}
+
+保持所有有证据支持的事实和已批准结构，正文使用 Markdown，包含 3—6 个完整 H2，
+所有代码围栏和句子必须闭合，结尾落在清晰判断。只输出 JSON：title、body、tags、claims；
+终稿修订阶段可额外输出 applied_changes。
+""".strip()
+        repaired = await self._run_agent(
+            db,
+            project=project,
+            role=role,
+            stage=f"{stage}_repair",
+            artifact_type=artifact_type,
+            system_prompt="你是公众号长文修复总编。必须整篇重写并交付完整正文，不能把截断内容当作成稿。",
+            user_prompt=repair_prompt,
+            temperature=0.25,
+            max_tokens=12000,
+            capture_response_meta=True,
+            request_timeout_seconds=360,
+        )
+        remaining = self._longform_completion_issues(
+            self._json(repaired.content_json, {}),
+            reference_body=reference_body,
+        )
+        if remaining:
+            raise ValueError(f"模型连续两次返回不完整长文：{'；'.join(remaining)}")
+        return repaired
+
     async def _run_editor_brief(self, db: Session, project: WritingProject) -> WritingArtifact:
         source = self._source_payload(db, project)
         prompt = f"""
@@ -25,6 +126,10 @@ class WritingAgentsMixin:
 输出 JSON：reader、article_promise、main_thesis、reader_hook、must_use、must_not_claim、
 article_type、tone、open_questions、success_criteria。
 要求：只选一条主线；明确不能写成什么；技术内容必须先回答“做成了什么、为什么重要”。
+selection_role=primary/supporting 都是作者明确选入本项目的事实来源；需要比较时必须同时使用，
+不得只查 primary 后就把 supporting 中已有的材料误报为缺失。
+selection_role=written_version 是作者明确选入的已写版本：必须读取并决定保留、合并或续写哪些内容，
+但其中事实仍需回到关联的 primary/supporting 来源核对，不能把历史稿本身当作新证据。
 """.strip()
         artifact = await self._run_agent(
             db,
@@ -54,6 +159,8 @@ article_type、tone、open_questions、success_criteria。
 usable_examples、claims_for_draft。
 每条 facts/numbers/claims_for_draft 必须包含 source_index 和 evidence_quote；
 把局部测试、作者判断和客观事实明确区分。术语给出不超过40字的人话解释。
+必须逐一检查 selection_role=primary/supporting 的来源；connected 仅作关联上下文。
+written_version 是需要整合的已写材料，请列出可复用结构、已有论述和未完成部分；其事实只有在原始来源支持时才能进入 claims_for_draft。
 """.strip()
         return await self._run_agent(
             db,
@@ -93,27 +200,32 @@ transitions、forbidden_moves。
         )
 
     async def _run_writer(self, db: Session, project: WritingProject) -> WritingArtifact:
+        source = self._source_payload(db, project)
         brief = self._artifact_content(db, project, "editorial_brief")
         evidence = self._artifact_content(db, project, "evidence_pack")
         outline = self._artifact_content(db, project, "outline")
         style = self._style_payload(db, project)
         prompt = f"""
-你是中文写手。严格根据已确认任务单、证据包、大纲和风格规则写初稿。
+你是微信公众号中文长文写手。严格根据已确认任务单、证据包、大纲、原始材料和风格规则写完整初稿。
 任务单：{json.dumps(brief, ensure_ascii=False)[:9000]}
 证据包：{json.dumps(evidence, ensure_ascii=False)[:18000]}
 大纲：{json.dumps(outline, ensure_ascii=False)[:16000]}
+原始材料：{json.dumps(source, ensure_ascii=False)[:30000]}
 风格：{json.dumps(style, ensure_ascii=False)[:9000]}
 
 输出 JSON：title、body、tags、claims。
 要求：
+- 平台目标是微信公众号长文，不是小红书 caption、卡片脚本或内部研究报告；
 - 开头两三句让目标读者知道做成了什么、为什么值得看；
 - 不按原文逐段翻译，不堆术语，术语首次出现时解释；
 - 数字必须说明意义；作者自测必须有自然来源归属；
 - 不出现内部核查清单、阅读边界、报告腔和模板标题；
 - 不编造作者经历、读者对话、数字、情绪或观点；
-- 650-1400个中文字符，段落有快慢变化，结尾给出明确判断。
+- 正文优先 1800—4500 个中文字符，使用 Markdown，以 3—6 个 H2 组织完整文章；
+- 所有代码使用带语言名的 Markdown 围栏，正文不能停在半句话或半行代码；
+- 段落有快慢变化，结尾给出明确判断。
 """.strip()
-        return await self._run_agent(
+        return await self._run_complete_longform(
             db,
             project=project,
             role="writer",
@@ -212,20 +324,23 @@ release_readiness。事实错误优先；读者理解问题次之；风格只做
         )
 
     async def _run_final_revision(self, db: Session, project: WritingProject) -> WritingArtifact:
+        source = self._source_payload(db, project)
         draft = self._artifact_content(db, project, "draft")
         plan = self._artifact_content(db, project, "revision_plan")
         evidence = self._artifact_content(db, project, "evidence_pack")
         style = self._style_payload(db, project)
         prompt = f"""
-你是终稿修订者。只落实主编批准的最小修改，不自由重写。
-初稿：{json.dumps(draft, ensure_ascii=False)[:16000]}
+你是微信公众号终稿修订者。落实主编批准的修改，不擅自改变主线，也不能把完整初稿压缩成短稿。
+初稿：{json.dumps(draft, ensure_ascii=False)[:30000]}
 修改计划：{json.dumps(plan, ensure_ascii=False)[:14000]}
 证据包：{json.dumps(evidence, ensure_ascii=False)[:16000]}
+原始材料：{json.dumps(source, ensure_ascii=False)[:30000]}
 风格规则：{json.dumps(style, ensure_ascii=False)[:9000]}
 输出 JSON：title、body、tags、claims、applied_changes。
-不得新增证据包没有支持的事实；不要恢复被审稿删除的免责声明和模板标题。
+不得新增证据包没有支持的事实；不要恢复被审稿删除的免责声明和模板标题；
+保持 1800—4500 个中文字符、3—6 个完整 H2、闭合代码围栏和完整结尾。
 """.strip()
-        artifact = await self._run_agent(
+        artifact = await self._run_complete_longform(
             db,
             project=project,
             role="final_reviser",
@@ -234,6 +349,7 @@ release_readiness。事实错误优先；读者理解问题次之；风格只做
             system_prompt="你执行经批准的修订计划，保持事实、作者立场和文章主线稳定。",
             user_prompt=prompt,
             temperature=0.25,
+            reference_body=str(draft.get("body") or ""),
         )
         self._create_draft_revision(db, project, artifact)
         return artifact
@@ -249,13 +365,20 @@ release_readiness。事实错误优先；读者理解问题次之；风格只做
         system_prompt: str,
         user_prompt: str,
         temperature: float,
+        max_tokens: int | None = None,
+        capture_response_meta: bool = False,
+        request_timeout_seconds: float | None = None,
     ) -> WritingArtifact:
         skill_name = ROLE_SKILLS[role]
         binding = binding_for(db, skill_name, self.settings.model_name)
         if not binding.enabled:
             raise ValueError(f"Skill {skill_name} 已关闭")
         input_hash = hashlib.sha256(
-            f"{role}\n{system_prompt}\n{user_prompt}\n{binding.model_name}\n{binding.prompt_version}".encode()
+            (
+                f"{role}\n{system_prompt}\n{user_prompt}\n{binding.model_name}\n"
+                f"{binding.prompt_version}\nmax_tokens={max_tokens}\n"
+                f"request_timeout_seconds={request_timeout_seconds}"
+            ).encode()
         ).hexdigest()
         cached_run = db.scalar(
             select(AgentRun)
@@ -298,7 +421,16 @@ release_readiness。事实错误优先；读者理解问题次之；风格只做
                     temperature=temperature,
                     reasoning_effort=binding.reasoning_effort,
                     model_name=binding.model_name,
+                    max_tokens=max_tokens,
+                    capture_response_meta=capture_response_meta,
+                    request_timeout_seconds=request_timeout_seconds,
                 )
+                response_meta = result.pop("_x2red_response_meta", None)
+                if capture_response_meta and isinstance(response_meta, dict):
+                    result["_completion"] = {
+                        "finish_reason": str(response_meta.get("finish_reason") or ""),
+                        "completion_tokens": response_meta.get("completion_tokens"),
+                    }
             else:
                 result = self._fallback_agent(role, project)
             artifact = self._store_artifact(

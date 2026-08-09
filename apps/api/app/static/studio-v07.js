@@ -1,5 +1,27 @@
 (() => {
-  const studioState = { targets: [], feed: [], projects: [], selectedProject: null };
+  const studioState = {
+    targets: [],
+    feed: [],
+    projects: [],
+    selectedProject: null,
+    materials: [],
+    selectedMaterialRefs: new Set(),
+  };
+  const WRITING_MATERIALS_KEY = "x2red.workspace.wechat.deep-writing.materials";
+  const WRITING_MATERIAL_GROUPS = [
+    ["pool", "语料池批次"],
+    ["x", "X / 信号台来源"],
+    ["xhs", "小红书来源"],
+    ["dy", "抖音来源"],
+    ["ks", "快手来源"],
+    ["bili", "B站来源"],
+    ["wb", "微博来源"],
+    ["tieba", "贴吧来源"],
+    ["zhihu", "知乎来源"],
+    ["web", "网页、文档与粘贴来源"],
+    ["draft_revision", "已写草稿版本"],
+    ["platform_variant", "已写平台版本"],
+  ];
 
   function createElement(tag, className = "", text = "") {
     const node = document.createElement(tag);
@@ -15,14 +37,8 @@
     const signalButton = createElement("button", "nav-item");
     signalButton.dataset.view = "signals-view";
     signalButton.innerHTML = '<span class="nav-icon">◉</span><span>信号台</span>';
-    const writingButton = createElement("button", "nav-item");
-    writingButton.dataset.view = "writing-view";
-    writingButton.innerHTML = '<span class="nav-icon">✎</span><span>写作项目</span>';
     nav.insertBefore(signalButton, publish);
-    nav.insertBefore(writingButton, publish);
-    [signalButton, writingButton].forEach((button) => {
-      button.addEventListener("click", () => window.setView(button.dataset.view));
-    });
+    signalButton.addEventListener("click", () => window.setView(signalButton.dataset.view));
   }
 
   function injectViews() {
@@ -60,14 +76,27 @@
     writing.id = "writing-view";
     writing.innerHTML = `
       <section class="page-intro studio-intro">
-        <span class="section-kicker">MULTI-AGENT WRITING ROOM</span><h2>写作项目</h2>
-        <p>总编辑、证据研究、大纲、写手、读者审稿、事实审稿、风格审稿与资深主编通过阶段产物交接。</p>
+        <span class="section-kicker">WECHAT · DEEP WRITING</span><h2>公众号深度写作</h2>
+        <p>这是公众号长文里的深度模式：先冻结多来源证据，再由总编辑、研究、写作和审稿分阶段交接。</p>
+        <button id="writing-back-wechat" class="secondary-action" type="button">返回公众号工作台</button>
       </section>
       <section class="studio-two-column writing-layout">
         <article class="surface studio-panel">
           <div class="panel-heading"><div><span class="section-kicker">NEW PROJECT</span><h3>建立写作任务</h3></div><button id="refresh-writing" class="secondary-action" type="button">刷新</button></div>
           <form id="writing-project-form" class="writing-project-form">
-            <label>来源<select id="writing-source" required></select></label>
+            <section class="writing-material-picker" aria-labelledby="writing-material-title">
+              <div class="writing-material-head"><strong id="writing-material-title">输入材料 · 来源与已写版本均可多选</strong><span id="writing-material-count">已选 0 个</span></div>
+              <div class="writing-material-tools"><input id="writing-material-search" type="search" placeholder="搜索来源、版本标题或正文" /><button id="writing-material-clear" class="tool-button" type="button">清空库内选择</button></div>
+              <div id="writing-material-list" class="writing-material-list" role="group" aria-label="深度写作可多选输入材料"></div>
+              <small>直接勾选，不需要按住 ⌘ 或 Ctrl。来源、已写版本和下方粘贴内容会同时作为本项目输入。</small>
+            </section>
+            <section class="writing-paste-panel">
+              <strong>同时补充粘贴材料（可留空）</strong>
+              <label>材料标题<input id="writing-paste-title" maxlength="200" placeholder="可选；留空则取正文首句" /></label>
+              <label>原作者<input id="writing-paste-author" maxlength="160" placeholder="可选" /></label>
+              <label>原文链接<input id="writing-paste-url" maxlength="2000" inputmode="url" placeholder="可选；http(s)://…" /></label>
+              <label>粘贴正文<textarea id="writing-paste-content" rows="7" maxlength="200000" placeholder="可以与上方所有已选材料一起提交；保存后进入标准素材库。"></textarea></label>
+            </section>
             <label>模式<select id="writing-mode"><option value="studio">工作室模式 · 人工阶段确认</option><option value="fast">快速模式 · 自动走完</option></select></label>
             <label>目标读者<textarea id="writing-reader" rows="2" placeholder="例如：关注 AI 工程但不写 CUDA 的技术读者"></textarea></label>
             <label>文章承诺<textarea id="writing-promise" rows="2" placeholder="读完后读者具体能理解什么"></textarea></label>
@@ -89,7 +118,7 @@
   const baseSetView = window.setView;
   window.setView = function setStudioView(viewId) {
     baseSetView(viewId);
-    const titles = { "signals-view": "信号台", "writing-view": "写作项目" };
+    const titles = { "signals-view": "信号台", "writing-view": "公众号深度写作" };
     if (titles[viewId]) document.getElementById("page-title").textContent = titles[viewId];
     if (viewId === "signals-view") loadSignals();
     if (viewId === "writing-view") loadWriting();
@@ -217,22 +246,143 @@
     });
   }
 
-  async function fillWritingSources() {
-    const sources = await api("/api/sources?workspace_state=active");
-    const select = document.getElementById("writing-source");
-    const current = select.value;
-    select.replaceChildren();
-    sources.forEach((source) => {
-      const option = document.createElement("option");
-      option.value = source.id;
-      option.textContent = `${source.author_handle ? `@${source.author_handle}` : source.author_name || "未知作者"} · ${(source.text_original || "").slice(0, 50)}`;
-      select.append(option);
+  function storedWritingMaterials() {
+    try {
+      const values = JSON.parse(window.localStorage.getItem(WRITING_MATERIALS_KEY) || "[]");
+      return new Set(
+        (Array.isArray(values) ? values : [])
+          .map((value) => String(value).includes(":") ? String(value) : `source:${value}`),
+      );
+    } catch { return new Set(); }
+  }
+
+  function saveWritingMaterials() {
+    try {
+      window.localStorage.setItem(
+        WRITING_MATERIALS_KEY,
+        JSON.stringify([...studioState.selectedMaterialRefs]),
+      );
+    } catch {
+      // Browser storage is optional.
+    }
+  }
+
+  function writingMaterialGroup(material) {
+    if (material.kind !== "source") return material.kind;
+    if (material.platform === "pool") return "pool";
+    if (["x", "xhs", "dy", "ks", "bili", "wb", "tieba", "zhihu"].includes(material.platform)) {
+      return material.platform;
+    }
+    return "web";
+  }
+
+  function renderWritingMaterials() {
+    const box = document.getElementById("writing-material-list");
+    box.replaceChildren();
+    const groups = new Map(WRITING_MATERIAL_GROUPS.map(([id, label]) => {
+      const section = createElement("section", "writing-material-group");
+      section.dataset.group = id;
+      section.append(createElement("strong", "writing-material-group-title", label));
+      section.append(createElement("div", "writing-material-group-items"));
+      return [id, section];
+    }));
+    studioState.materials.forEach((material) => {
+      const row = createElement("label", "writing-material-option");
+      row.dataset.search = `${material.title} ${material.author} ${material.excerpt}`.toLowerCase();
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.value = material.ref;
+      input.checked = studioState.selectedMaterialRefs.has(material.ref);
+      input.addEventListener("change", () => {
+        if (input.checked) studioState.selectedMaterialRefs.add(material.ref);
+        else studioState.selectedMaterialRefs.delete(material.ref);
+        saveWritingMaterials();
+        updateWritingMaterialCount();
+      });
+      const copy = createElement("span", "writing-material-copy");
+      const kind = material.kind === "source" ? "来源" : material.kind === "draft_revision" ? "草稿" : "平台稿";
+      const version = material.version ? ` · v${material.version}` : "";
+      copy.append(createElement("strong", "", `${kind}${version} · ${material.title || "未命名"}`));
+      copy.append(createElement("small", "", material.excerpt || "无正文"));
+      row.append(input, copy);
+      groups.get(writingMaterialGroup(material))?.querySelector(".writing-material-group-items")?.append(row);
     });
-    if (current && sources.some((source) => source.id === current)) select.value = current;
+    groups.forEach((group) => {
+      if (group.querySelector(".writing-material-option")) box.append(group);
+    });
+    filterWritingMaterials();
+    updateWritingMaterialCount();
+  }
+
+  function filterWritingMaterials() {
+    const query = document.getElementById("writing-material-search")?.value.trim().toLowerCase() || "";
+    document.querySelectorAll("#writing-material-list .writing-material-group").forEach((group) => {
+      let visible = 0;
+      group.querySelectorAll(".writing-material-option").forEach((row) => {
+        const show = !query || row.dataset.search.includes(query);
+        row.hidden = !show;
+        if (show) visible += 1;
+      });
+      group.hidden = visible === 0;
+    });
+  }
+
+  function updateWritingMaterialCount() {
+    const target = document.getElementById("writing-material-count");
+    if (target) target.textContent = `已选 ${studioState.selectedMaterialRefs.size} 个`;
+  }
+
+  function requiredWritingControl(form, id) {
+    const control = form?.querySelector(`#${id}`);
+    if (!control) throw new Error("深度写作表单未加载完整，请刷新页面后重试");
+    return control;
+  }
+
+  function captureWritingProjectForm(form) {
+    return {
+      materialRefs: [...studioState.selectedMaterialRefs],
+      pasteTitle: requiredWritingControl(form, "writing-paste-title").value,
+      pasteAuthor: requiredWritingControl(form, "writing-paste-author").value,
+      pasteUrl: requiredWritingControl(form, "writing-paste-url").value,
+      pasteContent: requiredWritingControl(form, "writing-paste-content").value,
+      mode: requiredWritingControl(form, "writing-mode").value,
+      reader: requiredWritingControl(form, "writing-reader").value,
+      promise: requiredWritingControl(form, "writing-promise").value,
+      mainThesis: requiredWritingControl(form, "writing-thesis").value,
+      styleProfileId: form?.querySelector("#writing-style-profile")?.value || null,
+    };
+  }
+
+  async function fillWritingMaterials() {
+    studioState.materials = await api("/api/writing/material-options?limit=500");
+    if (!studioState.selectedMaterialRefs.size) {
+      studioState.selectedMaterialRefs = storedWritingMaterials();
+    }
+    const valid = new Set(studioState.materials.map((item) => item.ref));
+    studioState.selectedMaterialRefs = new Set(
+      [...studioState.selectedMaterialRefs].filter((ref) => valid.has(ref)),
+    );
+    renderWritingMaterials();
+  }
+
+  async function materializeWritingPaste(formValues) {
+    const text = formValues.pasteContent.trim();
+    if (!text) return "";
+    if (text.length < 20) throw new Error("粘贴材料请至少输入 20 个字符，或留空只使用库内材料");
+    const source = await api("/api/sources/manual", {
+      method: "POST",
+      body: JSON.stringify({
+        title: formValues.pasteTitle,
+        author_name: formValues.pasteAuthor,
+        canonical_url: formValues.pasteUrl,
+        text_original: text,
+      }),
+    });
+    return source.id;
   }
 
   async function loadWriting(selectId = null) {
-    await fillWritingSources();
+    await fillWritingMaterials();
     studioState.projects = await api("/api/writing/projects");
     renderProjectList();
     const projectId = selectId || studioState.selectedProject?.id;
@@ -265,7 +415,7 @@
 
   function artifactLabel(type) {
     return {
-      editorial_brief: "总编辑任务单", evidence_pack: "证据包", outline: "文章大纲",
+      source_selection: "冻结的输入材料与事实来源", editorial_brief: "总编辑任务单", evidence_pack: "证据包", outline: "文章大纲",
       draft: "初稿", reader_review: "读者审稿", fact_review: "事实审稿",
       style_review: "风格审稿", revision_plan: "主编修改计划", final_draft: "终稿",
       author_decision: "作者决定",
@@ -294,6 +444,14 @@
     actions.append(run);
     header.append(actions);
     box.append(header);
+    if (project.material_summaries?.length || project.source_summaries?.length) {
+      const evidence = createElement("div", "platform-helper");
+      const values = project.material_summaries?.length ? project.material_summaries : project.source_summaries;
+      evidence.textContent = `冻结输入：${values
+        .map((item) => `${item.kind === "draft_revision" ? "草稿" : item.kind === "platform_variant" ? "平台稿" : item.role === "primary" ? "主来源" : "来源"}·${item.title || item.author || item.id}`)
+        .join(" ｜ ")}`;
+      box.append(evidence);
+    }
 
     const timeline = createElement("div", "artifact-timeline");
     project.artifacts.forEach((artifact) => {
@@ -315,7 +473,7 @@
       }
       if (artifact.artifact_type === "final_draft") {
         const memoryAction = createElement("div", "artifact-approval");
-        const memoryButton = createElement("button", "secondary-action", "加入池子记忆");
+        const memoryButton = createElement("button", "secondary-action", "提炼为写作偏好");
         memoryButton.type = "button";
         memoryButton.dataset.memorySourceKind = "writing_artifact";
         memoryButton.dataset.memorySourceId = artifact.id;
@@ -339,7 +497,7 @@
     document.getElementById("monitor-form").addEventListener("submit", async (event) => {
       event.preventDefault();
       const button = event.submitter;
-      button.disabled = true;
+      if (button) button.disabled = true;
       try {
         const target = await api("/api/signals/targets", {
           method: "POST",
@@ -358,34 +516,86 @@
         await waitJob(job.id);
         await loadSignals();
       } catch (error) { window.alert(error.message); }
-      finally { button.disabled = false; }
+      finally { if (button) button.disabled = false; }
     });
     document.getElementById("refresh-writing").addEventListener("click", () => loadWriting());
+    document.getElementById("writing-back-wechat").addEventListener("click", () => window.setView?.("wechat-view"));
+    document.getElementById("writing-material-search").addEventListener("input", filterWritingMaterials);
+    document.getElementById("writing-material-clear").addEventListener("click", () => {
+      studioState.selectedMaterialRefs.clear();
+      saveWritingMaterials();
+      renderWritingMaterials();
+    });
     document.getElementById("writing-project-form").addEventListener("submit", async (event) => {
       event.preventDefault();
       const button = event.submitter;
-      button.disabled = true;
+      if (button) button.disabled = true;
       try {
+        const formValues = captureWritingProjectForm(event.currentTarget);
+        const pastedSourceId = await materializeWritingPaste(formValues);
+        const materialRefs = [...formValues.materialRefs];
+        if (pastedSourceId) materialRefs.push(`source:${pastedSourceId}`);
+        const uniqueRefs = [...new Set(materialRefs)];
+        if (!uniqueRefs.length) throw new Error("请至少选择一个库内材料或粘贴一段内容");
+        const selectedOptions = uniqueRefs
+          .map((ref) => studioState.materials.find((item) => item.ref === ref))
+          .filter(Boolean);
+        const sourceId = selectedOptions[0]?.source_id || pastedSourceId;
+        if (!sourceId) throw new Error("输入材料没有可追溯的来源");
+        const supportingSourceIds = [...new Set([
+          ...selectedOptions
+            .filter((item) => item.kind === "source" && item.source_id !== sourceId)
+            .map((item) => item.source_id),
+          ...(pastedSourceId && pastedSourceId !== sourceId ? [pastedSourceId] : []),
+        ])];
         const project = await api("/api/writing/projects", {
           method: "POST",
           body: JSON.stringify({
-            source_id: document.getElementById("writing-source").value,
-            mode: document.getElementById("writing-mode").value,
-            reader: document.getElementById("writing-reader").value,
-            promise: document.getElementById("writing-promise").value,
-            main_thesis: document.getElementById("writing-thesis").value,
-            budget_limit_cents: document.getElementById("writing-mode").value === "studio" ? 20 : 10,
+            source_id: sourceId,
+            supporting_source_ids: supportingSourceIds,
+            material_refs: uniqueRefs,
+            mode: formValues.mode,
+            reader: formValues.reader,
+            promise: formValues.promise,
+            main_thesis: formValues.mainThesis,
+            style_profile_id: formValues.styleProfileId,
+            budget_limit_cents: formValues.mode === "studio" ? 20 : 10,
           }),
         });
         const job = await api(`/api/writing/projects/${encodeURIComponent(project.id)}/run`, { method: "POST", body: JSON.stringify({ continuous: true }) });
         await waitJob(job.id, 300000);
         await loadWriting(project.id);
       } catch (error) { window.alert(error.message); }
-      finally { button.disabled = false; }
+      finally { if (button) button.disabled = false; }
     });
   }
 
   injectNavigation();
   injectViews();
   bindStudioEvents();
+  window.openX2redDeepWriting = async (sourceId = "", supportingIds = [], materialRefs = []) => {
+    window.setView?.("writing-view");
+    const selected = new Set(
+      (Array.isArray(materialRefs) && materialRefs.length
+        ? materialRefs
+        : [sourceId, ...(Array.isArray(supportingIds) ? supportingIds : [])]
+      )
+        .filter(Boolean)
+        .map((value) => String(value).includes(":") ? String(value) : `source:${value}`),
+    );
+    studioState.selectedMaterialRefs = selected;
+    saveWritingMaterials();
+    await loadWriting();
+    renderWritingMaterials();
+    document.getElementById("writing-project-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  window.openX2redWritingProject = async (projectId) => {
+    if (!projectId) return;
+    window.setView?.("writing-view");
+    await loadWriting(projectId);
+    const detail = document.getElementById("writing-detail");
+    const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+    detail?.scrollIntoView({ behavior, block: "start" });
+    detail?.querySelector("button:not(:disabled), [tabindex]")?.focus({ preventScroll: true });
+  };
 })();

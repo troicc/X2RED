@@ -20,10 +20,12 @@ from app.domain.models import (
     PublishTask,
     ReviewDecision,
     SourceItem,
+    SourceWorkbench,
     WorkspaceState,
     utcnow,
 )
 from app.services.source_graph import connected_source_ids
+from app.services.source_workbenches import set_source_workbench_state
 
 
 class PublishError(RuntimeError):
@@ -210,8 +212,13 @@ class PublishService:
         if draft is not None:
             source = db.get(SourceItem, draft.source_id)
             if source is not None:
-                source.workspace_state = WorkspaceState.archived.value
-                source.archived_at = now
+                set_source_workbench_state(
+                    db,
+                    source.id,
+                    SourceWorkbench.xhs,
+                    WorkspaceState.archived,
+                    at=now,
+                )
                 source.last_published_at = now
                 source.published_count += 1
         db.commit()

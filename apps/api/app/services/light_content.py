@@ -7,6 +7,7 @@ import random
 import re
 import zipfile
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
@@ -82,6 +83,60 @@ PAPER_TONES = {
     "receipt": "#ede9df",
     "auto": "#e9e1d3",
 }
+
+
+def _poster_copy_key(value: Any) -> str:
+    return re.sub(r"[^0-9a-zA-Z\u4e00-\u9fff]+", "", str(value or "")).casefold()
+
+
+def _poster_copy_near_duplicate(first: Any, second: Any) -> bool:
+    left = _poster_copy_key(first)
+    right = _poster_copy_key(second)
+    if not left or not right:
+        return False
+    if left == right:
+        return True
+    shorter = min(len(left), len(right))
+    longer = max(len(left), len(right))
+    if shorter < 10 or shorter / max(longer, 1) < 0.72:
+        return False
+    if left in right or right in left:
+        return True
+    return SequenceMatcher(None, left, right).ratio() >= 0.88
+
+
+def poster_copy_issues(posters: list[dict[str, Any]]) -> list[str]:
+    """Return cross-page copy collisions that make a carousel read like a splice."""
+
+    issues: list[str] = []
+    for index, poster in enumerate(posters, start=1):
+        phrase = poster.get("phrase")
+        note = poster.get("note")
+        if not _poster_copy_key(phrase):
+            issues.append(f"page_{index}_missing_phrase")
+        if note and _poster_copy_near_duplicate(phrase, note):
+            issues.append(f"page_{index}_phrase_repeats_own_note")
+
+    for left_index, left in enumerate(posters):
+        for right_index in range(left_index + 1, len(posters)):
+            right = posters[right_index]
+            comparisons = (
+                ("phrase", "phrase"),
+                ("phrase", "note"),
+                ("note", "phrase"),
+                ("note", "note"),
+            )
+            for left_field, right_field in comparisons:
+                left_value = left.get(left_field)
+                right_value = right.get(right_field)
+                if not left_value or not right_value:
+                    continue
+                if _poster_copy_near_duplicate(left_value, right_value):
+                    issues.append(
+                        f"page_{left_index + 1}_{left_field}_repeats_"
+                        f"page_{right_index + 1}_{right_field}"
+                    )
+    return list(dict.fromkeys(issues))
 
 
 class LightContentService:
@@ -355,7 +410,7 @@ class LightContentService:
   "body_markdown":"120-500字短正文",
   "tags":["标签"],
   "posters":[
-    {{"phrase":"6-24字主句","note":"0-36字小注","visual_metaphor":"单一可画物件","layout":"center-fragment|lower-left-float|upper-right-block|dual-panel|irregular-cutout|type-led|single-specimen","accent":"#1646d8","mood":"quiet|summer|solitude|childhood|seaside|afternoon|night|memory"}}
+    {{"phrase":"6-24字主句","note":"0-36字小注","visual_metaphor":"单一可画物件","layout":"center-fragment|lower-fragment|lower-left-float|upper-right-block|dual-panel|irregular-cutout|type-led|single-specimen","accent":"#1646d8","mood":"quiet|summer|solitude|childhood|seaside|afternoon|night|memory"}}
   ]
 }}
 """.strip()
@@ -436,18 +491,61 @@ class LightContentService:
         metaphors = ["旧窗与一束光", "一只茶杯", "树影", "木椅", "一只碗", "远处月亮"]
         layouts = [
             "center-fragment",
+            "lower-fragment",
             "lower-left-float",
             "upper-right-block",
             "single-specimen",
             "type-led",
             "irregular-cutout",
         ]
+        note_sets = {
+            "comfort": [
+                "先承认今天已经很累",
+                "把下一条消息晚一点再回",
+                "给情绪留出落地的时间",
+                "边界不是拒绝，而是停止透支",
+                "休息不需要先证明自己值得",
+                "明天的事，留给明天处理",
+            ],
+            "mature_life": [
+                "不是退让，是把力气用在值得的地方",
+                "少一点勉强，日子才有回旋余地",
+                "具体的一餐，比空泛安慰更可靠",
+                "关系的分量，不由人数决定",
+                "睡得安稳，也是身体给出的答案",
+                "生活不是一场永远要赢的比赛",
+            ],
+            "seasonal": [
+                "天气是参考，身体感受也是",
+                "同一节气，各地过法并不相同",
+                "早晚变化比日期更值得留意",
+                "传统习惯不等于统一处方",
+                "当季食物也要按个人情况选择",
+                "顺时而过，不必机械照搬",
+            ],
+            "photo_quote": [
+                "画面之外，还留着没有说完的话",
+                "安静不是空白，而是允许停顿",
+                "光影替这一刻留下了注脚",
+                "先不解释，只把感受留住",
+                "普通生活也有被看见的价值",
+                "时间慢下来，细节才会浮出来",
+            ],
+            "short_commentary": [
+                "先指出矛盾，再保留事实边界",
+                "方法很多，真正稀缺的是余地",
+                "越急着下结论，越容易漏掉条件",
+                "努力不能替代对问题的准确判断",
+                "传播可以简短，证据不能省略",
+                "一句判断之后，还要允许继续追问",
+            ],
+        }
         posters = []
         for index, phrase in enumerate(phrases):
             posters.append(
                 {
                     "phrase": phrase,
-                    "note": "给今天留一点余地" if recipe == "comfort" else "按自己的生活情况调整",
+                    "note": note_sets[recipe][index % len(note_sets[recipe])],
                     "visual_metaphor": metaphors[index % len(metaphors)],
                     "layout": layouts[index % len(layouts)],
                     "accent": ACCENTS[index % len(ACCENTS)],
@@ -521,9 +619,20 @@ class LightContentService:
                         "phrase": phrase,
                         "note": strip_internal_markers(str(item.get("note") or "")).strip()[:48],
                         "visual_metaphor": str(item.get("visual_metaphor") or "纸上的小物件").strip()[:80],
+                        "photo_direction": str(item.get("photo_direction") or "").strip()[:240],
                         "layout": str(item.get("layout") or "center-fragment"),
                         "accent": accent,
                         "mood": str(item.get("mood") or "quiet"),
+                        "evidence_basis": strip_internal_markers(
+                            str(item.get("evidence_basis") or "")
+                        ).strip()[:240],
+                        "source_refs": [
+                            str(value).strip()[:80]
+                            for value in item.get("source_refs", [])[:8]
+                            if str(value).strip()
+                        ]
+                        if isinstance(item.get("source_refs"), list)
+                        else [],
                     }
                 )
         for item in fallback["posters"]:
@@ -690,6 +799,7 @@ class LightContentService:
         height = rng.randint(230, 430)
         positions = {
             "center-fragment": (self.width // 2 - width // 2, 620),
+            "lower-fragment": (self.width // 2 - width // 2, 1040),
             "lower-left-float": (110, 1200),
             "upper-right-block": (self.width - width - 110, 260),
             "dual-panel": (self.width // 2 - width // 2, 760),
@@ -705,9 +815,11 @@ class LightContentService:
         layout: str,
         cluster: tuple[int, int, int, int],
     ) -> tuple[int, int, int]:
-        left, top, right, bottom = cluster
+        _, _, _, bottom = cluster
         if layout == "lower-left-float":
             return 650, 360, 430
+        if layout == "lower-fragment":
+            return 120, 220, 900
         if layout == "upper-right-block":
             return 96, 900, 720
         if layout == "type-led":

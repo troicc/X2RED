@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy.orm import Session
 
@@ -50,6 +50,23 @@ class MinimalZineRenderRequest(BaseModel):
         if self.mode is not None and self.regenerate:
             raise ValueError("显式 mode 与 regenerate=true 不能同时使用")
         return self
+
+
+class MinimalZineWebHandoffRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pages: list[int] | None = Field(default=None, max_length=6)
+
+    @field_validator("pages")
+    @classmethod
+    def validate_requested_pages(cls, values: list[int] | None) -> list[int] | None:
+        if values is None:
+            return None
+        if len(set(values)) != len(values):
+            raise ValueError("pages 不能包含重复页码")
+        if any(value < 1 for value in values):
+            raise ValueError("pages 必须从第 1 页开始")
+        return values
 
 
 @router.get("")
@@ -112,3 +129,60 @@ def render_minimal_zine_variant(
     except NativeSkillError as exc:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/minimal-zine/variants/{variant_id}/web-handoff")
+def prepare_minimal_zine_web_handoff(
+    variant_id: str,
+    body: MinimalZineWebHandoffRequest,
+    db: Session = Depends(get_db),
+) -> dict:
+    variant = db.get(PlatformVariant, variant_id)
+    if variant is None:
+        raise HTTPException(status_code=404, detail="平台版本不存在")
+    try:
+        return MinimalZineNativeService(get_settings()).prepare_web_handoff(
+            variant,
+            pages=body.pages,
+        )
+    except NativeSkillError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/minimal-zine/variants/{variant_id}/external-anchor")
+async def import_minimal_zine_external_anchor(
+    variant_id: str,
+    page: int = Query(..., ge=1, le=6),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+) -> dict:
+    variant = db.get(PlatformVariant, variant_id)
+    if variant is None:
+        raise HTTPException(status_code=404, detail="平台版本不存在")
+    service = MinimalZineNativeService(get_settings())
+    try:
+        payload = await file.read(12 * 1024 * 1024 + 1)
+        variant, result, complete = service.import_external_anchor(
+            db,
+            variant,
+            page=page,
+            image_bytes=payload,
+            provider="chatgpt-web",
+        )
+        db.commit()
+        db.refresh(variant)
+        return {
+            "variant_id": variant.id,
+            "status": variant.status,
+            "output_paths_json": variant.output_paths_json,
+            "metadata_json": variant.metadata_json,
+            "provider": "chatgpt-web",
+            "api_used": False,
+            "complete": complete,
+            "pages": [result],
+        }
+    except NativeSkillError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        await file.close()

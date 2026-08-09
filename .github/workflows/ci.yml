@@ -55,6 +55,7 @@ jobs:
       - run: node --check apps/api/app/static/product-shell-v15.js
       - run: node --check apps/api/app/static/light-content-v15.js
       - run: node --check apps/api/app/static/native-skills-v11.js
+      - run: node --check apps/api/app/static/product-ui-v17.js
       - run: node --check apps/api/extensions/wechat-publisher-assistant/popup.js
       - run: node --check apps/api/extensions/wechat-publisher-assistant/content.js
       - run: node --check apps/api/extensions/wechat-publisher-assistant/page-bridge.js

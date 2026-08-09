@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import re
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -59,18 +61,51 @@ from app.services.x2pdf_import import X2PDFImportService
 
 settings = get_settings()
 STATIC_DIR = Path(__file__).parent / "static"
-STYLESHEET = (
-    "[hidden]{display:none!important;}\n"
-    + (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
-    + "\n"
-    + (STATIC_DIR / "workbench-v06.css").read_text(encoding="utf-8")
-    + "\n"
-    + (STATIC_DIR / "studio-v07.css").read_text(encoding="utf-8")
-    + "\n"
-    + (STATIC_DIR / "style-v07.css").read_text(encoding="utf-8")
-    + "\n"
-    + (STATIC_DIR / "platform-v08.css").read_text(encoding="utf-8")
+STATIC_REFERENCE_RE = re.compile(r"/static/(?P<name>[A-Za-z0-9_.-]+\.(?:css|js))")
+
+
+def version_static_references(html: str) -> str:
+    """Keep long-lived browser tabs from mixing old and new UI controllers."""
+
+    def replace(match: re.Match[str]) -> str:
+        path = STATIC_DIR / match.group("name")
+        if not path.is_file():
+            return match.group(0)
+        digest = static_asset_digest(match.group("name"))
+        return f"{match.group(0)}?v={digest}"
+
+    return STATIC_REFERENCE_RE.sub(replace, html)
+
+
+STYLESHEET_FILES = (
+    "styles.css",
+    "workbench-v06.css",
+    "studio-v07.css",
+    "style-v07.css",
+    "platform-v08.css",
 )
+
+
+def build_stylesheet() -> str:
+    """Build the legacy aggregate from current files, not process-startup bytes."""
+
+    parts = ["[hidden]{display:none!important;}"]
+    parts.extend(
+        (STATIC_DIR / name).read_text(encoding="utf-8")
+        for name in STYLESHEET_FILES
+    )
+    return "\n".join(parts)
+
+
+def static_asset_digest(name: str) -> str:
+    """Hash the bytes the browser will actually receive for a static reference."""
+
+    payload = (
+        build_stylesheet().encode("utf-8")
+        if name == "styles.css"
+        else (STATIC_DIR / name).read_bytes()
+    )
+    return hashlib.sha256(payload).hexdigest()[:12]
 
 
 @asynccontextmanager
@@ -254,7 +289,11 @@ app.include_router(extension.router)
 
 @app.get("/static/styles.css", include_in_schema=False)
 def stylesheet() -> Response:
-    return Response(STYLESHEET, media_type="text/css")
+    return Response(
+        build_stylesheet(),
+        media_type="text/css",
+        headers={"Cache-Control": "no-cache"},
+    )
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -296,7 +335,7 @@ def health() -> dict:
         "card_renderer": "reviewed-semantic-playwright",
         "native_card_renderer": "guizang-native-upstream-seed-playwright",
         "wechat_renderer": "reviewed-module-tree-plus-cover-brief",
-        "light_content_renderer": "six-route-distinct-visual-v12-or-native-minimal-zine-image",
+        "light_content_renderer": "stable-local-default-plus-explicit-minimal-zine-v15",
         "material_pipeline": "mediacrawler-cdp-jsonl-limited-quote",
         "native_skill_runtime": True,
         "native_skill_source_available": True,
@@ -354,4 +393,7 @@ def index() -> HTMLResponse:
         '<script src="/static/native-skills-v11.js"></script>'
     )
     html = html.replace("</body>", f"{scripts}</body>")
-    return HTMLResponse(html)
+    return HTMLResponse(
+        version_static_references(html),
+        headers={"Cache-Control": "no-store"},
+    )

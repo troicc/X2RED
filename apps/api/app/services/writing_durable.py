@@ -33,6 +33,9 @@ class DurableAgentRunnerMixin:
         system_prompt: str,
         user_prompt: str,
         temperature: float,
+        max_tokens: int | None = None,
+        capture_response_meta: bool = False,
+        request_timeout_seconds: float | None = None,
     ) -> WritingArtifact:
         skill_name = ROLE_SKILLS[role]
         binding = binding_for(db, skill_name, self.settings.model_name)
@@ -63,7 +66,8 @@ class DurableAgentRunnerMixin:
         input_hash = hashlib.sha256(
             (
                 f"{role}\n{system_prompt}\n{user_prompt}\n"
-                f"{binding.model_name}\n{binding.prompt_version}"
+                f"{binding.model_name}\n{binding.prompt_version}\n"
+                f"max_tokens={max_tokens}\nrequest_timeout_seconds={request_timeout_seconds}"
             ).encode()
         ).hexdigest()
         cached_run = db.scalar(
@@ -109,7 +113,16 @@ class DurableAgentRunnerMixin:
                     temperature=temperature,
                     reasoning_effort=binding.reasoning_effort,
                     model_name=binding.model_name,
+                    max_tokens=max_tokens,
+                    capture_response_meta=capture_response_meta,
+                    request_timeout_seconds=request_timeout_seconds,
                 )
+                response_meta = result.pop("_x2red_response_meta", None)
+                if capture_response_meta and isinstance(response_meta, dict):
+                    result["_completion"] = {
+                        "finish_reason": str(response_meta.get("finish_reason") or ""),
+                        "completion_tokens": response_meta.get("completion_tokens"),
+                    }
                 self._mark_memory_applied(
                     db,
                     project,

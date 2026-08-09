@@ -94,6 +94,41 @@ def test_x2pdf_bridge_lifecycle_skills_and_publish_archive(
 
         active = client.get("/api/sources?workspace_state=active")
         assert any(item["id"] == source_id for item in active.json())
+
+        xhs_archived = client.post(
+            f"/api/sources/{source_id}/workbenches/xhs/archive"
+        )
+        assert xhs_archived.status_code == 200
+        assert xhs_archived.json()["workspace_state"] == "active"
+        assert xhs_archived.json()["workbench_state"] == "archived"
+        assert not any(
+            item["id"] == source_id
+            for item in client.get(
+                "/api/sources?workspace_state=active&workbench=xhs&workbench_state=active"
+            ).json()
+        )
+        assert any(
+            item["id"] == source_id
+            for item in client.get(
+                "/api/sources?workspace_state=active&workbench=xhs&workbench_state=archived"
+            ).json()
+        )
+        assert any(
+            item["id"] == source_id
+            for item in client.get(
+                "/api/sources?workspace_state=active&workbench=wechat_long&workbench_state=active"
+            ).json()
+        )
+        assert client.get(
+            f"/api/sources/{source_id}?workbench=wechat_long"
+        ).json()["workbench_state"] == "active"
+
+        xhs_restored = client.post(
+            f"/api/sources/{source_id}/workbenches/xhs/restore"
+        )
+        assert xhs_restored.status_code == 200
+        assert xhs_restored.json()["workbench_state"] == "active"
+
         archived = client.post(f"/api/sources/{source_id}/archive")
         assert archived.status_code == 200
         assert archived.json()["workspace_state"] == "archived"
@@ -162,10 +197,19 @@ def test_x2pdf_bridge_lifecycle_skills_and_publish_archive(
             json={"result_url": "https://www.xiaohongshu.com/explore/test-note"},
         )
         assert published.status_code == 200, published.text
-        after_publish = client.get(f"/api/sources/{source_id}").json()
-        assert after_publish["workspace_state"] == "archived"
+        after_publish = client.get(
+            f"/api/sources/{source_id}?workbench=xhs"
+        ).json()
+        assert after_publish["workspace_state"] == "active"
+        assert after_publish["workbench_state"] == "archived"
         assert after_publish["published_count"] == 1
         assert after_publish["last_published_at"] is not None
+        assert any(
+            item["id"] == source_id
+            for item in client.get(
+                "/api/sources?workspace_state=active&workbench=wechat_long&workbench_state=active"
+            ).json()
+        )
 
         deleted = client.delete(f"/api/sources/{source_id}")
         assert deleted.status_code == 204, deleted.text

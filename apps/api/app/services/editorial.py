@@ -472,6 +472,9 @@ audience_value、angles、recommended_angle、title_candidates、outline、avoid
         temperature: float,
         reasoning_effort: str,
         model_name: str = "",
+        max_tokens: int | None = None,
+        capture_response_meta: bool = False,
+        request_timeout_seconds: float | None = None,
     ) -> dict:
         selected_model = model_name.strip() or self.settings.model_name
         request_body: dict = {
@@ -483,6 +486,8 @@ audience_value、angles、recommended_angle、title_candidates、outline、avoid
             "temperature": temperature,
             "response_format": {"type": "json_object"},
         }
+        if max_tokens is not None:
+            request_body["max_tokens"] = max(256, min(int(max_tokens), 32768))
         request_body.update(self._reasoning_options(reasoning_effort, selected_model))
         headers = {"Content-Type": "application/json"}
         if self.settings.model_api_key:
@@ -498,14 +503,28 @@ audience_value、angles、recommended_angle、title_candidates、outline、avoid
             portable.pop("reasoning_effort", None)
             variants.append(portable)
         last_response: httpx.Response | None = None
-        async with httpx.AsyncClient(timeout=180) as client:
+        timeout_seconds = max(30.0, min(float(request_timeout_seconds or 180.0), 600.0))
+        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
             for index, payload in enumerate(variants):
                 response = await client.post(endpoint, headers=headers, json=payload)
                 last_response = response
                 if response.status_code not in {400, 404, 422} or index == len(variants) - 1:
                     response.raise_for_status()
-                    content = str(response.json()["choices"][0]["message"].get("content") or "")
-                    return self._parse_json_object(content)
+                    response_payload = response.json()
+                    choice = response_payload["choices"][0]
+                    content = str(choice["message"].get("content") or "")
+                    parsed = self._parse_json_object(content)
+                    if capture_response_meta:
+                        usage = response_payload.get("usage")
+                        parsed["_x2red_response_meta"] = {
+                            "finish_reason": str(choice.get("finish_reason") or ""),
+                            "completion_tokens": (
+                                usage.get("completion_tokens")
+                                if isinstance(usage, dict)
+                                else None
+                            ),
+                        }
+                    return parsed
         if last_response is not None:
             last_response.raise_for_status()
         raise ValueError("model returned no response")
@@ -528,6 +547,7 @@ audience_value、angles、recommended_angle、title_candidates、outline、avoid
             output.append(
                 {
                     "index": index,
+                    "source_id": item.id,
                     "author": item.author_name,
                     "handle": item.author_handle,
                     "published_at": created,

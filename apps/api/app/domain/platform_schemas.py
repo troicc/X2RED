@@ -5,7 +5,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-
 WechatTheme = Literal[
     "auto",
     "editorial_blue",
@@ -34,6 +33,7 @@ LightVisualStyle = Literal[
 LightQualityMode = Literal["fast", "studio"]
 MinimalZineLayout = Literal[
     "center-fragment",
+    "lower-fragment",
     "lower-left-float",
     "upper-right-block",
     "dual-panel",
@@ -132,6 +132,8 @@ class MinimalZineStoryboardRevisionRequest(BaseModel):
 
 class WeChatVariantCreate(BaseModel):
     source_id: str
+    supporting_source_ids: list[str] = Field(default_factory=list, max_length=12)
+    material_refs: list[str] = Field(default_factory=list, max_length=32)
     draft_id: str | None = None
     theme: WechatTheme = "auto"
     mode: Literal["adapt", "preserve"] = "adapt"

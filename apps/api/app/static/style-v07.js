@@ -76,46 +76,6 @@
     label.innerHTML = '个人风格<select id="writing-style-profile"><option value="">默认通用风格</option></select>';
     if (modeLabel?.nextSibling) form.insertBefore(label, modeLabel.nextSibling);
     else form.append(label);
-
-    // The base studio listener predates style selection. Capture the submit first
-    // so the selected version is included in the immutable writing project.
-    form.addEventListener(
-      "submit",
-      async (event) => {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        const button = event.submitter;
-        if (button) button.disabled = true;
-        try {
-          const mode = document.getElementById("writing-mode").value;
-          const project = await api("/api/writing/projects", {
-            method: "POST",
-            body: JSON.stringify({
-              source_id: document.getElementById("writing-source").value,
-              mode,
-              reader: document.getElementById("writing-reader").value,
-              promise: document.getElementById("writing-promise").value,
-              main_thesis: document.getElementById("writing-thesis").value,
-              style_profile_id: document.getElementById("writing-style-profile").value || null,
-              budget_limit_cents: mode === "studio" ? 20 : 10,
-            }),
-          });
-          const job = await api(`/api/writing/projects/${encodeURIComponent(project.id)}/run`, {
-            method: "POST",
-            body: JSON.stringify({ continuous: true }),
-          });
-          await waitForJob(job.id);
-          if (typeof window.setView === "function") window.setView("writing-view");
-          window.location.hash = `writing-project=${project.id}`;
-          window.location.reload();
-        } catch (error) {
-          window.alert(error.message);
-        } finally {
-          if (button) button.disabled = false;
-        }
-      },
-      true,
-    );
   }
 
   const previousSetView = window.setView;

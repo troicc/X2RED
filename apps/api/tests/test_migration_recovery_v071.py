@@ -123,6 +123,7 @@ def test_sqlite_0006_upgrade_recovers_without_losing_jobs(
         "corpus_batches",
         "pool_memory_snapshots",
         "pool_memory_usages",
+        "source_workbench_states",
     }.issubset(table_names)
 
     index_names = {index["name"] for index in inspector.get_indexes("jobs")}
@@ -151,7 +152,7 @@ def test_sqlite_0006_upgrade_recovers_without_losing_jobs(
     assert row["available_at"] is not None
     assert str(row["available_at"]).startswith("2026-01-02 03:04:05")
     assert str(row["created_at"]).startswith("2026-01-02 03:04:05")
-    assert revision == "0011"
+    assert revision == "0012"
 
     get_settings.cache_clear()
     command.upgrade(config, "head")

@@ -9,25 +9,65 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_job_engine, get_pool_memory_service, get_writing_service
 from app.db.session import get_db
 from app.domain.jobs import Job
-from app.domain.models import SourceItem
 from app.domain.pool_memory_schemas import PoolMemoryTargetCandidateRequest
 from app.domain.schemas import JobOut
+from app.domain.models import DraftRevision
+from app.domain.platforms import PlatformVariant
 from app.domain.studio import StyleProfile, WritingArtifact, WritingFeedback, WritingProject
 from app.domain.studio_schemas import (
     ArtifactApprovalRequest,
     StyleProfileCreate,
     StyleProfileOut,
     WritingFeedbackCreate,
+    WritingMaterialOption,
     WritingProjectCreate,
     WritingProjectOut,
     WritingRunRequest,
 )
 from app.domain.style_schemas import StyleProfileTrainRequest
+from app.services.input_materials import (
+    InputMaterialError,
+    material_option_payloads,
+    resolve_input_materials,
+)
 from app.services.jobs import JobEngine
 from app.services.pool_memory import PoolMemoryError, PoolMemoryService
 from app.services.writing_studio import MultiAgentWritingService
 
 router = APIRouter(prefix="/api/writing", tags=["writing-studio"])
+
+
+def _project_outputs(
+    db: Session,
+    project: WritingProject,
+) -> tuple[DraftRevision | None, PlatformVariant | None]:
+    output_draft: DraftRevision | None = None
+    drafts = db.scalars(
+        select(DraftRevision)
+        .where(DraftRevision.source_id == project.source_id)
+        .order_by(desc(DraftRevision.version))
+    ).all()
+    for draft in drafts:
+        try:
+            provenance = json.loads(draft.provenance_json or "{}")
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if str(provenance.get("writing_project_id") or "") == project.id:
+            output_draft = draft
+            break
+    if output_draft is None:
+        return None, None
+    variant = db.scalar(
+        select(PlatformVariant)
+        .where(
+            PlatformVariant.base_draft_id == output_draft.id,
+            PlatformVariant.platform == "wechat",
+            PlatformVariant.format == "article",
+        )
+        .order_by(desc(PlatformVariant.updated_at))
+        .limit(1)
+    )
+    return output_draft, variant
 
 
 def project_payload(
@@ -41,9 +81,14 @@ def project_payload(
         target_type="writing_project",
         target_id=project.id,
     )
+    summaries = service.source_summaries(db, project)
+    output_draft, wechat_variant = _project_outputs(db, project)
     return {
         "id": project.id,
         "source_id": project.source_id,
+        "source_ids": [item["id"] for item in summaries],
+        "source_summaries": summaries,
+        "material_summaries": service.material_summaries(db, project),
         "mode": project.mode,
         "state": project.state,
         "current_stage": project.current_stage,
@@ -54,6 +99,12 @@ def project_payload(
         "budget_limit_cents": project.budget_limit_cents,
         "spent_estimate_cents": project.spent_estimate_cents,
         "error": project.error,
+        "output_draft_id": output_draft.id if output_draft else "",
+        "output_draft_version": output_draft.version if output_draft else None,
+        "output_draft_chars": len(output_draft.body) if output_draft else 0,
+        "wechat_variant_id": wechat_variant.id if wechat_variant else "",
+        "wechat_variant_version": wechat_variant.version if wechat_variant else None,
+        "wechat_variant_status": wechat_variant.status if wechat_variant else "",
         "created_at": project.created_at,
         "updated_at": project.updated_at,
         "artifacts": service.artifacts(db, project.id),
@@ -122,27 +173,42 @@ def list_projects(
     return [project_payload(db, service, project) for project in projects]
 
 
+@router.get("/material-options", response_model=list[WritingMaterialOption])
+def list_material_options(
+    limit: int = Query(default=300, ge=1, le=500),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    return material_option_payloads(db, limit=limit)
+
+
 @router.post("/projects", response_model=WritingProjectOut, status_code=status.HTTP_201_CREATED)
 def create_project(
     body: WritingProjectCreate,
     db: Session = Depends(get_db),
     service: MultiAgentWritingService = Depends(get_writing_service),
 ) -> dict:
-    source = db.get(SourceItem, body.source_id)
-    if source is None:
-        raise HTTPException(status_code=404, detail="来源不存在")
     try:
+        resolved = resolve_input_materials(
+            db,
+            [
+                *body.material_refs,
+                *(f"source:{source_id}" for source_id in body.supporting_source_ids),
+            ],
+            preferred_source_id=body.source_id,
+        )
         project = service.create_project(
             db,
-            source=source,
+            source=resolved.primary_source,
             mode=body.mode,
             reader=body.reader,
             promise=body.promise,
             main_thesis=body.main_thesis,
             style_profile_id=body.style_profile_id,
             budget_limit_cents=body.budget_limit_cents,
+            supporting_sources=resolved.sources[1:],
+            input_materials=resolved.materials,
         )
-    except ValueError as exc:
+    except (InputMaterialError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     db.commit()
     db.refresh(project)

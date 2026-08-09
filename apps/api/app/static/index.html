@@ -11,11 +11,18 @@
   <link rel="stylesheet" href="/static/product-shell-v15.css" />
   <link rel="stylesheet" href="/static/light-content-v15.css" />
   <link rel="stylesheet" href="/static/pool-memory-v16.css" />
+  <link id="product-ui-v17-styles" rel="stylesheet" href="/static/product-ui-v17.css" />
 </head>
 <body>
   <div class="app-shell">
-    <aside class="app-sidebar">
-      <div class="brand-block"><div class="brand-mark">X</div><div><strong>X2RED</strong><span>Creator Studio</span></div></div>
+    <aside id="app-sidebar" class="app-sidebar">
+      <div class="brand-block">
+        <div class="brand-mark">X</div>
+        <div><strong>X2RED</strong><span>Creator Studio</span></div>
+        <button id="sidebar-toggle" class="sidebar-toggle ui-icon-button" type="button" aria-controls="app-sidebar" aria-expanded="true" aria-label="收起主导航" title="收起主导航">
+          <svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18M16 9l-3 3 3 3"/></svg>
+        </button>
+      </div>
       <nav class="primary-nav" aria-label="主导航">
         <button class="nav-item active" data-view="workbench-view"><span class="nav-icon">✦</span><span>创作工作台</span></button>
         <button class="nav-item" data-view="publish-view"><span class="nav-icon">↗</span><span>发布任务</span></button>
@@ -54,8 +61,9 @@
 
           <section class="workbench-grid">
             <aside class="source-rail surface">
-              <div class="rail-header"><div><span class="section-kicker">INBOX</span><h2>来源箱</h2></div><button id="refresh" class="icon-button" type="button">↻</button></div>
-              <div class="source-tabs"><button class="source-tab active" data-source-state="active">处理中</button><button class="source-tab" data-source-state="archived">已归档</button></div>
+              <div class="rail-header"><div><span class="section-kicker">XHS WORKBENCH</span><h2>选来源</h2></div><button id="refresh" class="icon-button" type="button">↻</button></div>
+              <div class="source-tabs"><button class="source-tab active" data-source-state="active">待处理</button><button class="source-tab" data-source-state="archived">本台归档</button></div>
+              <p class="source-archive-scope">这里的归档只影响小红书工作台，不会从素材库或其他工作台移除。</p>
               <div class="source-filter"><span>⌕</span><input id="source-search" type="search" placeholder="搜索作者或内容" /></div>
               <div id="source-list" class="source-list"></div>
             </aside>
@@ -65,20 +73,36 @@
               <div id="active-workbench" hidden>
                 <div class="source-identity">
                   <div class="avatar" id="source-avatar">X</div>
-                  <div class="source-identity-copy"><div class="identity-line"><h2 id="source-author"></h2><span id="source-kind-badge" class="mini-badge">POST</span></div><a id="source-link" target="_blank" rel="noreferrer">在 X 查看原文 ↗</a></div>
-                  <div class="identity-actions"><button id="archive-source" class="secondary-action" type="button">归档</button><button id="delete-source" class="ghost-danger" type="button">删除</button><select id="draft-style"><option value="explain">解释拆解</option><option value="news">资讯速览</option><option value="opinion">编辑观察</option></select><button id="generate-draft" type="button" class="primary-action">AI 分析并生成</button></div>
+                  <div class="source-identity-copy"><div class="identity-line"><h2 id="source-author"></h2><span id="source-kind-badge" class="mini-badge">来源</span></div><a id="source-link" target="_blank" rel="noreferrer">查看原文 ↗</a></div>
+                  <div class="identity-actions"><button id="delete-source" class="ghost-danger" type="button" title="从素材库彻底删除，会影响所有工作台">彻底删除</button><select id="draft-style"><option value="explain">解释拆解</option><option value="news">资讯速览</option><option value="opinion">编辑观察</option></select><button id="generate-draft" type="button" class="primary-action">AI 分析并生成</button></div>
                 </div>
 
                 <div class="stage-tabs" role="tablist"><button class="stage-tab active" data-tab="source-pane">01 来源</button><button class="stage-tab" data-tab="analysis-pane">02 分析</button><button class="stage-tab" data-tab="draft-pane">03 文案</button><button class="stage-tab" data-tab="cards-pane">04 制图</button><button class="stage-tab" data-tab="review-pane">05 审核</button></div>
 
                 <section id="source-pane" class="stage-pane active">
+                  <div class="source-pane-toolbar">
+                    <p>原文优先显示；判断和来源素材按需打开，不再挤压阅读宽度。</p>
+                    <div class="source-pane-actions">
+                      <span class="source-workbench-scope">仅影响小红书工作台</span>
+                      <button id="archive-source" class="secondary-action source-archive-action" type="button">
+                        <svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 7h16v13H4z"/><path d="M3 4h18v3H3zM9 11h6"/></svg>
+                        <span>归档此来源</span>
+                      </button>
+                      <button id="source-inspector-toggle" class="secondary-action source-inspector-toggle" type="button" aria-controls="source-inspector" aria-expanded="false">
+                        <svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 4h16v16H4z"/><path d="M14 4v16M7 8h4M7 12h4"/></svg>
+                        <span>判断与素材</span>
+                      </button>
+                    </div>
+                  </div>
                   <div class="source-reader-grid">
-                    <article class="content-panel x-reader-panel"><div class="panel-heading"><div><span class="section-kicker">X SOURCE READER</span><h3>原帖与上下文</h3></div><span id="related-count" class="count-badge">0 条上下文</span></div><div id="x-source-feed" class="x-source-feed"></div></article>
-                    <aside class="source-side-stack">
+                    <article class="content-panel x-reader-panel"><div class="panel-heading"><div><span id="source-reader-kicker" class="section-kicker">SOURCE READER</span><h3 id="source-reader-title">来源正文</h3></div><span id="related-count" class="count-badge">0 条关联来源</span></div><div id="x-source-feed" class="x-source-feed"></div></article>
+                    <aside id="source-inspector" class="source-side-stack" role="dialog" aria-modal="true" aria-labelledby="source-inspector-title" hidden>
+                      <div class="source-inspector-head"><div><span class="section-kicker">SOURCE INSPECTOR</span><h3 id="source-inspector-title">判断与素材</h3></div><button id="source-inspector-close" class="ui-icon-button" type="button" aria-label="关闭判断与素材" title="关闭判断与素材"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
                       <article class="content-panel note-panel"><span class="section-kicker">MY EDITOR NOTE</span><h3>我的判断</h3><p class="helper-copy">这部分只影响 AI 的选题角度，不会改动来源复原。</p><textarea id="editor-note" rows="7" maxlength="6000" placeholder="我为什么想写它、面向谁、最想表达什么……"></textarea><button id="save-note" type="button" class="secondary-action">保存我的判断</button><div id="note-status" class="inline-status"></div></article>
                       <article class="content-panel"><div class="panel-heading"><div><span class="section-kicker">SOURCE MEDIA</span><h3>来源素材</h3></div></div><div id="assets" class="assets"></div></article>
                     </aside>
                   </div>
+                  <button id="source-inspector-backdrop" class="source-inspector-backdrop" type="button" aria-label="关闭判断与素材" hidden></button>
                 </section>
 
                 <section id="analysis-pane" class="stage-pane">
@@ -115,5 +139,6 @@
   <div id="card-lightbox" class="lightbox" hidden><button id="close-lightbox" class="lightbox-close" type="button">×</button><img id="lightbox-image" alt="卡片预览" /><div id="lightbox-caption"></div></div>
   <script src="/static/app.js"></script>
   <script src="/static/studio-ux-v072.js"></script>
+  <script src="/static/product-ui-v17.js"></script>
 </body>
 </html>

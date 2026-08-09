@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import html
 import json
+import re
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -23,6 +24,7 @@ from app.services.light_content import (
     LightContentError,
     LightContentService,
     LightRenderValidation,
+    poster_copy_issues,
 )
 from app.services.light_visual_renderer import (
     VISUAL_STYLE_LABELS,
@@ -72,6 +74,7 @@ class LightContentLabService:
         count = min(max(int(image_count), 3), 6)
         resolved_style = self.renderer.resolve_style(visual_style, recipe)
         source_text = draft.body if draft and draft.body.strip() else source.text_original
+        evidence_scope = self._source_evidence_scope(source, source_text)
         title_binding = binding_for(db, "wechat.title_summary", self.settings.model_name)
         visual_binding = binding_for(db, "visual.art_direction", self.settings.model_name)
         model_ready = bool(
@@ -152,6 +155,7 @@ class LightContentLabService:
                 quality_mode=quality_mode,
                 feedback=feedback,
                 memory_prompts=memory_prompts,
+                evidence_scope=evidence_scope,
                 previous_variant=previous_variant,
                 model_name=title_binding.model_name or self.settings.model_name,
                 reasoning_effort=title_binding.reasoning_effort,
@@ -187,6 +191,48 @@ class LightContentLabService:
             image_count=count,
             seasonal_topic=seasonal_topic,
         )
+        candidate_list = pipeline.get("candidates")
+        candidate_list = candidate_list if isinstance(candidate_list, list) else []
+        try:
+            selected_index = int(pipeline.get("selected_candidate_index") or 0)
+        except (TypeError, ValueError):
+            selected_index = 0
+        selected_index = min(max(selected_index, 0), max(len(candidate_list) - 1, 0))
+        chief_issues = poster_copy_issues(final["posters"])
+        selected_issues: list[str] = []
+        repair_source = "chief_editor"
+        if candidate_list and isinstance(candidate_list[selected_index], dict):
+            selected = self.legacy._normalize_output(
+                candidate_list[selected_index],
+                source=source,
+                recipe=recipe,
+                image_count=count,
+                seasonal_topic=seasonal_topic,
+            )
+            selected_issues = poster_copy_issues(selected["posters"])
+            if chief_issues and not selected_issues:
+                final["posters"] = selected["posters"]
+                repair_source = "selected_candidate"
+        if poster_copy_issues(final["posters"]):
+            fallback = self.legacy._fallback_copy(
+                source=source,
+                draft=draft,
+                recipe=recipe,
+                image_count=count,
+                seasonal_topic=seasonal_topic,
+                audience=audience,
+            )
+            final["posters"] = fallback["posters"]
+            repair_source = "structured_fallback"
+        final_issues = poster_copy_issues(final["posters"])
+        poster_copy_quality = {
+            "passed": not final_issues,
+            "chief_editor_issues": chief_issues,
+            "selected_candidate_issues": selected_issues,
+            "repair_source": repair_source,
+            "final_issues": final_issues,
+            "contract": "all page phrases and notes are distinct; no N.note equals N+1.phrase",
+        }
         final["posters"] = self._apply_visual_direction(
             final["posters"],
             pipeline.get("visual_direction") or {},
@@ -199,7 +245,7 @@ class LightContentLabService:
         metadata = {
             "generator": generator,
             "content_mode": "light_series",
-            "pipeline_version": "light-lab-v12",
+            "pipeline_version": "light-lab-v13",
             "recipe": recipe,
             "recipe_label": RECIPE_LABELS[recipe],
             "audience": audience.strip(),
@@ -215,10 +261,12 @@ class LightContentLabService:
             "candidates": pipeline.get("candidates") or [],
             "reviews": pipeline.get("reviews") or {},
             "quality_score": float(pipeline.get("quality_score") or 0),
-            "selected_candidate_index": int(pipeline.get("selected_candidate_index") or 0),
+            "selected_candidate_index": selected_index,
             "chief_editor_note": str(pipeline.get("chief_editor_note") or ""),
             "revision_summary": str(pipeline.get("revision_summary") or ""),
             "auto_revision_triggered": bool(pipeline.get("auto_revision_triggered")),
+            "evidence_scope": evidence_scope,
+            "poster_copy_quality": poster_copy_quality,
             "poster_specs": final["posters"],
             "corpus_item_ids": memory_summary["memory_ids"],
             "memory_snapshot_id": memory_summary["snapshot_id"],
@@ -340,6 +388,12 @@ class LightContentLabService:
             image_count=len(metadata.get("poster_specs") or []) or 4,
             seasonal_topic=str(metadata.get("seasonal_topic") or ""),
         )
+        copy_issues = poster_copy_issues(normalized["posters"])
+        if copy_issues:
+            raise LightContentError(
+                "该候选的逐页文案未通过独立性检查：存在跨页复用或说明被当成下一页短句。"
+                "请改选其他候选或带反馈重新生成。"
+            )
         normalized["posters"] = self._apply_visual_direction(
             normalized["posters"],
             raw.get("visual_direction") if isinstance(raw.get("visual_direction"), dict) else {},
@@ -350,6 +404,16 @@ class LightContentLabService:
             {
                 "selected_candidate_index": candidate_index,
                 "poster_specs": normalized["posters"],
+                "poster_copy_quality": {
+                    "passed": True,
+                    "chief_editor_issues": [],
+                    "selected_candidate_issues": [],
+                    "repair_source": "human_selected_candidate",
+                    "final_issues": [],
+                    "contract": (
+                        "all page phrases and notes are distinct; no N.note equals N+1.phrase"
+                    ),
+                },
                 "human_approved": False,
                 "selection_changed_by": "human",
             }
@@ -595,6 +659,7 @@ class LightContentLabService:
         quality_mode: str,
         feedback: str,
         memory_prompts: dict[str, str],
+        evidence_scope: dict[str, Any],
         previous_variant: PlatformVariant | None,
         model_name: str,
         reasoning_effort: str,
@@ -605,6 +670,15 @@ class LightContentLabService:
                 f"\n上一版标题：{previous_variant.title}\n"
                 f"上一版正文：{previous_variant.body_markdown[:2200]}\n"
             )
+        source_limit = 18000 if evidence_scope.get("input_type") == "corpus_batch" else 12000
+        source_material = source_text[:source_limit]
+        detailed_count = int(evidence_scope.get("detailed_source_count") or 0)
+        evidence_rule = (
+            f"这是冻结语料池批次：全池语义记忆覆盖 {int(evidence_scope.get('pool_source_count') or 0)} 条来源，"
+            f"并附 {detailed_count} 条详细来源。全池记忆负责发现角度；具体判断须落到详细来源。"
+            if evidence_scope.get("input_type") == "corpus_batch"
+            else "这是单一来源输入；所有判断不得超出当前来源。"
+        )
         common = f"""
 内容配方：{RECIPE_LABELS[recipe]}
 配方边界：{RECIPE_GUIDES[recipe]}
@@ -614,9 +688,11 @@ class LightContentLabService:
 图片数量：{image_count}
 视觉方向：{VISUAL_STYLE_LABELS[visual_style]}
 用户修改意见：{feedback or '无'}
+证据范围：{evidence_rule}
+证据范围记录：{json.dumps(evidence_scope, ensure_ascii=False)}
 {previous_text}
 来源材料：
-{source_text[:12000]}
+{source_material}
 """.strip()
         copy_common = f"{common}\n\n当前任务相关文案记忆：\n{memory_prompts.get('copy', '')}"
         reader_common = f"{common}\n\n当前任务相关读者关系记忆：\n{memory_prompts.get('reader', '')}"
@@ -647,12 +723,17 @@ class LightContentLabService:
                 prompt=f"""{copy_common}\n\n策划结果：
 {json.dumps(strategy, ensure_ascii=False)}
 
-生成 3 个候选。正文 120-500 字，2-5 个短段；每张图一句 6-24 字主句和最多 36 字小注。
+生成 3 个候选。正文 120-500 字，2-5 个短段；每个候选必须恰好有 {image_count} 张图，
+每张图一句 6-24 字主句和最多 36 字小注。每页只讲一个独立观点或生活现场，主句与小注共同完成本页，
+不能把正文连续句子机械切成分页。任意两页的主句、小注都不能复用或近似改写；尤其禁止“第 N 页小注＝第 N+1 页主句”。
+每页填写 evidence_basis 和 source_refs；source_refs 使用“详细来源 3”“全池记忆 7”这类可核对序号。
+{f'各页优先使用至少 {min(image_count, detailed_count)} 条不同的详细来源或证据线索。' if detailed_count else '各页必须来自不同的证据线索。'}
 只输出 JSON：
 {{"candidates":[{{"angle":"候选角度","title":"12-28字","subtitle":"一句副标题",
 "summary":"60-120字","body_markdown":"短正文","tags":["标签"],
 "posters":[{{"phrase":"短句","note":"小注","visual_metaphor":"可画物件或场景",
-"photo_direction":"照片/画面要求","layout":"构图提示","accent":"#RRGGBB","mood":"情绪"}}]}}]}}""",
+"photo_direction":"照片/画面要求","layout":"构图提示","accent":"#RRGGBB","mood":"情绪",
+"evidence_basis":"本页依据的具体材料","source_refs":["详细来源 1"]}}]}}]}}""",
                 model_name=model_name,
                 reasoning_effort=reasoning_effort,
                 temperature=0.68,
@@ -696,7 +777,8 @@ class LightContentLabService:
                         prompt=f"""{visual_common}\n\n候选：{json.dumps(candidates, ensure_ascii=False)}
 只输出 JSON：{{"candidate_directions":[{{"candidate_index":0,
 "visual_style":"minimal_zine|photo_editorial|classical_ink|dark_contemplative|seasonal_folk|old_newspaper",
-"why":"为什么适配","poster_directions":[{{"page":1,"layout":"","visual_metaphor":"","photo_direction":"","accent":"#RRGGBB"}}]}}]}}""",
+"why":"为什么适配","series_motif":"整组反复出现的同一物件或视觉母题",
+"poster_directions":[{{"page":1,"layout":"","visual_metaphor":"同一母题在本页的变化","photo_direction":"","accent":"#RRGGBB"}}]}}]}}""",
                         model_name=model_name,
                         reasoning_effort=reasoning_effort,
                         temperature=0.35,
@@ -719,6 +801,7 @@ class LightContentLabService:
                 system=(
                     "你是最终总编。依据两路独立审稿选择最合适的候选，并只做一次必要修订。"
                     "不能把三份候选拼成一篇；不能为了金句牺牲来源一致性。"
+                    "逐页文案必须是独立观点，禁止把上一页小注复用为下一页主句。"
                 ),
                 prompt=f"""{copy_common}\n\n策划：{json.dumps(strategy, ensure_ascii=False)}
 候选：{json.dumps(candidates, ensure_ascii=False)}
@@ -728,10 +811,13 @@ class LightContentLabService:
 视觉导演：{json.dumps(visual_review, ensure_ascii=False)}
 
 输出最终稿。若候选已经足够好只做轻微修订；分数低于 7.5 必须修复关键问题。
+最终稿必须恰好有 {image_count} 页；所有主句和小注彼此不同且不近似，note 只解释同一页，绝不预告下一页 phrase。
+保留或补齐每页 evidence_basis 与 source_refs，确保不同页面使用不同来源或证据线索。
 只输出 JSON：{{"selected_index":0,"chief_editor_note":"选择原因",
 "revision_summary":"改了什么","final":{{"title":"","subtitle":"","summary":"",
 "body_markdown":"","tags":[""],"posters":[{{"phrase":"","note":"","visual_metaphor":"",
-"photo_direction":"","layout":"","accent":"#RRGGBB","mood":""}}]}}}}""",
+"photo_direction":"","layout":"","accent":"#RRGGBB","mood":"",
+"evidence_basis":"","source_refs":[""]}}]}}}}""",
                 model_name=model_name,
                 reasoning_effort=reasoning_effort,
                 temperature=0.28,
@@ -908,7 +994,10 @@ class LightContentLabService:
         direction: dict[str, Any],
         fallback_style: str,
     ) -> list[dict[str, Any]]:
-        style = self.renderer.resolve_style(str(direction.get("visual_style") or fallback_style), "comfort")
+        # The author's route selection is frozen.  The visual-director model may
+        # refine layout and metaphor, but it must not silently switch renderers.
+        style = self.renderer.resolve_style(fallback_style, "comfort")
+        series_motif = str(direction.get("series_motif") or "").strip()
         page_directions = direction.get("poster_directions")
         page_map: dict[int, dict[str, Any]] = {}
         if isinstance(page_directions, list):
@@ -926,9 +1015,64 @@ class LightContentLabService:
             for key in ("layout", "visual_metaphor", "photo_direction", "accent", "mood"):
                 if addition.get(key):
                     merged[key] = addition[key]
-            merged["visual_style"] = str(addition.get("visual_style") or style)
+            if style == "minimal_zine":
+                if not series_motif:
+                    series_motif = str(merged.get("visual_metaphor") or "同一件日常物件").strip()
+                variation = str(merged.get("visual_metaphor") or "").strip()
+                merged["visual_metaphor"] = (
+                    series_motif
+                    if not variation or variation == series_motif
+                    else f"{series_motif}；本页变化：{variation}"
+                )[:240]
+                merged["series_motif"] = series_motif[:160]
+            merged["visual_style"] = style
             output.append(merged)
         return output
+
+    @staticmethod
+    def _source_evidence_scope(source: SourceItem, source_text: str) -> dict[str, Any]:
+        try:
+            structured = json.loads(source.structured_content_json or "{}")
+        except json.JSONDecodeError:
+            structured = {}
+        if not isinstance(structured, dict):
+            structured = {}
+        batch_ids = structured.get("batch_source_ids")
+        detailed_ids = (
+            [str(value) for value in batch_ids if str(value).strip()]
+            if isinstance(batch_ids, list)
+            else []
+        )
+        source_count_match = re.search(r"来源数[：:]\s*(\d+)", source_text)
+        corpus_chars_match = re.search(r"语料字符[：:]\s*(\d+)", source_text)
+        is_batch = (
+            source.content_kind == "corpus_batch"
+            or structured.get("document_type") == "corpus_batch"
+        )
+        if is_batch:
+            return {
+                "input_type": "corpus_batch",
+                "input_source_id": source.id,
+                "pool_id": str(structured.get("pool_id") or ""),
+                "batch_id": str(structured.get("batch_id") or source.external_id or ""),
+                "pool_source_count": int(source_count_match.group(1)) if source_count_match else 0,
+                "pool_corpus_chars": int(corpus_chars_match.group(1)) if corpus_chars_match else 0,
+                "detailed_source_count": len(detailed_ids),
+                "detailed_source_ids": detailed_ids,
+                "full_pool_memory_included": "【全池语义记忆】" in source_text,
+                "submitted_chars": min(len(source_text), 18000),
+                "contract": (
+                    "full-pool semantic memory for angles plus frozen detailed sources for claims"
+                ),
+            }
+        return {
+            "input_type": "single_source",
+            "input_source_id": source.id,
+            "detailed_source_count": 1,
+            "detailed_source_ids": [source.id],
+            "submitted_chars": min(len(source_text), 12000),
+            "contract": "current source defines the evidence boundary",
+        }
 
     @staticmethod
     def _corpus_prompt(corpus: list[dict[str, Any]]) -> str:
@@ -959,6 +1103,8 @@ class LightContentLabService:
                     "quality_score": metadata.get("quality_score"),
                     "chief_editor_note": metadata.get("chief_editor_note"),
                     "revision_summary": metadata.get("revision_summary"),
+                    "evidence_scope": metadata.get("evidence_scope"),
+                    "poster_copy_quality": metadata.get("poster_copy_quality"),
                     "corpus_item_ids": metadata.get("corpus_item_ids"),
                     "memory_snapshot_id": metadata.get("memory_snapshot_id"),
                     "memory_snapshot_hash": metadata.get("memory_snapshot_hash"),

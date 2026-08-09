@@ -79,36 +79,21 @@ body {
   backdrop-filter: none;
 }
 
-.source-platform-tabs {
-  display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  padding: 0 0 10px;
-  scrollbar-width: thin;
+.source-platform-filter {
+  display: grid;
+  gap: 5px;
+  margin: 12px 0 10px;
 }
 
-.source-platform-tab {
-  min-height: 36px;
-  flex: 0 0 auto;
-  padding: 7px 10px;
-  border: 1px solid #d9deea;
-  border-radius: 999px;
-  color: #566175;
-  background: #fff;
-  font-size: 12px;
+.source-platform-filter-label {
+  color: #687386;
+  font-size: 11px;
   font-weight: 700;
 }
 
-.source-platform-tab:hover,
-.source-platform-tab:focus-visible {
-  border-color: #7888df;
-  background: #f4f6ff;
-}
-
-.source-platform-tab.active {
-  border-color: #384fce;
-  color: #fff;
-  background: #384fce;
+.source-platform-filter select {
+  width: 100%;
+  min-height: 42px;
 }
 
 .source-platform-badge {

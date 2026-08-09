@@ -38,6 +38,8 @@ class StyleSnapshotMixin:
         main_thesis: str,
         style_profile_id: str | None,
         budget_limit_cents: int,
+        supporting_sources: list[SourceItem] | None = None,
+        input_materials: list[dict[str, Any]] | None = None,
     ) -> WritingProject:
         profile = db.get(StyleProfile, style_profile_id) if style_profile_id else None
         if style_profile_id and profile is None:
@@ -52,6 +54,8 @@ class StyleSnapshotMixin:
             main_thesis=main_thesis,
             style_profile_id=style_profile_id,
             budget_limit_cents=budget_limit_cents,
+            supporting_sources=supporting_sources,
+            input_materials=input_materials,
         )
         payload: dict[str, Any]
         if profile is None:
@@ -98,7 +102,14 @@ class StyleSnapshotMixin:
                 "article_type": "technical_explainer",
                 "style_profile_id": profile.id if profile else "",
                 "audience": project.reader,
-                "source_text": source.text_original[:30000],
+                "source_text": "\n\n".join(
+                    [item.text_original for item in [source, *(supporting_sources or [])]]
+                    + [
+                        str(item.get("body") or "")
+                        for item in (input_materials or [])
+                        if str(item.get("kind") or "") != "source"
+                    ]
+                )[:30000],
                 "topics": [project.main_thesis] if project.main_thesis else [],
                 "limit": 6,
                 "max_chars": 6500,

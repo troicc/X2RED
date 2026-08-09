@@ -188,12 +188,28 @@ class StyleProfileOut(BaseModel):
 
 class WritingProjectCreate(BaseModel):
     source_id: str
+    supporting_source_ids: list[str] = Field(default_factory=list, max_length=12)
+    material_refs: list[str] = Field(default_factory=list, max_length=32)
     mode: Literal["fast", "studio"] = "studio"
     reader: str = Field(default="", max_length=2000)
     promise: str = Field(default="", max_length=2000)
     main_thesis: str = Field(default="", max_length=2000)
     style_profile_id: str | None = None
     budget_limit_cents: int = Field(default=100, ge=0, le=10000)
+
+
+class WritingMaterialOption(BaseModel):
+    ref: str
+    kind: Literal["source", "draft_revision", "platform_variant"]
+    id: str
+    source_id: str
+    title: str
+    excerpt: str
+    author: str
+    platform: str
+    version: int | None = None
+    status: str
+    created_at: datetime | None
 
 
 class WritingArtifactOut(BaseModel):
@@ -234,6 +250,9 @@ class WritingProjectOut(BaseModel):
 
     id: str
     source_id: str
+    source_ids: list[str] = Field(default_factory=list)
+    source_summaries: list[dict[str, Any]] = Field(default_factory=list)
+    material_summaries: list[dict[str, Any]] = Field(default_factory=list)
     mode: str
     state: str
     current_stage: str
@@ -244,6 +263,12 @@ class WritingProjectOut(BaseModel):
     budget_limit_cents: int
     spent_estimate_cents: int
     error: str
+    output_draft_id: str = ""
+    output_draft_version: int | None = None
+    output_draft_chars: int = 0
+    wechat_variant_id: str = ""
+    wechat_variant_version: int | None = None
+    wechat_variant_status: str = ""
     created_at: datetime
     updated_at: datetime
     artifacts: list[WritingArtifactOut] = Field(default_factory=list)

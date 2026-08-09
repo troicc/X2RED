@@ -10,14 +10,10 @@
   ];
 
   const STYLES = [
-    ["auto", "自动匹配", "按内容和配方选择视觉路线"],
-    ["minimal_zine", "Minimal Zine", "无字视觉锚点 + 本地中文排版"],
-    ["photo_editorial", "照片编辑", "大幅照片、电影颗粒、少字"],
-    ["classical_ink", "古典水墨", "宣纸、墨色、朱砂印记"],
-    ["dark_contemplative", "深色沉思", "炭黑、暖光、博物馆感"],
-    ["seasonal_folk", "节气民艺", "木刻、剪纸、物候和饮食图形"],
-    ["old_newspaper", "旧报刊", "新闻纸、半色调、评论标题"],
+    ["auto", "本地编辑卡片 · 推荐", "稳定的本地构图和中文排版，不调用图片模型"],
+    ["minimal_zine", "Minimal Zine · 实验", "会调用图片模型，只作为可人工复核的视觉锚点"],
   ];
+  const LIGHT_SOURCE_KEY = "x2red.workspace.wechat.light.source";
 
   const SOURCE_GROUPS = [
     ["pool", "语料池批次"],
@@ -48,6 +44,7 @@
 
   const LAYOUT_OPTIONS = [
     ["center-fragment", "中央碎片 · 下方留白"],
+    ["lower-fragment", "下方视觉 · 上方留白"],
     ["lower-left-float", "左下浮动 · 右侧文字区"],
     ["upper-right-block", "右上块面 · 左下文字区"],
     ["dual-panel", "双面板 · 两个视觉区域"],
@@ -122,6 +119,7 @@
       busy: false,
       loading: false,
       loadToken: 0,
+      draftLoadToken: 0,
       sources: [],
       drafts: [],
       variants: [],
@@ -133,12 +131,13 @@
       storyboardDirty: false,
       selectedPage: 1,
       pageEvidence: new Map(),
+      webHandoffs: new Map(),
       status: {
         text: "先设定任务，再逐步完成文案、分镜和交付。",
         type: "",
       },
       brief: {
-        sourceId: "",
+        sourceId: readLightSource(),
         draftId: "",
         recipe: "comfort",
         imageCount: 4,
@@ -186,6 +185,18 @@
       return value >= 1 && value <= 4 ? value : 1;
     } catch {
       return 1;
+    }
+  }
+
+  function readLightSource() {
+    try { return window.localStorage.getItem(LIGHT_SOURCE_KEY) || ""; }
+    catch { return ""; }
+  }
+
+  function saveLightSource() {
+    try { window.localStorage.setItem(LIGHT_SOURCE_KEY, state.brief.sourceId || ""); }
+    catch {
+      // The workspace still works when storage is disabled.
     }
   }
 
@@ -390,7 +401,15 @@
     state.busy = value;
     node("wechat-light-v15")?.setAttribute("aria-busy", String(value));
     document.querySelectorAll("#wechat-light-v15 [data-light-action]").forEach((control) => {
-      control.disabled = value;
+      if (value) {
+        if (!("lightDisabledBeforeBusy" in control.dataset)) {
+          control.dataset.lightDisabledBeforeBusy = String(Boolean(control.disabled));
+        }
+        control.disabled = true;
+      } else if ("lightDisabledBeforeBusy" in control.dataset) {
+        control.disabled = control.dataset.lightDisabledBeforeBusy === "true";
+        delete control.dataset.lightDisabledBeforeBusy;
+      }
     });
     if (message) status(message);
   }
@@ -421,9 +440,11 @@
       state.currentVariant = null;
       state.storyboard = [];
       state.pageEvidence.clear();
+      state.webHandoffs.clear();
       return;
     }
     const changed = state.currentVariant?.id !== variant.id;
+    if (changed) state.webHandoffs.clear();
     state.currentVariant = variant;
     upsertVariant(variant);
     const currentMeta = metadata(variant);
@@ -460,12 +481,21 @@
 
   async function loadDrafts() {
     const sourceId = state.brief.sourceId;
-    state.drafts = sourceId
+    const token = ++state.draftLoadToken;
+    const preferredDraftId = state.brief.draftId;
+    state.drafts = [];
+    state.brief.draftId = "";
+    const drafts = sourceId
       ? await call(`/api/sources/${encodeURIComponent(sourceId)}/drafts`)
       : [];
-    if (!state.drafts.some((item) => item.id === state.brief.draftId)) {
+    if (token !== state.draftLoadToken || sourceId !== state.brief.sourceId) return false;
+    state.drafts = drafts;
+    if (state.drafts.some((item) => item.id === preferredDraftId)) {
+      state.brief.draftId = preferredDraftId;
+    } else {
       state.brief.draftId = state.drafts[0]?.id || "";
     }
+    return true;
   }
 
   async function loadWorkspace(preferredVariantId = "") {
@@ -484,6 +514,7 @@
       if (!state.sources.some((item) => item.id === state.brief.sourceId)) {
         state.brief.sourceId = state.sources[0]?.id || "";
       }
+      saveLightSource();
       await loadDrafts();
       const currentVariantForSource = state.currentVariant?.source_id === state.brief.sourceId
         ? state.currentVariant.id
@@ -568,6 +599,7 @@
     );
     state.currentVariant = revised;
     upsertVariant(revised);
+    state.webHandoffs.clear();
     state.storyboard = normalizeStoryboard(revised);
     state.storyboardDirty = false;
     return revised;
@@ -620,17 +652,25 @@
   async function saveEdit() {
     await run("正在保存编辑框里的当前文字…", async () => {
       const variant = await persistCurrent({ adoptCandidate: true });
-      status(`当前候选与人工修改已保存为 v${variant.version}。`, "ok");
+      const sync = metadata(variant).storyboard_copy_sync;
+      const suffix = sync?.mode === "preserved-after-article-edit"
+        ? "逐页短句和说明已原样保留，未被正文重排。"
+        : "";
+      status(`当前候选与人工修改已保存为 v${variant.version}。${suffix}`, "ok");
       render();
     });
   }
 
   async function proceedToVisual() {
     await run("正在先保存当前候选和编辑稿…", async () => {
-      await persistCurrent({ adoptCandidate: true });
+      const variant = await persistCurrent({ adoptCandidate: true });
       state.stage = 3;
       saveStage();
-      status("文案已冻结为新版本。现在可以逐页编辑视觉分镜。", "ok");
+      const sync = metadata(variant).storyboard_copy_sync;
+      const suffix = sync?.status === "review_required"
+        ? "系统保留了原分镜，但检测到旧版跨页重复，请逐页改完再保存。"
+        : "逐页短句和说明不会因正文保存而被改写。";
+      status(`文案已冻结为新版本。${suffix}`, sync?.status === "review_required" ? "error" : "ok");
       render();
     });
   }
@@ -676,7 +716,7 @@
       document.dispatchEvent(new CustomEvent("x2red:memory-source", {
         detail: { kind: "platform_variant", id: variant.id },
       }));
-      status(`已冻结为 v${variant.version}，请在池子记忆中检查候选。`, "ok");
+      status(`已冻结为 v${variant.version}，请在写作偏好中检查候选。`, "ok");
     });
   }
 
@@ -868,9 +908,18 @@
     tabs.setAttribute("role", "tablist");
     [["article", "长文编辑"], ["light", "轻内容图组"]].forEach(([mode, label]) => {
       const tab = button(label, "wechat-mode-tab", () => setMode(mode));
+      tab.id = `wechat-mode-${mode}`;
       tab.dataset.mode = mode;
       tab.setAttribute("role", "tab");
+      tab.setAttribute("aria-controls", mode === "light" ? "wechat-light-v15" : "wechat-article-workspace");
       tabs.appendChild(tab);
+    });
+    tabs.addEventListener("keydown", (event) => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      const nextMode = event.key === "ArrowLeft" || event.key === "Home" ? "article" : "light";
+      void setMode(nextMode);
+      tabs.querySelector(`[data-mode="${nextMode}"]`)?.focus();
     });
     intro.appendChild(tabs);
   }
@@ -879,10 +928,13 @@
     if (node("wechat-light-v15")) return;
     const longLayout = view.querySelector(".platform-studio-layout");
     if (!longLayout) return;
+    longLayout.id ||= "wechat-article-workspace";
+    longLayout.setAttribute("aria-labelledby", "wechat-mode-article");
     const lab = create("section", "light-v15");
     lab.id = "wechat-light-v15";
     lab.hidden = true;
-    lab.setAttribute("aria-label", "公众号轻内容工作台");
+    lab.setAttribute("role", "tabpanel");
+    lab.setAttribute("aria-labelledby", "wechat-mode-light");
     const statusNode = create("div", "light-status", state.status.text);
     statusNode.id = "light-status";
     statusNode.setAttribute("role", "status");
@@ -955,10 +1007,22 @@
     renderSourceOptions(source);
     source.addEventListener("change", async () => {
       state.brief.sourceId = source.value;
+      saveLightSource();
+      state.brief.draftId = "";
+      state.drafts = [];
       const variant = state.variants.find((item) => item.source_id === state.brief.sourceId) || null;
       setCurrentVariant(variant, { resetEditor: true, resetStoryboard: true });
-      await loadDrafts();
+      setBusy(true, "正在加载轻内容自己的来源版本…");
       render();
+      try {
+        await loadDrafts();
+        status("轻内容来源已切换；公众号长文来源不会跟着改变。", "ok");
+      } catch (error) {
+        status(error.message || String(error), "error");
+      } finally {
+        setBusy(false);
+        render();
+      }
     });
     sourceCard.appendChild(labelFor("来源", source));
     const draft = document.createElement("select");
@@ -1022,7 +1086,7 @@
     grid.append(sourceCard, settingsCard);
     body.appendChild(grid);
     body.appendChild(actionBar(
-      "生成后会进入候选比较；不会自动调用任何图片模型。",
+      "默认只生成本地编辑卡片；只有明确选择 Minimal Zine 实验路线才会调用图片模型。",
       button("生成 3 个文案候选", "light-primary-action", () => { void generate(); }),
       [button("刷新来源与版本", "light-secondary-action", () => { void loadWorkspace(state.currentVariant?.id || ""); })],
     ));
@@ -1127,7 +1191,7 @@
       labelFor("继续迭代意见", feedback),
       button("按反馈重新迭代", "light-secondary-action", () => { void iterate(); }),
       button("批准到旧优质语料（兼容）", "light-secondary-action", () => { void approve(); }),
-      button("加入池子记忆", "light-secondary-action", () => { void openMemoryCandidate(); }),
+      button("提炼为写作偏好", "light-secondary-action", () => { void openMemoryCandidate(); }),
     );
     feedbackSection.querySelectorAll("button").forEach((value) => { value.dataset.lightAction = "true"; });
     editorCard.appendChild(feedbackSection);
@@ -1153,6 +1217,10 @@
     item[key] = value;
     state.storyboardDirty = true;
     renderStageState();
+    const prompt = document.querySelector(".light-storyboard-card-expanded .light-prompt pre");
+    if (prompt) prompt.textContent = pagePrompt(item);
+    const handoff = document.querySelector(".light-web-handoff");
+    if (handoff) handoff.replaceWith(renderChatGptWebHandoff(item));
   }
 
   function storyboardSelectField(item, key, label, options) {
@@ -1197,9 +1265,227 @@
   }
 
   function pagePrompt(item) {
-    return item.final_prompt
+    if (state.storyboardDirty) {
+      return "当前分镜有未保存修改，之前的 Prompt 已过期。请在右侧重新生成并检查本页 Prompt。";
+    }
+    return currentWebHandoff(item.page)?.prompt
+      || item.final_prompt
       || state.pageEvidence.get(item.page)?.final_prompt
-      || "尚未编译最终 Prompt。保存分镜并渲染后，可在这里查看本页使用的 Prompt。";
+      || "尚未生成本页 ChatGPT 网页 Prompt。点击右侧“生成并显示本页 Prompt”；这一步不会调用图片模型。";
+  }
+
+  function currentWebHandoff(page) {
+    const handoff = state.webHandoffs.get(page);
+    if (
+      !handoff?.prompt
+      || handoff.variant_id !== state.currentVariant?.id
+      || state.storyboardDirty
+    ) return null;
+    return handoff;
+  }
+
+  async function copyText(value) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return;
+    } catch {
+      const fallback = document.createElement("textarea");
+      fallback.value = value;
+      fallback.setAttribute("readonly", "");
+      fallback.style.position = "fixed";
+      fallback.style.opacity = "0";
+      document.body.appendChild(fallback);
+      fallback.select();
+      const copied = document.execCommand("copy");
+      fallback.remove();
+      if (!copied) throw new Error("浏览器拒绝复制，请在 Prompt 文本框中手动全选复制。");
+    }
+  }
+
+  async function prepareChatGptWebHandoff(page) {
+    await run("正在冻结当前分镜并生成可见的 ChatGPT 网页 Prompt…", async () => {
+      let variant = await persistCurrent({ adoptCandidate: true });
+      variant = await saveStoryboardIfDirty(variant);
+      if (!isMinimalZine(variant)) {
+        throw new Error("ChatGPT 网页回传只用于 Minimal Zine 无字视觉锚点；请先切换视觉路线。 ");
+      }
+      let result;
+      try {
+        result = await call(
+          `/api/native-skills/minimal-zine/variants/${encodeURIComponent(variant.id)}/web-handoff`,
+          {
+            method: "POST",
+            body: JSON.stringify({ pages: [page] }),
+          },
+        );
+      } catch (error) {
+        if (String(error?.message || error).trim() === "Not Found") {
+          throw new Error("当前本地服务仍是旧进程，尚未载入网页 Prompt 接口。请重启 X2RED 后刷新页面。");
+        }
+        throw error;
+      }
+      const handoff = Array.isArray(result?.pages) ? result.pages[0] : null;
+      if (!handoff?.prompt) throw new Error("当前页没有可用的网页生图 Prompt。 ");
+      state.webHandoffs.set(page, { ...handoff, variant_id: variant.id });
+      status(`第 ${page} 页 Prompt 已生成并显示。请先检查，再复制到 ChatGPT Images。`, "ok");
+      render();
+    });
+  }
+
+  async function copyChatGptWebPrompt(page) {
+    const handoff = currentWebHandoff(page);
+    if (!handoff) {
+      status("请先生成并检查本页 Prompt；分镜有修改时必须重新生成。", "error");
+      return;
+    }
+    try {
+      await copyText(handoff.prompt);
+      state.webHandoffs.set(page, { ...handoff, copied: true });
+      status(`第 ${page} 页完整 Prompt 已复制。现在可以打开 ChatGPT Images 生成并保存图片。`, "ok");
+      const item = state.storyboard.find((value) => value.page === page);
+      const section = document.querySelector(".light-web-handoff");
+      if (item && section) section.replaceWith(renderChatGptWebHandoff(item));
+    } catch (error) {
+      status(error.message || String(error), "error");
+    }
+  }
+
+  async function uploadChatGptWebAnchor(page, file) {
+    if (state.storyboardDirty) {
+      status("分镜在 Prompt 生成后又被修改了。旧 Prompt 已过期，请重新生成、复制和回传。", "error");
+      render();
+      return;
+    }
+    const handoff = currentWebHandoff(page);
+    if (!handoff) {
+      status("请先生成并检查本页 Prompt，再复制到 ChatGPT Images 并回传图片。", "error");
+      render();
+      return;
+    }
+    if (file.size > 12 * 1024 * 1024) {
+      status("单张图片不能超过 12 MB。", "error");
+      return;
+    }
+    await run(`正在回传第 ${page} 页并进行本地中文排版…`, async () => {
+      const form = new FormData();
+      form.append("file", file);
+      const response = await fetch(
+        `/api/native-skills/minimal-zine/variants/${encodeURIComponent(state.currentVariant.id)}/external-anchor?page=${encodeURIComponent(page)}`,
+        { method: "POST", body: form },
+      );
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.detail || `上传失败：HTTP ${response.status}`);
+      }
+      const result = await response.json();
+      ingestRenderResult(result);
+      await reloadCurrentVariant();
+      state.webHandoffs.delete(page);
+      state.stage = 3;
+      saveStage();
+      status(
+        result.complete
+          ? `第 ${page} 页已回传；整组已完成并重建预览与发布包。`
+          : `第 ${page} 页已回传并完成本地排版；其余页面可继续逐页回传。`,
+        "ok",
+      );
+      render();
+    });
+  }
+
+  function renderChatGptWebHandoff(page) {
+    const section = create("section", "light-web-handoff");
+    section.dataset.page = String(page.page);
+    const head = create("div", "light-web-handoff-head");
+    const copy = create("div");
+    copy.append(
+      create("strong", "", "ChatGPT 网页生图"),
+      create("span", "", "不接 API · 不自动控制账号 · 回传后由 X2RED 本地排中文"),
+    );
+    head.append(copy, create("span", "light-web-badge", "推荐替换 GLM"));
+    const steps = document.createElement("ol");
+    [
+      "生成并检查当前页无字 Prompt",
+      "复制完整 Prompt",
+      "在 ChatGPT Images 生成并保存",
+      "上传下载图，本地重建海报",
+    ].forEach((value) => {
+      steps.appendChild(create("li", "", value));
+    });
+    const stored = state.webHandoffs.get(page.page);
+    const ready = Boolean(currentWebHandoff(page.page));
+    const stale = Boolean(stored && !ready);
+    const promptPanel = create("div", `light-web-prompt-panel${stale ? " stale" : ""}`);
+    promptPanel.appendChild(create("strong", "", "本页完整 Prompt"));
+    if (ready) {
+      const prompt = input(stored.prompt, {
+        multiline: true,
+        rows: 12,
+        className: "light-web-prompt-text",
+      });
+      prompt.readOnly = true;
+      prompt.spellcheck = false;
+      prompt.setAttribute("aria-label", `第 ${page.page} 页完整生图 Prompt`);
+      promptPanel.appendChild(prompt);
+    } else {
+      promptPanel.appendChild(create(
+        "p",
+        "light-web-prompt-empty",
+        stale
+          ? "分镜已修改，上一版 Prompt 已作废。请重新生成后再复制或上传。"
+          : "尚未生成。点击下方“生成并显示本页 Prompt”；只做本地编译，不调用文本或图片模型。",
+      ));
+    }
+    const actions = create("div", "light-web-actions");
+    const prepare = button(ready ? "1 · 重新生成本页 Prompt" : "1 · 生成并显示本页 Prompt", ready ? "light-web-secondary" : "light-web-primary", () => {
+      void prepareChatGptWebHandoff(page.page);
+    });
+    prepare.dataset.lightAction = "true";
+    const copyPrompt = button("2 · 复制完整 Prompt", "light-web-primary", () => {
+      void copyChatGptWebPrompt(page.page);
+    });
+    copyPrompt.dataset.lightAction = "true";
+    copyPrompt.disabled = !ready;
+    copyPrompt.title = ready ? "复制上方显示的完整 Prompt" : "请先生成并检查本页 Prompt";
+    const open = create("a", `light-web-link${ready ? "" : " disabled"}`, ready ? "3 · 打开 ChatGPT Images ↗" : "3 · 先生成 Prompt");
+    if (ready) {
+      open.href = "https://chatgpt.com/images";
+      open.target = "_blank";
+      open.rel = "noreferrer";
+    } else {
+      open.setAttribute("aria-disabled", "true");
+      open.tabIndex = -1;
+      open.title = "请先生成并检查本页 Prompt";
+    }
+    const uploadLabel = create("label", "light-web-upload", "4 · 上传下载图");
+    const upload = document.createElement("input");
+    upload.type = "file";
+    upload.accept = "image/png,image/jpeg,image/webp";
+    upload.disabled = !ready;
+    upload.dataset.lightAction = "true";
+    upload.addEventListener("change", () => {
+      const file = upload.files?.[0];
+      if (file) void uploadChatGptWebAnchor(page.page, file);
+      upload.value = "";
+    });
+    uploadLabel.classList.toggle("disabled", !ready);
+    uploadLabel.title = ready ? "选择从 ChatGPT Images 保存的图片" : "请先生成本页 Prompt";
+    uploadLabel.appendChild(upload);
+    actions.append(prepare, copyPrompt, open, uploadLabel);
+    const handoffStatus = create(
+      "p",
+      stale ? "light-web-state stale" : "light-web-state",
+      stale
+        ? `第 ${page.page} 页分镜已修改，旧 Prompt 已过期。`
+        : ready
+          ? stored.copied
+            ? `第 ${page.page} 页 Prompt 已生成并复制，可去 ChatGPT Images 生图。`
+            : `第 ${page.page} 页 Prompt 已生成并显示，请检查后复制。`
+          : `第 ${page.page} 页尚未生成网页 Prompt。`,
+    );
+    handoffStatus.setAttribute("aria-live", "polite");
+    section.append(head, steps, promptPanel, actions, handoffStatus);
+    return section;
   }
 
   function pageActionLabel(page) {
@@ -1292,6 +1578,15 @@
     }
     card.appendChild(create("h4", "", `第 ${page.page} 页 · 证据与操作`));
     card.appendChild(create("p", "light-page-inspector-copy", "原始视觉锚点与最终海报分开保存；最终中文排版始终由本地合成。"));
+    const sourceRefs = Array.isArray(page.source_refs) ? page.source_refs.filter(Boolean) : [];
+    const evidenceBasis = String(page.evidence_basis || "").trim();
+    if (evidenceBasis || sourceRefs.length) {
+      const copyEvidence = create("section", "light-copy-evidence");
+      copyEvidence.appendChild(create("strong", "", "本页取材依据"));
+      if (evidenceBasis) copyEvidence.appendChild(create("p", "", evidenceBasis));
+      if (sourceRefs.length) copyEvidence.appendChild(create("small", "", sourceRefs.join(" · ")));
+      card.appendChild(copyEvidence);
+    }
     const raw = anchorKey(page.page);
     const poster = posterKey(page.page);
     if (!raw) {
@@ -1301,6 +1596,7 @@
     if (raw) evidence.appendChild(evidenceFigure("原始视觉锚点", raw, `第 ${page.page} 页原始视觉锚点`));
     if (poster) evidence.appendChild(evidenceFigure("最终本地海报", poster, `第 ${page.page} 页最终海报`));
     if (evidence.children.length) card.appendChild(evidence);
+    if (isMinimalZine()) card.appendChild(renderChatGptWebHandoff(page));
     const actions = create("div", "light-page-actions");
     const recompose = button("仅重新排版（不调用图片模型）", "light-page-action", () => { void recomposeSelected(); });
     recompose.dataset.lightAction = "true";
@@ -1331,11 +1627,11 @@
     grid.append(listCard, renderInspector());
     body.appendChild(grid);
     const routeNote = isMinimalZine()
-      ? "保存分镜后，优先生成缺失页；已有锚点可无成本重新排版，重新生成才会调用图片模型。"
+      ? "推荐使用右侧 ChatGPT 网页回传；接口图片模型只作为可选备用。已有锚点可无成本重新排版。"
       : "当前视觉路线使用常规图组渲染；要使用逐页无成本重新排版，请切换到 Minimal Zine。";
     body.appendChild(actionBar(
       routeNote,
-      button("生成缺失页面（调用图片模型）", "light-primary-action", () => { void renderMissing(); }),
+      button("生成缺失页面（接口图片模型）", "light-primary-action", () => { void renderMissing(); }),
       [button("保存分镜", "light-secondary-action", () => { void saveStoryboardOnly(); })],
     ));
   }
@@ -1398,7 +1694,7 @@
       "成品可继续回到文案或分镜阶段修订；任何改动都会创建新版本。",
       button("返回视觉分镜", "light-primary-action", () => { void requestStage(3); }),
       [
-        button("加入池子记忆", "light-secondary-action", () => { void openMemoryCandidate(); }),
+        button("提炼为写作偏好", "light-secondary-action", () => { void openMemoryCandidate(); }),
         button("刷新当前版本", "light-secondary-action", () => { void refreshDelivery(); }),
       ],
     ));
@@ -1454,6 +1750,7 @@
       const active = tab.dataset.mode === state.mode;
       tab.classList.toggle("active", active);
       tab.setAttribute("aria-selected", String(active));
+      tab.tabIndex = active ? 0 : -1;
     });
     status(state.status.text, state.status.type);
   }
@@ -1462,12 +1759,27 @@
     state.mode = mode;
     const view = node("wechat-view");
     const longLayout = view?.querySelector(".platform-studio-layout");
+    const longPipeline = node("wechat-production-pipeline");
     const lab = node("wechat-light-v15");
+    const kicker = node("wechat-view-kicker");
+    const description = node("wechat-view-description");
+    view?.classList.toggle("is-wechat-light-mode", mode === "light");
+    view?.classList.toggle("is-wechat-article-mode", mode !== "light");
     if (longLayout) longLayout.hidden = mode === "light";
+    if (longPipeline) longPipeline.hidden = mode === "light";
     if (lab) lab.hidden = mode !== "light";
+    if (kicker) kicker.textContent = mode === "light" ? "WECHAT · LIGHT CONTENT" : "WECHAT · LONGFORM";
+    if (description) {
+      description.textContent = mode === "light"
+        ? "轻内容独立选源、独立保存；按任务、文案、视觉、交付四步完成图组，不混入长文流程。"
+        : "长文可直接重构，也可进入深度写作；每一步都保留来源、证据和版本。";
+    }
     render();
     if (mode !== "light") return;
-    if (sourceId) state.brief.sourceId = sourceId;
+    if (sourceId) {
+      state.brief.sourceId = sourceId;
+      saveLightSource();
+    }
     const preferredVariantId = sourceId ? "" : state.currentVariant?.id || "";
     await loadWorkspace(preferredVariantId);
   }
@@ -1498,6 +1810,7 @@
       if (!state.sources.some((item) => item.id === state.brief.sourceId)) {
         state.brief.sourceId = state.sources[0]?.id || "";
       }
+      saveLightSource();
       if (state.mode === "light") renderTask();
     });
   }

@@ -88,7 +88,7 @@
     button.type = "button";
     button.className = "nav-item";
     button.dataset.view = "pool-memory-view";
-    button.innerHTML = '<span class="nav-icon">忆</span><span>池子记忆</span>';
+    button.innerHTML = '<span class="nav-icon">笔</span><span>写作偏好</span>';
     button.addEventListener("click", () => { void openView(); });
     const anchor = nav.querySelector('[data-view="style-lab-view"]') || nav.querySelector('[data-view="settings-view"]');
     nav.insertBefore(button, anchor || null);
@@ -102,7 +102,7 @@
     view.id = "pool-memory-view";
     view.className = "app-view";
     view.innerHTML = `
-<section class="page-intro"><span class="section-kicker">PERSONAL MEMORY · HUMAN GATED</span><h2>池子记忆</h2><p>风格档案是长期宪法；这里保存经你批准的具体经验。每次生成只检索任务相关记忆，并冻结不可变快照。</p></section>
+<section class="page-intro"><span class="section-kicker">WRITING PREFERENCES · HUMAN GATED</span><h2>写作偏好</h2><p>这里只保存经你批准的表达经验：怎么开头、组织、判断和收束。它不提供事实，也不能代替任务里明确选择的来源。</p></section>
 <section class="memory-shell">
   <div class="memory-principles"><article class="memory-principle"><strong>记忆决定“怎么写”，证据决定“能写什么”</strong><p>历史文章中的人名、数字、日期、结果与因果不能成为新文章事实。候选必须经过预览和人工批准。</p></article><article class="memory-stat"><strong id="memory-approved-count">0</strong><span>有效记忆</span></article><article class="memory-stat"><strong id="memory-candidate-count">0</strong><span>待批准候选</span></article><article class="memory-stat"><strong id="memory-usage-count">0</strong><span>角色使用记录</span></article></div>
   <div class="memory-grid">
@@ -461,7 +461,7 @@
     const draftFooter = document.querySelector("#draft-form .editor-footer");
     if (draftFooter && !byId("memory-from-draft")) {
       const button = document.createElement("button");
-      button.id = "memory-from-draft"; button.type = "button"; button.className = "secondary-action"; button.textContent = "加入池子记忆";
+      button.id = "memory-from-draft"; button.type = "button"; button.className = "secondary-action"; button.textContent = "提炼为写作偏好";
       button.addEventListener("click", () => {
         let draft = null;
         try { draft = typeof state !== "undefined" ? state.currentDraft : null; } catch {}

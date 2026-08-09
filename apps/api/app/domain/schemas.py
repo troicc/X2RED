@@ -83,6 +83,7 @@ class SourceListItem(BaseModel):
     text_original: str
     content_kind: str
     workspace_state: str
+    workbench_state: WorkspaceStateValue = "active"
     created_at: datetime | None
     captured_at: datetime
     archived_at: datetime | None
@@ -99,6 +100,13 @@ class SourceDetail(SourceListItem):
     metrics_json: str
     assets: list[AssetOut] = Field(default_factory=list)
     related: list[SourceListItem] = Field(default_factory=list)
+
+
+class ManualSourceCreateRequest(BaseModel):
+    title: str = Field(default="", max_length=200)
+    author_name: str = Field(default="", max_length=160)
+    canonical_url: str = Field(default="", max_length=2000)
+    text_original: str = Field(min_length=20, max_length=200000)
 
 
 class SourceNoteUpdateRequest(BaseModel):

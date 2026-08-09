@@ -20,6 +20,7 @@ from app.domain.platforms import PlatformVariant, PlatformVariantState
 from app.services.light_visual_renderer import CJKFontError, LightVisualRenderer
 from app.services.minimal_zine_native import (
     MinimalZineNativeService,
+    _canonical_layout,
     _model_input_fingerprint,
     storyboard_model_input_changed,
 )
@@ -105,11 +106,16 @@ def allow_portable_render_font(
 
 
 def storyboard_specs() -> list[dict]:
+    notes = (
+        "文字始终由本地合成器排版。",
+        "原始视觉锚点需要单独保留。",
+        "不可变版本负责记录本页修改。",
+    )
     return [
         {
             "page": page,
             "phrase": f"第 {page} 页的本地中文",
-            "note": "只由本地合成器排版。",
+            "note": notes[page - 1],
             "visual_metaphor": f"第 {page} 个孤立物件",
             "layout": layout,
             "anchor": "object-specimen",
@@ -219,6 +225,48 @@ def stored_variant(
     return variant
 
 
+def unrendered_variant(
+    db: Session,
+    *,
+    variant_id: str = "variant_web_handoff",
+    source_id: str = "source_web_handoff",
+) -> PlatformVariant:
+    source = SourceItem(
+        id=source_id,
+        provider="test",
+        platform="x",
+        external_id=source_id,
+        canonical_url=f"https://x.com/example/{source_id}",
+        author_handle="web_handoff_test",
+        author_name="Web Handoff Test",
+        content_kind="post",
+        text_original="ChatGPT 网页回传测试来源",
+        structured_content_json="{}",
+        metrics_json="{}",
+    )
+    variant = PlatformVariant(
+        id=variant_id,
+        source_id=source.id,
+        platform="wechat",
+        format="light_series",
+        version=1,
+        title="ChatGPT 网页回传测试",
+        subtitle="",
+        summary="逐页回传后由 X2RED 本地排版。",
+        body_markdown="测试正文",
+        tags="测试",
+        theme="zen",
+        metadata_json=json.dumps(
+            {"poster_specs": storyboard_specs(), "visual_style": "minimal_zine"},
+            ensure_ascii=False,
+        ),
+        output_paths_json="{}",
+    )
+    db.add_all([source, variant])
+    db.flush()
+    return variant
+
+
 def test_recompose_selected_page_preserves_complete_set_and_excludes_raw_zip(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -256,6 +304,71 @@ def test_recompose_selected_page_preserves_complete_set_and_excludes_raw_zip(
     manifest = json.loads(Path(outputs["manifest"]).read_text(encoding="utf-8"))
     assert manifest["raw_anchors"] == ["anchor-01.png", "anchor-02.png", "anchor-03.png"]
     assert manifest["pages"][1]["anchor_key"] == "anchor_02"
+
+
+def test_chatgpt_web_handoff_uses_no_api_and_accepts_fresh_pages_incrementally(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = session(tmp_path)
+    service = MinimalZineNativeService(settings(tmp_path))
+    variant = unrendered_variant(db)
+    allow_portable_render_font(service, monkeypatch)
+    monkeypatch.setattr(
+        service,
+        "_compile_prompt",
+        lambda **_: (_ for _ in ()).throw(AssertionError("web handoff must not call a text model")),
+    )
+    monkeypatch.setattr(
+        service,
+        "_generate_image",
+        lambda _: (_ for _ in ()).throw(AssertionError("web handoff must not call an image API")),
+    )
+
+    handoff = service.prepare_web_handoff(variant, pages=[1])
+    assert handoff["provider"] == "chatgpt-web"
+    assert handoff["api_used"] is False
+    assert handoff["chatgpt_url"] == "https://chatgpt.com/images"
+    assert handoff["pages"][0]["aspect_ratio"] == "3:5"
+    assert "NO TEXT" in handoff["pages"][0]["prompt"]
+    assert "X2RED adds Chinese locally" in handoff["pages"][0]["prompt"]
+
+    for page in (1, 2):
+        variant, result, complete = service.import_external_anchor(
+            db,
+            variant,
+            page=page,
+            image_bytes=image_bytes(accent="#1646d8"),
+        )
+        assert result["action"] == "external_import"
+        assert result["api_used"] is False
+        assert complete is False
+        outputs = json.loads(variant.output_paths_json)
+        assert f"anchor_{page:02d}" in outputs
+        assert f"poster_{page:02d}" in outputs
+        assert "package" not in outputs
+        assert variant.status == PlatformVariantState.rendered.value
+
+    variant, result, complete = service.import_external_anchor(
+        db,
+        variant,
+        page=3,
+        image_bytes=image_bytes(accent="#c91f2c"),
+    )
+    assert result["provider"] == "chatgpt-web"
+    assert complete is True
+    assert variant.status == PlatformVariantState.packaged.value
+    outputs = json.loads(variant.output_paths_json)
+    assert "package" in outputs
+    assert all(f"anchor_{page:02d}" in outputs for page in (1, 2, 3))
+    assert all(f"poster_{page:02d}" in outputs for page in (1, 2, 3))
+    with zipfile.ZipFile(outputs["package"]) as archive:
+        assert not any(name.startswith("anchor-") for name in archive.namelist())
+    metadata = json.loads(variant.metadata_json)
+    web_handoff = metadata["native_zine"]["external_web_handoff"]
+    assert web_handoff["api_used"] is False
+    assert web_handoff["imported_pages"] == [1, 2, 3]
+    assert web_handoff["pending_pages"] == []
 
 
 def test_recompose_rejects_missing_anchor_and_never_uses_final_as_raw(
@@ -304,6 +417,57 @@ def test_staging_failure_rolls_back_existing_package_and_db_refs(
     assert not list((service.settings.export_dir / "wechat").glob(".variant_v15.staging-*"))
 
 
+def test_unexpected_render_failure_becomes_readable_error_and_preserves_package(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = session(tmp_path)
+    service = MinimalZineNativeService(settings(tmp_path))
+    variant = stored_variant(db, service)
+    allow_portable_render_font(service, monkeypatch)
+    original_outputs = variant.output_paths_json
+    package_path = Path(json.loads(original_outputs)["package"])
+    original_hash = hashlib.sha256(package_path.read_bytes()).hexdigest()
+
+    monkeypatch.setattr(
+        service,
+        "_rebuild_artifacts",
+        lambda **_: (_ for _ in ()).throw(OSError("simulated compositor outage")),
+    )
+    with pytest.raises(NativeSkillError, match="已保留上一版完整成品"):
+        service.render_variant(db, variant, mode="recompose", pages=[1])
+
+    assert variant.output_paths_json == original_outputs
+    assert hashlib.sha256(package_path.read_bytes()).hexdigest() == original_hash
+
+
+def test_compositor_preserves_full_plate_and_feathers_only_outer_edges(
+    tmp_path: Path,
+) -> None:
+    service = MinimalZineNativeService(settings(tmp_path))
+    output = tmp_path / "poster.png"
+    diagnostics = service._compose_poster(
+        image_bytes(),
+        output,
+        spec=storyboard_specs()[0],
+        recipe=service._recipe_for(storyboard_specs()[0]),
+        page=1,
+        total=3,
+    )
+    assert diagnostics["edge_crop"] == {
+        "left": 0.0,
+        "top": 0.0,
+        "right": 0.0,
+        "bottom": 0.0,
+    }
+    assert diagnostics["edge_cleanup"]["mode"] == "feathered-paper-mask"
+    assert diagnostics["source_aspect_preserved"] is True
+    assert diagnostics["source_plate_size"] == {"width": 1200, "height": 1800}
+    assert diagnostics["source_plate_offset"] == {"x": 0, "y": 100}
+    assert diagnostics["text_safe_zone_treatment"] == "feathered-paper-veil"
+    assert diagnostics["model_text_mitigation"] == "feather-high-risk-outer-edge-and-local-type"
+
+
 def test_cjk_resolver_reports_actual_coverage_and_honors_configured_font(
     tmp_path: Path,
 ) -> None:
@@ -329,7 +493,7 @@ def test_custom_storyboard_mood_remains_part_of_the_frozen_model_input() -> None
     assert _model_input_fingerprint(previous) != _model_input_fingerprint(revised)
 
 
-def test_compositor_preserves_muted_upstream_accent_and_bounds_local_fallback(
+def test_compositor_preserves_upstream_accent_without_fabricating_a_local_mark(
     tmp_path: Path,
 ) -> None:
     service = MinimalZineNativeService(settings(tmp_path))
@@ -350,51 +514,44 @@ def test_compositor_preserves_muted_upstream_accent_and_bounds_local_fallback(
     assert faded_diagnostics["local_accent_reason"] == "upstream-muted-accent"
     assert faded_diagnostics["local_accent_actual_share"] == 0.0
 
-    fallback_diagnostics = service._compose_poster(
+    monochrome_diagnostics = service._compose_poster(
         monochrome_image_bytes(),
-        tmp_path / "color-starved-fallback.png",
+        tmp_path / "color-starved-no-fabricated-mark.png",
         spec=spec,
         recipe=recipe,
         page=1,
         total=3,
     )
-    assert fallback_diagnostics["local_accent_added"] is True
-    assert fallback_diagnostics["local_accent_reason"] == "color-starved"
-    assert fallback_diagnostics["local_accent_actual_share"] <= service.local_accent_max_share
-    assert fallback_diagnostics["local_accent_actual_share"] <= fallback_diagnostics[
-        "local_accent_target_share"
-    ]
-    assert fallback_diagnostics["local_accent_shape"] == "registration-stamp"
-    assert fallback_diagnostics["local_accent_outside_text_safe_zone"] is True
-    assert fallback_diagnostics["local_accent_outside_principal_cluster"] is True
-    bbox = fallback_diagnostics["local_accent_bbox"]
-    assert bbox["width"] <= 96
-    assert bbox["height"] <= 48
+    assert monochrome_diagnostics["local_accent_added"] is False
+    assert monochrome_diagnostics["local_accent_reason"] == "disabled-no-fabricated-mark"
+    assert monochrome_diagnostics["local_accent_actual_share"] == 0.0
+    assert monochrome_diagnostics["local_accent_shape"] is None
 
-    # The solid-block recipe produces the widest possible local mark.  Every
-    # layout's slot must still stay outside its own art and typography fields.
-    for layout in (
-        "center-fragment",
-        "lower-left-float",
-        "upper-right-block",
-        "dual-panel",
-        "irregular-cutout",
-        "type-led",
-        "dot-orbit",
-        "single-specimen",
-    ):
-        canvas = Image.new("RGB", (service.local_renderer.width, service.local_renderer.height))
-        slot_diagnostics = service._draw_local_accent(
-            ImageDraw.Draw(canvas),
-            layout=layout,
-            anchor="solid-color-block",
-            color="#c91f2c",
-            share=service.local_accent_target_share,
-            safe_zone=service._safe_zone(layout),
-        )
-        assert slot_diagnostics["actual_share"] <= service.local_accent_max_share
-        assert slot_diagnostics["outside_text_safe_zone"] is True
-        assert slot_diagnostics["outside_principal_cluster"] is True
+
+def test_legacy_layout_is_normalized_and_chinese_title_avoids_orphan_line(
+    tmp_path: Path,
+) -> None:
+    service = MinimalZineNativeService(settings(tmp_path))
+    spec = {
+        **storyboard_specs()[0],
+        "phrase": "没干重活，为什么下班后累得不想说话",
+        "note": "一天下来大多是坐着看文件、处理琐事，没搬砖没流汗",
+        "layout": "三分法构图，文字在画面上方",
+    }
+    diagnostics = service._compose_poster(
+        image_bytes(),
+        tmp_path / "legacy-layout-normalized.png",
+        spec=spec,
+        recipe=service._recipe_for(spec),
+        page=1,
+        total=4,
+    )
+
+    assert _canonical_layout(spec["layout"]) == "lower-fragment"
+    assert diagnostics["layout"] == "lower-fragment"
+    assert diagnostics["safe_zone"] == "top-wide"
+    assert diagnostics["title_lines"][-1] != "说话"
+    assert diagnostics["title_last_line_chars"] >= 4
 
 
 def test_storyboard_revision_is_immutable_and_render_request_validates_modes(

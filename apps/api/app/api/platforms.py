@@ -4,7 +4,7 @@ import json
 import re
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
@@ -29,7 +29,8 @@ from app.domain.platform_schemas import (
 )
 from app.domain.platforms import PlatformVariant
 from app.domain.pool_memory_schemas import PoolMemoryTargetCandidateRequest
-from app.services.light_content import LightContentError
+from app.services.input_materials import InputMaterialError, resolve_input_materials
+from app.services.light_content import LightContentError, poster_copy_issues
 from app.services.light_content_fit import assess_source_fit
 from app.services.light_content_lab import LightContentLabService
 from app.services.light_visual_renderer import VISUAL_STYLE_LABELS
@@ -63,33 +64,28 @@ def _json_object(value: str) -> dict:
 
 
 def _light_copy_segments(title: str, summary: str, body: str, count: int) -> list[tuple[str, str]]:
-    cleaned_title = re.sub(r"\s+", " ", title).strip()[:36]
-    sentences = [
-        re.sub(r"\s+", " ", item).strip()
-        for item in re.split(r"(?<=[。！？!?])|\n+", body)
-        if re.sub(r"\s+", " ", item).strip()
-    ]
-    summary_text = re.sub(r"\s+", " ", summary).strip()
-    phrases = [cleaned_title] if cleaned_title else []
-    for sentence in sentences:
-        candidate = sentence.rstrip("。！？!?")[:36]
-        if candidate and candidate not in phrases:
-            phrases.append(candidate)
+    """Build a safe emergency storyboard only when a legacy variant has none.
+
+    Normal article edits never call this data to overwrite an existing storyboard.
+    Notes remain blank because adjacent body sentences are not page-level evidence and
+    previously produced the exact N.note == N+1.phrase splice reported by users.
+    """
+
+    raw_candidates = [title, summary, *re.split(r"(?<=[。！？!?])|\n+", body)]
+    phrases: list[str] = []
+    keys: set[str] = set()
+    for value in raw_candidates:
+        candidate = re.sub(r"\s+", " ", str(value or "")).strip().rstrip("。！？!?")[:36]
+        key = re.sub(r"[^0-9a-zA-Z\u4e00-\u9fff]+", "", candidate).casefold()
+        if not key or key in keys:
+            continue
+        phrases.append(candidate)
+        keys.add(key)
         if len(phrases) >= count:
             break
-    if summary_text and len(phrases) < count:
-        phrases.append(summary_text.rstrip("。！？!?")[:36])
     while len(phrases) < count:
-        phrases.append(phrases[-1] if phrases else "把这一页说清楚")
-
-    segments: list[tuple[str, str]] = []
-    for index, phrase in enumerate(phrases[:count]):
-        note_source = sentences[index] if index < len(sentences) else summary_text
-        note = note_source.rstrip("。！？!?")[:48]
-        if note == phrase:
-            note = ""
-        segments.append((phrase, note))
-    return segments
+        phrases.append(f"第 {len(phrases) + 1} 页短句待确认")
+    return [(phrase, "") for phrase in phrases[:count]]
 
 
 def _sync_light_storyboard(
@@ -99,11 +95,13 @@ def _sync_light_storyboard(
     metadata = _json_object(revised.metadata_json)
     specs_raw = metadata.get("poster_specs")
     specs = [dict(item) for item in specs_raw if isinstance(item, dict)] if isinstance(specs_raw, list) else []
-    count = min(max(len(specs), 3), 6)
-    segments = _light_copy_segments(revised.title, revised.summary, revised.body_markdown, count)
+    count = min(max(len(specs) or int(metadata.get("image_count") or 4), 3), 6)
     if not specs:
+        segments = _light_copy_segments(revised.title, revised.summary, revised.body_markdown, count)
         specs = [
             {
+                "phrase": phrase,
+                "note": note,
                 "visual_metaphor": "真实生活中的单一物件或场景",
                 "photo_direction": "画面必须与文字中的具体场景一致",
                 "layout": "editorial",
@@ -111,27 +109,23 @@ def _sync_light_storyboard(
                 "mood": "quiet",
                 "visual_style": metadata.get("visual_style") or "minimal_zine",
             }
-            for _ in range(count)
+            for phrase, note in segments
         ]
-    for index in range(count):
-        spec = specs[index] if index < len(specs) else dict(specs[-1])
-        phrase, note = segments[index]
-        spec["phrase"] = phrase
-        spec["note"] = note
-        # Editing title/body persists a new immutable textual revision.  It does not
-        # make an unchanged visual metaphor/raw anchor stale; only its local final
-        # composition needs rebuilding in the child directory.
-        spec.pop("final_composition_fingerprint", None)
-        spec.pop("compositor_version", None)
-        spec.pop("composition_diagnostics", None)
-        if index < len(specs):
-            specs[index] = spec
-        else:
-            specs.append(spec)
+    specs = specs[:count]
+    quality_issues = poster_copy_issues(specs)
     metadata.update(
         {
             "parent_variant_id": current.id,
-            "poster_specs": specs[:count],
+            "poster_specs": specs,
+            "storyboard_copy_sync": {
+                "mode": "preserved-after-article-edit",
+                "status": "review_required" if quality_issues else "preserved",
+                "copy_changed": False,
+                "quality_issues": quality_issues,
+                "message": (
+                    "正文保存不会静默改写逐页短句与说明；请在视觉分镜中单独确认。"
+                ),
+            },
             "human_edited": True,
             "human_approved": False,
             "render_engine": "",
@@ -162,6 +156,12 @@ def _carry_storyboard_trace(
         "text_rendering",
         "model_text_forbidden",
     ):
+        if key in previous:
+            current[key] = previous[key]
+
+
+def _carry_storyboard_copy_provenance(previous: dict, current: dict) -> None:
+    for key in ("evidence_basis", "source_refs"):
         if key in previous:
             current[key] = previous[key]
 
@@ -239,9 +239,18 @@ async def create_wechat_variant(
     db: Session = Depends(get_db),
     service: PlatformStudioService = Depends(get_platform_service),
 ) -> PlatformVariant:
-    source = db.get(SourceItem, body.source_id)
-    if source is None:
-        raise HTTPException(status_code=404, detail="来源不存在")
+    try:
+        resolved = resolve_input_materials(
+            db,
+            [
+                *body.material_refs,
+                *(f"source:{source_id}" for source_id in body.supporting_source_ids),
+            ],
+            preferred_source_id=body.source_id,
+        )
+    except InputMaterialError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    source = resolved.primary_source
     draft: DraftRevision | None = None
     if body.draft_id:
         draft = db.get(DraftRevision, body.draft_id)
@@ -263,6 +272,8 @@ async def create_wechat_variant(
             include_citations=body.include_citations,
             include_illustration_plan=body.include_illustration_plan,
             author=body.author,
+            supporting_sources=resolved.sources[1:],
+            input_materials=resolved.materials,
         )
     except PlatformStudioError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -452,6 +463,7 @@ def revise_wechat_light_storyboard(
             or current_metadata.get("visual_style")
             or "minimal_zine"
         )
+        _carry_storyboard_copy_provenance(previous, replacement)
         model_changed = storyboard_model_input_changed(previous, replacement)
         local_changed = _storyboard_page_changed(previous, replacement)
         if model_changed:
@@ -466,6 +478,16 @@ def revise_wechat_light_storyboard(
             replacement.pop("compositor_version", None)
             replacement.pop("composition_diagnostics", None)
         replacement_specs.append(replacement)
+
+    copy_issues = poster_copy_issues(replacement_specs)
+    if copy_issues:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "分镜文案存在跨页重复：上一页说明不能复用为下一页短句，"
+                "各页短句与说明也不能彼此近似重复。请逐页写成独立观点。"
+            ),
+        )
 
     metadata.update(
         {
@@ -554,6 +576,53 @@ def create_wechat_light_corpus(
 @router.get("/variants/{variant_id}", response_model=PlatformVariantOut)
 def get_variant(variant_id: str, db: Session = Depends(get_db)) -> PlatformVariant:
     return _variant(db, variant_id)
+
+
+@router.post("/variants/{variant_id}/repair-incomplete", response_model=PlatformVariantOut)
+async def repair_incomplete_variant(
+    variant_id: str,
+    db: Session = Depends(get_db),
+    service: PlatformStudioService = Depends(get_platform_service),
+) -> PlatformVariant:
+    variant = _variant(db, variant_id)
+    try:
+        repaired = await service.repair_incomplete_variant(db, variant)
+    except PlatformStudioError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    db.commit()
+    db.refresh(repaired)
+    return repaired
+
+
+@router.post(
+    "/variants/{variant_id}/visuals/{slot_id}",
+    response_model=PlatformVariantOut,
+)
+async def upload_variant_visual(
+    variant_id: str,
+    slot_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    service: PlatformStudioService = Depends(get_platform_service),
+) -> PlatformVariant:
+    variant = _variant(db, variant_id)
+    try:
+        payload = await file.read(12 * 1024 * 1024 + 1)
+        service.attach_visual_asset(
+            db,
+            variant,
+            slot_id=slot_id,
+            payload=payload,
+        )
+        db.commit()
+        db.refresh(variant)
+        return variant
+    except PlatformStudioError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        await file.close()
 
 
 @router.post(
@@ -677,7 +746,11 @@ def render_variant(
 @router.get("/variants/{variant_id}/preview")
 def preview_variant(variant_id: str, db: Session = Depends(get_db)) -> FileResponse:
     path = _variant_file(db, variant_id, "preview")
-    return FileResponse(path, media_type="text/html; charset=utf-8")
+    return FileResponse(
+        path,
+        media_type="text/html; charset=utf-8",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
 
 
 @router.get("/variants/{variant_id}/files/{file_key}")
@@ -692,9 +765,17 @@ def download_variant_file(
         ".md": "text/markdown; charset=utf-8",
         ".json": "application/json",
         ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
         ".zip": "application/zip",
     }.get(path.suffix.lower(), "application/octet-stream")
-    return FileResponse(path, media_type=media_type, filename=path.name)
+    return FileResponse(
+        path,
+        media_type=media_type,
+        filename=path.name,
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
 
 
 def _variant_file(db: Session, variant_id: str, file_key: str) -> Path:

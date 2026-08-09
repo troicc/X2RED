@@ -30,6 +30,13 @@ class WorkspaceState(str, enum.Enum):
     archived = "archived"
 
 
+class SourceWorkbench(str, enum.Enum):
+    xhs = "xhs"
+    wechat_long = "wechat_long"
+    wechat_light = "wechat_light"
+    deep_writing = "deep_writing"
+
+
 class AssetState(str, enum.Enum):
     discovered = "discovered"
     downloading = "downloading"
@@ -110,6 +117,27 @@ class SourceItem(Base):
     assets: Mapped[list[Asset]] = relationship(back_populates="source", cascade="all, delete-orphan")
     drafts: Mapped[list[DraftRevision]] = relationship(
         back_populates="source", cascade="all, delete-orphan"
+    )
+
+
+class SourceWorkbenchState(Base):
+    __tablename__ = "source_workbench_states"
+    __table_args__ = (UniqueConstraint("source_id", "workbench"),)
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: new_id("sws"))
+    source_id: Mapped[str] = mapped_column(
+        ForeignKey("source_items.id", ondelete="CASCADE"), index=True
+    )
+    workbench: Mapped[str] = mapped_column(String(40), index=True)
+    state: Mapped[str] = mapped_column(
+        String(20), default=WorkspaceState.active.value, index=True
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
 
 

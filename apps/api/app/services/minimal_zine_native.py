@@ -5,15 +5,17 @@ import hashlib
 import html
 import io
 import json
+import math
 import re
 import shutil
 import uuid
 import zipfile
+from functools import cache
 from pathlib import Path
 from typing import Any, Literal
 
 import httpx
-from PIL import Image, ImageDraw, ImageOps
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageOps
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
@@ -22,11 +24,11 @@ from app.services.light_visual_renderer import CJKFontError, LightVisualRenderer
 from app.services.model_client import ModelClient, ModelClientError
 from app.services.native_skill_manager import NativeSkillError, NativeSkillManager
 
-
 RenderMode = Literal["render_missing", "recompose", "regenerate"]
 
 STORYBOARD_LAYOUTS = (
     "center-fragment",
+    "lower-fragment",
     "lower-left-float",
     "upper-right-block",
     "dual-panel",
@@ -35,6 +37,16 @@ STORYBOARD_LAYOUTS = (
     "dot-orbit",
     "single-specimen",
 )
+_LEGACY_LAYOUT_ALIASES = {
+    "三分法构图，文字在画面上方": "lower-fragment",
+    "三分法构图,文字在画面上方": "lower-fragment",
+    "极简留白，文字在左下角": "upper-right-block",
+    "极简留白,文字在左下角": "upper-right-block",
+    "中心对称，文字在底部居中": "dual-panel",
+    "中心对称,文字在底部居中": "dual-panel",
+    "对角线构图，文字随窗帘飘动方向排列": "irregular-cutout",
+    "对角线构图,文字随窗帘飘动方向排列": "irregular-cutout",
+}
 STORYBOARD_ANCHORS = (
     "tiny-faded-photo",
     "torn-paper-clipping",
@@ -102,10 +114,43 @@ def _canonical_accent(value: Any) -> str:
     return _ACCENT_ALIASES.get(candidate, "cobalt")
 
 
+def _canonical_layout(value: Any) -> str:
+    raw = _clean(value, 100)
+    candidate = raw.lower().replace("_", "-").replace(" ", "-")
+    if candidate in STORYBOARD_LAYOUTS:
+        return candidate
+    if raw in _LEGACY_LAYOUT_ALIASES:
+        return _LEGACY_LAYOUT_ALIASES[raw]
+    compact = re.sub(r"[\s，,。；;：:]", "", raw)
+    if "文字" in compact and any(word in compact for word in ("画面上方", "顶部", "上方")):
+        return "lower-fragment"
+    if "文字" in compact and "左下" in compact:
+        return "upper-right-block"
+    if "文字" in compact and any(word in compact for word in ("底部居中", "下方居中")):
+        return "dual-panel"
+    if any(word in compact for word in ("对角线", "斜向", "飘动方向")):
+        return "irregular-cutout"
+    return "center-fragment"
+
+
 def _storyboard_controls(spec: dict[str, Any]) -> dict[str, Any]:
     """Return the one contract used by prompts, raw-cache validity and composing."""
 
     return {
+        "visual_metaphor": _clean(spec.get("visual_metaphor"), 240)
+        or "one isolated ordinary object",
+        "layout": _canonical_layout(spec.get("layout")),
+        "anchor": _allowed(spec.get("anchor"), STORYBOARD_ANCHORS, "object-specimen"),
+        "accent": _canonical_accent(spec.get("accent")),
+        "texture": _allowed(spec.get("texture"), STORYBOARD_TEXTURES, "xerox-softness"),
+        "mood": _clean(spec.get("mood"), 80) or "quiet",
+    }
+
+
+def _legacy_model_input_fingerprint(spec: dict[str, Any]) -> str:
+    """Fingerprint produced by compositor v5 before legacy layout normalization."""
+
+    controls = {
         "visual_metaphor": _clean(spec.get("visual_metaphor"), 240)
         or "one isolated ordinary object",
         "layout": _allowed(spec.get("layout"), STORYBOARD_LAYOUTS, "center-fragment"),
@@ -114,6 +159,8 @@ def _storyboard_controls(spec: dict[str, Any]) -> dict[str, Any]:
         "texture": _allowed(spec.get("texture"), STORYBOARD_TEXTURES, "xerox-softness"),
         "mood": _clean(spec.get("mood"), 80) or "quiet",
     }
+    encoded = json.dumps(controls, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 def _model_input_fingerprint(spec: dict[str, Any]) -> str:
@@ -136,7 +183,7 @@ def storyboard_model_input_changed(
 
 class MinimalZineNativeService:
     skill_name = "gc-minimal-zine-poster-v0-1"
-    compositor_version = "minimal-zine-local-type-v4"
+    compositor_version = "minimal-zine-local-type-v6"
     high_chroma_threshold = 0.004
     # A sparse plate can have a deliberately faded, but still meaningful, color
     # cluster.  Keep this separate from the stronger prompt-compliance signal so
@@ -161,6 +208,337 @@ class MinimalZineNativeService:
             and (self.settings.image_api_key or self.settings.model_api_key)
             and self.settings.image_model
         )
+
+    def prepare_web_handoff(
+        self,
+        variant: PlatformVariant,
+        *,
+        pages: list[int] | None = None,
+    ) -> dict[str, Any]:
+        """Build ChatGPT Images prompts without calling an image or text API.
+
+        ChatGPT's consumer web UI is intentionally treated as a human handoff:
+        X2RED prepares the frozen prompt, the user generates and saves the image in
+        ChatGPT, then uploads that file back.  We never automate the signed-in web
+        session or pretend it is an API.
+        """
+
+        self._require_light_variant(variant)
+        metadata = self._object(variant.metadata_json)
+        specs = self._poster_specs(metadata)
+        total = len(specs)
+        if not 3 <= total <= 6:
+            raise NativeSkillError("Minimal Zine 故事板必须包含 3 到 6 页")
+        selected = self._selected_pages(pages, total)
+        results: list[dict[str, Any]] = []
+        for page in selected:
+            spec = specs[page - 1]
+            controls = _storyboard_controls(spec)
+            safe_zone = self._safe_zone(controls["layout"])
+            raw_prompt = (
+                "Create one sparse, non-literal editorial visual symbol for this idea: "
+                f"{controls['visual_metaphor']}. Express it as one {controls['anchor']} "
+                f"with a {controls['texture']} material treatment and a {controls['mood']} mood. "
+                "Render only the visual object and paper texture; do not render the idea as words."
+            )
+            results.append(
+                {
+                    "page": page,
+                    "prompt": self._four_paragraph_prompt(
+                        controls=controls,
+                        raw_prompt=raw_prompt,
+                        safe_zone=safe_zone,
+                    ),
+                    "recipe": self._recipe_for(spec),
+                    "model_input_fingerprint": _model_input_fingerprint(spec),
+                    "aspect_ratio": "3:5",
+                    "text_policy": "no-model-text; x2red-local-cjk",
+                }
+            )
+        return {
+            "variant_id": variant.id,
+            "provider": "chatgpt-web",
+            "chatgpt_url": "https://chatgpt.com/images",
+            "api_used": False,
+            "automation": "manual-copy-save-upload",
+            "pages": results,
+        }
+
+    def import_external_anchor(
+        self,
+        db: Session,
+        variant: PlatformVariant,
+        *,
+        page: int,
+        image_bytes: bytes,
+        provider: str = "chatgpt-web",
+    ) -> tuple[PlatformVariant, dict[str, Any], bool]:
+        """Import one human-generated web image and rebuild every available final.
+
+        Partial imports are allowed so a fresh 3–6 page set can be handed through
+        ChatGPT one page at a time.  A publish ZIP is exposed only after all pages
+        have both a raw anchor and a locally composed final poster.
+        """
+
+        self._require_light_variant(variant)
+        if not image_bytes:
+            raise NativeSkillError("上传图片为空")
+        if len(image_bytes) > 12 * 1024 * 1024:
+            raise NativeSkillError("单张图片不能超过 12 MB")
+
+        metadata = self._object(variant.metadata_json)
+        specs = self._poster_specs(metadata)
+        total = len(specs)
+        if not 3 <= total <= 6:
+            raise NativeSkillError("Minimal Zine 故事板必须包含 3 到 6 页")
+        self._selected_pages([page], total)
+        try:
+            font_diagnostics = self.local_renderer.require_cjk_font()
+        except CJKFontError as exc:
+            raise NativeSkillError(str(exc)) from exc
+
+        current_paths = self._object(variant.output_paths_json)
+        parent = self._parent_variant(db, metadata, variant)
+        parent_metadata = self._object(parent.metadata_json) if parent else {}
+        parent_specs = self._poster_specs(parent_metadata) if parent else []
+        parent_paths = self._object(parent.output_paths_json) if parent else {}
+        handoff = self.prepare_web_handoff(variant, pages=[page])["pages"][0]
+
+        wechat_root = (self.settings.export_dir / "wechat").resolve()
+        wechat_root.mkdir(parents=True, exist_ok=True)
+        target_dir = self._variant_directory(wechat_root, variant.id)
+        staging_dir = wechat_root / f".{variant.id}.staging-{uuid.uuid4().hex}"
+        staging_dir.mkdir(parents=False, exist_ok=False)
+        new_specs = [dict(item) for item in specs]
+        stage_paths: dict[str, str] = {}
+        page_diagnostics: list[dict[str, Any]] = []
+        backup_dir: Path | None = None
+        promoted = False
+        original_values = {
+            "metadata_json": variant.metadata_json,
+            "output_paths_json": variant.output_paths_json,
+            "status": variant.status,
+            "error": variant.error,
+        }
+
+        try:
+            for current_page, spec in enumerate(new_specs, start=1):
+                anchor_key = f"anchor_{current_page:02d}"
+                poster_key = f"poster_{current_page:02d}"
+                anchor_path = staging_dir / f"anchor-{current_page:02d}.png"
+                poster_path = staging_dir / f"poster-{current_page:02d}.png"
+                model_fingerprint = _model_input_fingerprint(spec)
+                recipe = self._recipe_for(spec)
+                action = ""
+                raw_source_variant_id = variant.id
+
+                if current_page == page:
+                    self._write_raw_anchor(image_bytes, anchor_path)
+                    spec.update(
+                        {
+                            "final_prompt": str(handoff["prompt"]),
+                            "native_zine_recipe": recipe,
+                            "native_zine_interpretation": "由人工在 ChatGPT Images 网页生成并回传的无字视觉锚点。",
+                            "model_input_fingerprint": model_fingerprint,
+                            "raw_anchor_fingerprint": model_fingerprint,
+                            "raw_anchor_source_variant_id": variant.id,
+                            "raw_anchor_provider": provider,
+                            "raw_anchor_handoff": "manual-web-save-upload",
+                        }
+                    )
+                    action = "external_import"
+                else:
+                    final_source = self._final_candidate(
+                        variant=variant,
+                        specs=specs,
+                        paths=current_paths,
+                        page=current_page,
+                        target_spec=spec,
+                    )
+                    if final_source is None and parent is not None:
+                        final_source = self._final_candidate(
+                            variant=parent,
+                            specs=parent_specs,
+                            paths=parent_paths,
+                            page=current_page,
+                            target_spec=spec,
+                        )
+                    if final_source is not None:
+                        raw = final_source.get("raw")
+                        final_path = final_source.get("poster_path")
+                        if not isinstance(raw, dict) or not isinstance(final_path, Path):
+                            raise NativeSkillError(f"第 {current_page} 页缓存文件记录损坏")
+                        self._copy_raw_anchor(raw, anchor_path)
+                        shutil.copy2(final_path, poster_path)
+                        self._hydrate_trace(spec, raw.get("spec"), model_fingerprint)
+                        raw_source_variant_id = str(raw.get("variant_id") or variant.id)
+                        action = "cached"
+                    else:
+                        raw = self._raw_candidate(
+                            variant=variant,
+                            specs=specs,
+                            paths=current_paths,
+                            parent=parent,
+                            parent_specs=parent_specs,
+                            parent_paths=parent_paths,
+                            page=current_page,
+                            expected_fingerprint=model_fingerprint,
+                        )
+                        if raw is None:
+                            continue
+                        self._copy_raw_anchor(raw, anchor_path)
+                        self._hydrate_trace(spec, raw.get("spec"), model_fingerprint)
+                        raw_source_variant_id = str(raw.get("variant_id") or variant.id)
+                        action = "recomposed"
+
+                if action != "cached":
+                    composition = self._compose_poster(
+                        anchor_path.read_bytes(),
+                        poster_path,
+                        spec=spec,
+                        recipe=recipe,
+                        page=current_page,
+                        total=total,
+                        font_diagnostics=font_diagnostics,
+                    )
+                else:
+                    composition = self._object_value(spec.get("composition_diagnostics"))
+                    composition = {**composition, "cached_final": True}
+
+                spec.update(
+                    {
+                        "native_zine_recipe": recipe,
+                        "model_input_fingerprint": model_fingerprint,
+                        "raw_anchor_fingerprint": model_fingerprint,
+                        "final_composition_fingerprint": self._composition_fingerprint(spec, recipe),
+                        "compositor_version": self.compositor_version,
+                        "composition_diagnostics": composition,
+                        "visual_style": "minimal_zine_native",
+                        "text_rendering": "x2red-local-cjk",
+                        "model_text_forbidden": True,
+                    }
+                )
+                stage_paths[anchor_key] = str(anchor_path.resolve())
+                stage_paths[poster_key] = str(poster_path.resolve())
+                page_diagnostics.append(
+                    {
+                        "page": current_page,
+                        "anchor_key": anchor_key,
+                        "poster_key": poster_key,
+                        "action": action,
+                        "raw_source_variant_id": raw_source_variant_id,
+                        "provider": provider if current_page == page else str(spec.get("raw_anchor_provider") or "existing"),
+                        "diagnostics": composition,
+                    }
+                )
+
+            imported_pages = [
+                index
+                for index, spec in enumerate(new_specs, start=1)
+                if str(spec.get("raw_anchor_provider") or "") == provider
+            ]
+            complete = all(
+                f"anchor_{index:02d}" in stage_paths and f"poster_{index:02d}" in stage_paths
+                for index in range(1, total + 1)
+            )
+            pending_pages = [
+                index
+                for index in range(1, total + 1)
+                if f"poster_{index:02d}" not in stage_paths
+            ]
+            previous_native = self._object_value(metadata.get("native_zine"))
+            new_metadata = dict(metadata)
+            new_metadata["poster_specs"] = new_specs
+            new_metadata["render_engine"] = "gc-minimal-zine-local-compositor-v6"
+            new_metadata["native_zine"] = {
+                **previous_native,
+                "repository": "https://github.com/LiamGvchi/gc-minimal-zine-poster",
+                "commit": self.manager.definition(self.skill_name).commit,
+                "license": "MIT",
+                "compositor_version": self.compositor_version,
+                "model_role": "visual-anchor-only",
+                "local_typography": True,
+                "font": font_diagnostics,
+                "external_web_handoff": {
+                    "provider": provider,
+                    "api_used": False,
+                    "automation": "manual-copy-save-upload",
+                    "imported_pages": imported_pages,
+                    "pending_pages": pending_pages,
+                    "complete": complete,
+                },
+                "artifact_contract": "anchors-and-finals-separate; zip-excludes-anchors",
+                "watermark_policy": (
+                    "negative prompt, feathered high-risk outer-edge masking, local Chinese type, "
+                    "and required human visual review; no watermark-impossibility claim"
+                ),
+            }
+            stage_paths = self._rebuild_artifacts(
+                variant=variant,
+                metadata=new_metadata,
+                specs=new_specs,
+                output_dir=staging_dir,
+                output_paths=stage_paths,
+                page_diagnostics=page_diagnostics,
+            )
+            if not complete:
+                package_value = stage_paths.pop("package", "")
+                if package_value:
+                    Path(package_value).unlink(missing_ok=True)
+            self._assert_import_artifacts(stage_paths, staging_dir, page)
+
+            final_paths = {
+                key: str((target_dir / Path(value).name).resolve())
+                for key, value in stage_paths.items()
+            }
+            backup_dir = self._promote_staging(staging_dir, target_dir)
+            promoted = True
+            variant.metadata_json = json.dumps(new_metadata, ensure_ascii=False)
+            variant.output_paths_json = json.dumps(final_paths, ensure_ascii=False)
+            variant.status = (
+                PlatformVariantState.packaged.value
+                if complete
+                else PlatformVariantState.rendered.value
+            )
+            variant.error = ""
+            db.flush()
+        except Exception as exc:
+            if promoted:
+                self._restore_promoted_directory(target_dir, backup_dir)
+            variant.metadata_json = original_values["metadata_json"]
+            variant.output_paths_json = original_values["output_paths_json"]
+            variant.status = original_values["status"]
+            variant.error = original_values["error"]
+            if isinstance(exc, NativeSkillError):
+                raise
+            detail = _clean(str(exc), 240) or exc.__class__.__name__
+            raise NativeSkillError(
+                f"网页生图回传失败，已保留上一版成品：{detail}"
+            ) from exc
+        else:
+            if backup_dir is not None and backup_dir.exists():
+                shutil.rmtree(backup_dir, ignore_errors=True)
+            result = {
+                "page": page,
+                "path": final_paths[f"poster_{page:02d}"],
+                "anchor_path": final_paths[f"anchor_{page:02d}"],
+                "anchor_key": f"anchor_{page:02d}",
+                "poster_key": f"poster_{page:02d}",
+                "action": "external_import",
+                "provider": provider,
+                "api_used": False,
+                "final_prompt": str(handoff["prompt"]),
+                "recipe": handoff["recipe"],
+            }
+            return variant, result, complete
+        finally:
+            if staging_dir.exists():
+                shutil.rmtree(staging_dir, ignore_errors=True)
+
+    @staticmethod
+    def _require_light_variant(variant: PlatformVariant) -> None:
+        if variant.platform != "wechat" or variant.format != "light_series":
+            raise NativeSkillError("Minimal Zine 原生生图只支持公众号轻内容图组")
 
     def render_variant(
         self,
@@ -394,7 +772,7 @@ class MinimalZineNativeService:
 
             new_metadata = dict(metadata)
             new_metadata["poster_specs"] = new_specs
-            new_metadata["render_engine"] = "gc-minimal-zine-local-compositor-v4"
+            new_metadata["render_engine"] = "gc-minimal-zine-local-compositor-v6"
             new_metadata["native_zine"] = {
                 "repository": "https://github.com/LiamGvchi/gc-minimal-zine-poster",
                 "commit": self.manager.definition(self.skill_name).commit,
@@ -410,7 +788,7 @@ class MinimalZineNativeService:
                 "font": font_diagnostics,
                 "artifact_contract": "anchors-and-finals-separate; zip-excludes-anchors",
                 "watermark_policy": (
-                    "negative prompt, high-risk outer-edge crop, local clean text zone, "
+                    "negative prompt, feathered high-risk outer-edge masking, local Chinese type, "
                     "and required human visual review; no watermark-impossibility claim"
                 ),
             }
@@ -435,14 +813,19 @@ class MinimalZineNativeService:
             variant.status = PlatformVariantState.packaged.value
             variant.error = ""
             db.flush()
-        except Exception:
+        except Exception as exc:
             if promoted:
                 self._restore_promoted_directory(target_dir, backup_dir)
             variant.metadata_json = original_values["metadata_json"]
             variant.output_paths_json = original_values["output_paths_json"]
             variant.status = original_values["status"]
             variant.error = original_values["error"]
-            raise
+            if isinstance(exc, NativeSkillError):
+                raise
+            detail = _clean(str(exc), 240) or exc.__class__.__name__
+            raise NativeSkillError(
+                f"轻内容渲染失败，已保留上一版完整成品：{detail}"
+            ) from exc
         else:
             if backup_dir is not None and backup_dir.exists():
                 shutil.rmtree(backup_dir, ignore_errors=True)
@@ -622,7 +1005,15 @@ class MinimalZineNativeService:
         if page > len(specs):
             return None
         spec = specs[page - 1]
-        if str(spec.get("raw_anchor_fingerprint") or "") != expected_fingerprint:
+        stored_fingerprint = str(spec.get("raw_anchor_fingerprint") or "")
+        current_fingerprint = _model_input_fingerprint(spec)
+        legacy_fingerprint = _legacy_model_input_fingerprint(spec)
+        fingerprint_matches = stored_fingerprint == expected_fingerprint
+        legacy_matches_same_visual = (
+            stored_fingerprint == legacy_fingerprint
+            and current_fingerprint == expected_fingerprint
+        )
+        if not fingerprint_matches and not legacy_matches_same_visual:
             return None
         path = self._artifact_path(variant, paths, f"anchor_{page:02d}")
         if path is None or not self._is_parseable_image(path):
@@ -746,8 +1137,8 @@ class MinimalZineNativeService:
                 (
                     "Tall vertical 3:5 full-frame aged-paper editorial plate, no border and no mockup; "
                     "70%-90% perceived quiet paper, one sparse 8%-25% visual cluster positioned as "
-                    f"{controls['layout']}, with {safe_zone['prompt']} and the bottom 30 percent blank "
-                    "for local type."
+                    f"{controls['layout']}, with {safe_zone['prompt']} for local type. Keep that zone as the same "
+                    "continuous paper surface: no panel, frame, card, cream box, caption plate or hard-edged overlay."
                 ),
                 (
                     f"One {controls['anchor']} interprets {controls['visual_metaphor']}; "
@@ -781,45 +1172,32 @@ class MinimalZineNativeService:
         total: int,
         font_diagnostics: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Compose local type while retaining the model's full sparse art plate.
-
-        The crop is intentionally constrained to high-risk outer margins.  It avoids
-        the old destructive 4%-70% visual slice, avoids global grayscale/colorization,
-        and only adds local accent ink if the raw plate is measurably color-starved.
-        """
+        """Compose local Chinese without redesigning the supplied visual anchor."""
 
         try:
             with Image.open(io.BytesIO(image_bytes)) as source:
                 source = ImageOps.exif_transpose(source).convert("RGB")
-                width, height = source.size
-                # Edge-only mitigation: 6% side, 4% top and 12% bottom at most.
-                edges = {
-                    "left": 0.06,
-                    "top": 0.04,
-                    "right": 0.06,
-                    "bottom": 0.08,
-                }
-                cropped = source.crop(
-                    (
-                        int(width * edges["left"]),
-                        int(height * edges["top"]),
-                        int(width * (1 - edges["right"])),
-                        int(height * (1 - edges["bottom"])),
-                    )
-                )
                 focus_x = self._focus_value(spec.get("focus_x"), 0.5)
                 focus_y = self._focus_value(spec.get("focus_y"), 0.5)
                 zoom = self._zoom_value(spec.get("zoom"))
-                cropped = self._focused_crop(cropped, focus_x, focus_y, zoom)
-                # Preserve the complete post-edge-crop plate.  `contain` avoids a
-                # second, hidden interior crop when a provider returns a ratio that
-                # is not exactly 3:5; expected 3:5 anchors still fill the canvas.
+                focused = self._focused_crop(source, focus_x, focus_y, zoom)
+                target_size = (
+                    self.local_renderer.width,
+                    self.local_renderer.height,
+                )
+                if zoom < 1.0:
+                    target_size = (
+                        max(1, int(target_size[0] * zoom)),
+                        max(1, int(target_size[1] * zoom)),
+                    )
                 contained = ImageOps.contain(
-                    cropped,
-                    (self.local_renderer.width, self.local_renderer.height),
+                    focused,
+                    target_size,
                     method=Image.Resampling.LANCZOS,
                 )
-                visual = self.local_renderer._paper("#e8ddc8", noise=8, blend=0.025)
+                paper_rgb = self._sample_paper_color(source)
+                paper_hex = "#{:02x}{:02x}{:02x}".format(*paper_rgb)
+                visual = self.local_renderer._paper(paper_hex, noise=7, blend=0.018)
                 offset = (
                     (self.local_renderer.width - contained.width) // 2,
                     (self.local_renderer.height - contained.height) // 2,
@@ -828,130 +1206,351 @@ class MinimalZineNativeService:
         except (OSError, ValueError) as exc:
             raise NativeSkillError("图片模型返回的 raw anchor 无法解析") from exc
 
-        layout = str(recipe.get("layout") or "center-fragment")
+        layout = _canonical_layout(recipe.get("layout") or spec.get("layout"))
         safe_zone = self._safe_zone(layout)
         color_signal = self._color_signal(visual)
         high_chroma_ratio = color_signal["high_chroma_ratio"]
         muted_chroma_ratio = color_signal["muted_chroma_ratio"]
-        canvas = visual.copy()
+        paper_layer = self.local_renderer._paper(paper_hex, noise=7, blend=0.018)
+        edge_bands = {"left": 36, "top": 48, "right": 36, "bottom": 72}
+        edge_mask = self._edge_cleanup_mask(
+            visual.size,
+            bands=edge_bands,
+            feather=26,
+        )
+        plate_box = (
+            offset[0],
+            offset[1],
+            offset[0] + contained.width,
+            offset[1] + contained.height,
+        )
+        badge_mask, badge_regions = self._suspicious_edge_badge_mask(
+            visual,
+            plate_box=plate_box,
+        )
+        edge_mask = ImageChops.lighter(edge_mask, badge_mask)
+        canvas = Image.composite(paper_layer, visual, edge_mask)
+        veil_mask = self._soft_panel_mask(
+            canvas.size,
+            tuple(safe_zone["panel"]),
+            opacity=92,
+            feather=52,
+        )
+        canvas = Image.composite(paper_layer, canvas, veil_mask)
         draw = ImageDraw.Draw(canvas)
-        paper = "#e8ddc8"
-        # This is a local text-safe field, not a repeated external frame.  The model
-        # prompt reserves it; covering it protects local Chinese from edge badges and
-        # keeps the artwork's full-plate color/geometry elsewhere intact.
-        draw.rectangle(safe_zone["panel"], fill=paper)
-        # Providers often place badges in the last few pixels even when prompted
-        # otherwise.  Keep that high-risk outer bottom band locally clean rather
-        # than taking a destructive interior crop from the sparse model plate.
-        draw.rectangle(
-            (0, self.local_renderer.height - 128, self.local_renderer.width, self.local_renderer.height),
-            fill=paper,
-        )
-        draw.rectangle((0, 0, 72, self.local_renderer.height), fill=paper)
-        draw.rectangle(
-            (self.local_renderer.width - 72, 0, self.local_renderer.width, self.local_renderer.height),
-            fill=paper,
-        )
 
-        accent_added = False
-        accent_share = 0.0
-        accent_diagnostics: dict[str, Any] = {
-            "actual_share": 0.0,
-            "shape": None,
-            "placement": None,
-            "bbox": None,
-            "outside_text_safe_zone": True,
-            "outside_principal_cluster": True,
-        }
-        if (
-            high_chroma_ratio < self.high_chroma_threshold
-            and muted_chroma_ratio < self.muted_chroma_threshold
-        ):
-            accent_share = self.local_accent_target_share
-            accent_diagnostics = self._draw_local_accent(
-                draw,
-                layout=layout,
-                anchor=str(recipe.get("anchor") or "object-specimen"),
-                color=self._accent(str(recipe.get("accent") or spec.get("accent") or "")),
-                share=accent_share,
-                safe_zone=safe_zone,
-            )
-            accent_added = True
-        elif high_chroma_ratio >= self.high_chroma_threshold:
+        if high_chroma_ratio >= self.high_chroma_threshold:
             accent_reason = "upstream-high-chroma"
-        else:
+        elif muted_chroma_ratio >= self.muted_chroma_threshold:
             accent_reason = "upstream-muted-accent"
-        if accent_added:
-            accent_reason = "color-starved"
+        else:
+            accent_reason = "disabled-no-fabricated-mark"
 
         phrase = _clean(spec.get("phrase"), 80)
         note = _clean(spec.get("note"), 180)
         text_x, text_y, text_width = safe_zone["text"]
+        note_font = self.local_renderer._font(30, serif=True)
+        note_lines = self._balanced_wrap(
+            draw,
+            note,
+            note_font,
+            text_width,
+            max_lines=3,
+            min_last_chars=3,
+        )
         title_size = int(safe_zone["title_size"])
-        if len(phrase) > 20:
-            title_size = max(44, title_size - 10)
         title_font = self.local_renderer._font(title_size, bold=True, serif=False)
-        note_font = self.local_renderer._font(26, serif=True)
-        lines = self.local_renderer._wrap(draw, phrase, title_font, text_width)[:4]
+        title_lines: list[str] = []
+        max_title_lines = 4 if text_width >= 520 else 5
+        available_height = max(180, safe_zone["panel"][3] - text_y - 92)
+        for candidate_size in range(title_size, 39, -2):
+            candidate_font = self.local_renderer._font(candidate_size, bold=True, serif=False)
+            candidate_lines = self._balanced_wrap(
+                draw,
+                phrase,
+                candidate_font,
+                text_width,
+                max_lines=max_title_lines,
+                min_last_chars=4,
+            )
+            candidate_height = len(candidate_lines) * int(candidate_size * 1.28)
+            if note_lines:
+                candidate_height += 30 + len(note_lines) * 44
+            if candidate_lines and candidate_height <= available_height:
+                title_size = candidate_size
+                title_font = candidate_font
+                title_lines = candidate_lines
+                break
+        if phrase and not title_lines:
+            title_lines = self.local_renderer._wrap(
+                draw, phrase, title_font, text_width
+            )[:max_title_lines]
         line_height = int(title_size * 1.32)
-        for offset, line in enumerate(lines):
+        for line_index, line in enumerate(title_lines):
             draw.text(
-                (text_x, text_y + offset * line_height),
+                (text_x, text_y + line_index * line_height),
                 line,
                 font=title_font,
                 fill="#171614",
             )
-        note_y = text_y + len(lines) * line_height + 26
-        for offset, line in enumerate(
-            self.local_renderer._wrap(draw, note, note_font, text_width)[:3]
-        ):
+        note_y = text_y + len(title_lines) * line_height + 30
+        for line_index, line in enumerate(note_lines):
             draw.text(
-                (text_x, note_y + offset * 40),
+                (text_x, note_y + line_index * 44),
                 line,
                 font=note_font,
-                fill="#625d54",
+                fill="#514c45",
             )
-        footer_font = self.local_renderer._font(18, serif=True)
-        footer_y = min(self.local_renderer.height - 58, safe_zone["panel"][3] - 36)
-        draw.text((safe_zone["panel"][0] + 18, footer_y), "X2RED · MINIMAL ZINE", font=footer_font, fill="#625d54")
+        footer_font = self.local_renderer._font(20, serif=True)
+        footer_y = self.local_renderer.height - 76
         page_text = f"{page:02d} / {total:02d}"
         page_width = draw.textlength(page_text, font=footer_font)
         draw.text(
-            (safe_zone["panel"][2] - 18 - page_width, footer_y),
+            (self.local_renderer.width - 84 - page_width, footer_y),
             page_text,
             font=footer_font,
             fill="#625d54",
         )
         canvas.save(path, "PNG", optimize=True)
         return {
-            "edge_crop": edges,
+            "edge_crop": {"left": 0.0, "top": 0.0, "right": 0.0, "bottom": 0.0},
+            "edge_cleanup": {
+                "mode": "feathered-paper-mask",
+                "bands_px": edge_bands,
+                "feather_px": 26,
+                "badge_regions": badge_regions,
+            },
             "focus": {"x": focus_x, "y": focus_y, "zoom": zoom},
             "layout": layout,
             "safe_zone": safe_zone["id"],
+            "source_plate_size": {"width": contained.width, "height": contained.height},
+            "source_plate_offset": {"x": offset[0], "y": offset[1]},
+            "source_aspect_preserved": True,
+            "sampled_paper_color": paper_hex,
+            "text_safe_zone_treatment": "feathered-paper-veil",
+            "title_lines": title_lines,
+            "title_size": title_size,
+            "title_last_line_chars": len(re.sub(r"\W", "", title_lines[-1])) if title_lines else 0,
             "preserved_model_color": True,
+            "model_text_mitigation": "feather-high-risk-outer-edge-and-local-type",
             "high_chroma_ratio": round(high_chroma_ratio, 5),
             "high_chroma_threshold": self.high_chroma_threshold,
             "muted_chroma_ratio": round(muted_chroma_ratio, 5),
             "muted_chroma_threshold": self.muted_chroma_threshold,
             "muted_chroma_saturation": self.muted_chroma_saturation,
-            "local_accent_added": accent_added,
-            "local_accent_target_share": accent_share,
-            "local_accent_actual_share": round(
-                float(accent_diagnostics["actual_share"]), 6
-            ),
+            "local_accent_added": False,
+            "local_accent_target_share": 0.0,
+            "local_accent_actual_share": 0.0,
             "local_accent_max_share": self.local_accent_max_share,
-            "local_accent_shape": accent_diagnostics["shape"],
-            "local_accent_placement": accent_diagnostics["placement"],
-            "local_accent_bbox": accent_diagnostics["bbox"],
-            "local_accent_outside_text_safe_zone": accent_diagnostics[
-                "outside_text_safe_zone"
-            ],
-            "local_accent_outside_principal_cluster": accent_diagnostics[
-                "outside_principal_cluster"
-            ],
+            "local_accent_shape": None,
+            "local_accent_placement": None,
+            "local_accent_bbox": None,
+            "local_accent_outside_text_safe_zone": True,
+            "local_accent_outside_principal_cluster": True,
             "local_accent_reason": accent_reason,
             "font": (font_diagnostics or self.local_renderer.cjk_font_diagnostics()).get("selected"),
         }
+
+    @staticmethod
+    def _sample_paper_color(image: Image.Image) -> tuple[int, int, int]:
+        sampled = ImageOps.contain(image.convert("RGB"), (64, 96))
+        width, height = sampled.size
+        band_x = max(2, width // 8)
+        band_y = max(2, height // 12)
+        pixels: list[tuple[int, int, int]] = []
+        for y in range(height):
+            for x in range(width):
+                if x < band_x or x >= width - band_x or y < band_y or y >= height - band_y:
+                    pixels.append(sampled.getpixel((x, y)))
+        if not pixels:
+            return (232, 221, 200)
+
+        def median(channel: int) -> int:
+            values = sorted(pixel[channel] for pixel in pixels)
+            return int(values[len(values) // 2])
+
+        return median(0), median(1), median(2)
+
+    @staticmethod
+    def _edge_cleanup_mask(
+        size: tuple[int, int],
+        *,
+        bands: dict[str, int],
+        feather: int,
+    ) -> Image.Image:
+        width, height = size
+        mask = Image.new("L", size, 0)
+        draw = ImageDraw.Draw(mask)
+        draw.rectangle((0, 0, bands["left"], height), fill=255)
+        draw.rectangle((width - bands["right"], 0, width, height), fill=255)
+        draw.rectangle((0, 0, width, bands["top"]), fill=255)
+        draw.rectangle((0, height - bands["bottom"], width, height), fill=255)
+        return mask.filter(ImageFilter.GaussianBlur(radius=max(1, feather)))
+
+    @staticmethod
+    def _suspicious_edge_badge_mask(
+        image: Image.Image,
+        *,
+        plate_box: tuple[int, int, int, int],
+    ) -> tuple[Image.Image, list[dict[str, Any]]]:
+        """Mask large saturated corner components without cropping the source plate."""
+
+        width, height = image.size
+        hsv = image.convert("HSV")
+        saturation = hsv.getchannel("S").point([0] * 150 + [255] * 106)
+        value = hsv.getchannel("V").point([0] * 90 + [255] * 166)
+        high_chroma = ImageChops.multiply(saturation, value)
+        plate_left, plate_top, plate_right, plate_bottom = plate_box
+        corner_width = int(width * 0.42)
+        corner_height = int(height * 0.32)
+        proximity = max(72, int(min(width, height) * 0.06))
+        minimum_pixels = max(1200, int(width * height * 0.002))
+        corners = (
+            ("top-left", (0, 0, corner_width, corner_height), "left", "top"),
+            ("top-right", (width - corner_width, 0, width, corner_height), "right", "top"),
+            ("bottom-left", (0, height - corner_height, corner_width, height), "left", "bottom"),
+            (
+                "bottom-right",
+                (width - corner_width, height - corner_height, width, height),
+                "right",
+                "bottom",
+            ),
+        )
+        cleanup = Image.new("L", image.size, 0)
+        regions: list[dict[str, Any]] = []
+        for corner, risk_box, horizontal_edge, vertical_edge in corners:
+            risk = Image.new("L", image.size, 0)
+            ImageDraw.Draw(risk).rectangle(risk_box, fill=255)
+            candidate = ImageChops.multiply(high_chroma, risk)
+            bbox = candidate.getbbox()
+            if bbox is None or candidate.histogram()[255] < minimum_pixels:
+                continue
+            near_horizontal = (
+                bbox[0] - plate_left <= proximity
+                if horizontal_edge == "left"
+                else plate_right - bbox[2] <= proximity
+            )
+            near_vertical = (
+                bbox[1] - plate_top <= proximity
+                if vertical_edge == "top"
+                else plate_bottom - bbox[3] <= proximity
+            )
+            if not (near_horizontal and near_vertical):
+                continue
+            padding = 20
+            expanded = (
+                max(0, bbox[0] - padding),
+                max(0, bbox[1] - padding),
+                min(width, bbox[2] + padding),
+                min(height, bbox[3] + padding),
+            )
+            hard = Image.new("L", image.size, 0)
+            ImageDraw.Draw(hard).rounded_rectangle(expanded, radius=24, fill=255)
+            cleanup = ImageChops.lighter(
+                cleanup,
+                ImageChops.lighter(hard, hard.filter(ImageFilter.GaussianBlur(radius=18))),
+            )
+            regions.append(
+                {
+                    "corner": corner,
+                    "left": expanded[0],
+                    "top": expanded[1],
+                    "right": expanded[2],
+                    "bottom": expanded[3],
+                }
+            )
+        return cleanup, regions
+
+    @staticmethod
+    def _soft_panel_mask(
+        size: tuple[int, int],
+        panel: tuple[int, int, int, int],
+        *,
+        opacity: int,
+        feather: int,
+    ) -> Image.Image:
+        mask = Image.new("L", size, 0)
+        draw = ImageDraw.Draw(mask)
+        draw.rounded_rectangle(panel, radius=30, fill=min(255, max(0, opacity)))
+        return mask.filter(ImageFilter.GaussianBlur(radius=max(1, feather)))
+
+    def _balanced_wrap(
+        self,
+        draw: ImageDraw.ImageDraw,
+        text: str,
+        font: Any,
+        max_width: int,
+        *,
+        max_lines: int,
+        min_last_chars: int,
+    ) -> list[str]:
+        content = _clean(text, 240)
+        if not content:
+            return []
+        closing = "，。！？、；：）】》」』…,.!?;:)]}"
+        opening = "（【《「『([{"
+        weak_starters = "的了得着过后前时里上下来也而且与和或"
+
+        def visible_length(value: str) -> int:
+            return len(re.sub(r"[\s，。！？、；：,.!?;:（）【】《》「」『』…]", "", value))
+
+        minimum_last = min(min_last_chars, max(1, visible_length(content)))
+        total_visible = visible_length(content)
+        length = len(content)
+        for line_count in range(1, max_lines + 1):
+            balanced_last = max(
+                minimum_last,
+                math.ceil((total_visible / line_count) * 0.75),
+            )
+
+            @cache
+            def solve(
+                start: int,
+                remaining: int,
+                last_line_minimum: int = balanced_last,
+            ) -> tuple[float, tuple[str, ...]] | None:
+                if remaining == 1:
+                    segment = content[start:].strip()
+                    if not segment or draw.textlength(segment, font=font) > max_width:
+                        return None
+                    if (
+                        segment[0] in closing
+                        or segment[0] in weak_starters
+                        or visible_length(segment) < last_line_minimum
+                    ):
+                        return None
+                    return 0.0, (segment,)
+                best: tuple[float, tuple[str, ...]] | None = None
+                max_end = length - (remaining - 1)
+                for end in range(start + 1, max_end + 1):
+                    segment = content[start:end].strip()
+                    if not segment:
+                        continue
+                    width = float(draw.textlength(segment, font=font))
+                    if width > max_width:
+                        break
+                    if (
+                        segment[0] in closing
+                        or segment[0] in weak_starters
+                        or segment[-1] in opening
+                    ):
+                        continue
+                    tail = solve(end, remaining - 1)
+                    if tail is None:
+                        continue
+                    fill = width / max(max_width, 1)
+                    score = (1.0 - fill) ** 2 + tail[0]
+                    if segment[-1] in "，。！？；：,.!?;:":
+                        score -= 0.08
+                    candidate = (score, (segment, *tail[1]))
+                    if best is None or candidate[0] < best[0]:
+                        best = candidate
+                return best
+
+            result = solve(0, line_count)
+            if result is not None:
+                return list(result[1])
+        return self.local_renderer._wrap(draw, content, font, max_width)[:max_lines]
 
     def _safe_zone(self, layout: str) -> dict[str, Any]:
         layouts: dict[str, dict[str, Any]] = {
@@ -960,7 +1559,14 @@ class MinimalZineNativeService:
                 "panel": (72, 1260, 1128, 1872),
                 "text": (112, 1320, 960),
                 "title_size": 62,
-                "prompt": "a clean lower paper zone spanning roughly the bottom 30 percent",
+                "prompt": "the bottom 30 percent blank as one clean continuous paper zone",
+            },
+            "lower-fragment": {
+                "id": "top-wide",
+                "panel": (72, 100, 1128, 650),
+                "text": (112, 170, 960),
+                "title_size": 62,
+                "prompt": "a quiet upper paper zone spanning roughly the top 28 percent",
             },
             "lower-left-float": {
                 "id": "upper-right-column",
@@ -1093,6 +1699,7 @@ class MinimalZineNativeService:
     ) -> tuple[tuple[int, int], str, tuple[int, int, int, int]]:
         slots = {
             "center-fragment": ((96, 1120), "left-lower-margin", (160, 240, 1040, 1080)),
+            "lower-fragment": ((1010, 760), "right-upper-margin", (150, 720, 1050, 1500)),
             "lower-left-float": ((1010, 1090), "right-lower-margin", (96, 620, 620, 1460)),
             "upper-right-block": ((96, 1080), "left-lower-margin", (620, 120, 1120, 1040)),
             "dual-panel": ((96, 1240), "left-lower-margin", (220, 320, 980, 1180)),
@@ -1234,11 +1841,18 @@ class MinimalZineNativeService:
     @staticmethod
     def _write_raw_anchor(image_bytes: bytes, path: Path) -> None:
         try:
-            with Image.open(io.BytesIO(image_bytes)) as image:
-                image.verify()
-        except (OSError, ValueError) as exc:
-            raise NativeSkillError("图片模型返回的 raw anchor 无法解析") from exc
-        path.write_bytes(image_bytes)
+            with Image.open(io.BytesIO(image_bytes)) as opened:
+                image = ImageOps.exif_transpose(opened)
+                image.load()
+        except (OSError, ValueError, Image.DecompressionBombError) as exc:
+            raise NativeSkillError("只能回传可读取的 PNG、JPEG 或 WebP 图片") from exc
+        if image.width < 240 or image.height < 240:
+            raise NativeSkillError("图片尺寸过小，宽高都至少需要 240 像素")
+        if image.width * image.height > 50_000_000:
+            raise NativeSkillError("图片像素过大，请先缩小到 5000 万像素以内")
+        if max(image.size) > 2560:
+            image.thumbnail((2560, 2560), Image.Resampling.LANCZOS)
+        image.convert("RGB").save(path, format="PNG", optimize=True)
 
     def _rebuild_artifacts(
         self,
@@ -1397,6 +2011,31 @@ figcaption{{padding:10px 4px 2px;font-size:13px;color:#bbb}}
         ]
         if invalid:
             raise NativeSkillError(f"Minimal Zine 产物路径无效：{', '.join(invalid)}")
+
+    def _assert_import_artifacts(
+        self,
+        files: dict[str, str],
+        output_dir: Path,
+        page: int,
+    ) -> None:
+        required = {
+            f"anchor_{page:02d}",
+            f"poster_{page:02d}",
+            "markdown",
+            "manifest",
+            "preview",
+        }
+        missing = sorted(key for key in required if key not in files)
+        if missing:
+            raise NativeSkillError(f"网页回传产物不完整：缺少 {', '.join(missing)}")
+        root = output_dir.resolve()
+        invalid = [
+            key
+            for key, value in files.items()
+            if root not in Path(value).resolve().parents or not Path(value).is_file()
+        ]
+        if invalid:
+            raise NativeSkillError(f"网页回传产物路径无效：{', '.join(invalid)}")
 
     def _promote_staging(self, staging_dir: Path, target_dir: Path) -> Path | None:
         backup_dir: Path | None = None

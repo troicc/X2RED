@@ -42,12 +42,6 @@
     {
       group: "workspace",
       layer: "02 · 内容工作台",
-      view: "writing-view",
-      label: "长文写作项目",
-    },
-    {
-      group: "workspace",
-      layer: "02 · 内容工作台",
       view: "wechat-view",
       label: "公众号工作台",
     },
@@ -61,7 +55,7 @@
       group: "models",
       layer: "03 · 模型与 Skill",
       view: "pool-memory-view",
-      label: "池子记忆",
+      label: "写作偏好",
     },
     {
       group: "models",
@@ -225,6 +219,15 @@
   function updateIdentity(requestedView = "") {
     const active = requestedView || document.querySelector(".app-view.active")?.id || shellState.activeView;
     const item = BY_VIEW.get(active);
+    if (!item && active === "writing-view") {
+      shellState.activeView = active;
+      const context = node("global-context");
+      if (context) context.textContent = "02 · 内容工作台 / 公众号工作台 / 深度写作";
+      const legacyTitle = node("page-title");
+      if (legacyTitle) legacyTitle.textContent = "公众号深度写作";
+      contentTitle(active, "公众号深度写作");
+      return;
+    }
     if (!item) return;
     shellState.activeView = active;
     const context = node("global-context");
@@ -239,8 +242,13 @@
     window.__x2redProductSetViewV15 = true;
     const previous = window.setView;
     window.setView = function setProductView(viewId, ...args) {
+      const changed = shellState.activeView !== viewId;
       const result = previous?.call(this, viewId, ...args);
       updateIdentity(viewId);
+      if (changed) {
+        const main = document.querySelector(".app-main");
+        if (main) main.scrollTop = 0;
+      }
       schedule();
       return result;
     };
@@ -255,48 +263,41 @@
   }
 
   function decorateSourceList(displayed) {
-    const buttons = [...document.querySelectorAll("#source-list .source-item")];
-    buttons.forEach((button, index) => {
+    const rows = [...document.querySelectorAll("#source-list .source-item")];
+    rows.forEach((row, index) => {
       const source = displayed[index];
       if (!source) return;
       const group = groupOf(source);
-      button.dataset.sourceGroup = group;
-      const bottom = button.querySelector(".source-item-bottom");
-      if (!bottom || bottom.querySelector(".source-platform-badge")) return;
-      const badge = create("span", "source-platform-badge", SOURCE_LABELS[group] || source.platform || "其他");
-      bottom.appendChild(badge);
+      row.dataset.sourceGroup = group;
     });
   }
 
   function addSourcePlatformTabs() {
     const rail = document.querySelector(".source-rail");
     const search = rail?.querySelector(".source-filter");
-    if (!rail || !search || node("source-platform-tabs")) return;
-    const tabs = create("div", "source-platform-tabs");
-    tabs.id = "source-platform-tabs";
-    tabs.setAttribute("role", "group");
-    tabs.setAttribute("aria-label", "按平台筛选来源");
+    if (!rail || !search || node("source-platform-filter")) return;
+    const field = create("label", "source-platform-filter");
+    field.id = "source-platform-filter";
+    const caption = create("span", "source-platform-filter-label", "来源类型");
+    const select = document.createElement("select");
+    select.setAttribute("aria-label", "按来源类型筛选");
     [["all", "全部"], ...GROUPS].forEach(([id, label]) => {
-      const button = create("button", `source-platform-tab${id === shellState.sourceGroupFilter ? " active" : ""}`, label);
-      button.type = "button";
-      button.dataset.sourceGroup = id;
-      button.setAttribute("aria-pressed", String(id === shellState.sourceGroupFilter));
-      button.addEventListener("click", () => {
-        shellState.sourceGroupFilter = id;
-        [...tabs.querySelectorAll("button")].forEach((value) => {
-          const selected = value === button;
-          value.classList.toggle("active", selected);
-          value.setAttribute("aria-pressed", String(selected));
-        });
-        try {
-          if (typeof renderSourceList === "function") renderSourceList();
-        } catch {
-          // The base source list can be absent while its view is rebuilding.
-        }
-      });
-      tabs.appendChild(button);
+      const option = document.createElement("option");
+      option.value = id;
+      option.textContent = label;
+      select.appendChild(option);
     });
-    search.before(tabs);
+    select.value = shellState.sourceGroupFilter;
+    select.addEventListener("change", () => {
+      shellState.sourceGroupFilter = select.value;
+      try {
+        if (typeof renderSourceList === "function") renderSourceList();
+      } catch {
+        // The base source list can be absent while its view is rebuilding.
+      }
+    });
+    field.append(caption, select);
+    search.before(field);
   }
 
   function patchSourceRail() {

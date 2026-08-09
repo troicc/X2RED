@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any
 
 from sqlalchemy import desc, func, select
@@ -57,6 +58,8 @@ class WritingCore:
         main_thesis: str,
         style_profile_id: str | None,
         budget_limit_cents: int,
+        supporting_sources: list[SourceItem] | None = None,
+        input_materials: list[dict[str, Any]] | None = None,
     ) -> WritingProject:
         if style_profile_id and db.get(StyleProfile, style_profile_id) is None:
             raise ValueError("风格档案不存在")
@@ -73,6 +76,36 @@ class WritingCore:
         )
         db.add(project)
         db.flush()
+        selected = [source, *(supporting_sources or [])]
+        materials = input_materials or [
+            {
+                "ref": f"source:{item.id}",
+                "kind": "source",
+                "id": item.id,
+                "source_id": item.id,
+                "title": self._source_title(item),
+            }
+            for item in selected
+        ]
+        self._store_artifact(
+            db,
+            project=project,
+            artifact_type="source_selection",
+            content={
+                "primary_source_id": source.id,
+                "supporting_source_ids": [item.id for item in selected[1:]],
+                "source_ids": [item.id for item in selected],
+                "material_refs": [str(item.get("ref") or "") for item in materials],
+                "materials": materials,
+                "contract": "mixed-input-materials-v2",
+                "fact_contract": (
+                    "source materials are factual evidence; written versions are derivative writing material "
+                    "whose factual claims must still trace to their underlying sources"
+                ),
+            },
+            role="author",
+            approved=True,
+        )
         return project
 
     def artifacts(self, db: Session, project_id: str) -> list[WritingArtifact]:
@@ -156,12 +189,177 @@ class WritingCore:
         project.error = ""
         return project
 
+    def selected_sources(self, db: Session, project: WritingProject) -> list[SourceItem]:
+        selection = self.latest_artifact(
+            db,
+            project.id,
+            "source_selection",
+            approved_only=True,
+        )
+        payload = self._json(selection.content_json, {}) if selection else {}
+        source_ids = payload.get("source_ids") if isinstance(payload, dict) else None
+        if not isinstance(source_ids, list) or not source_ids:
+            source_ids = [project.source_id]
+        ordered_ids = list(dict.fromkeys(str(value) for value in source_ids if value))
+        values = {
+            item.id: item
+            for item in db.scalars(select(SourceItem).where(SourceItem.id.in_(ordered_ids))).all()
+        }
+        sources = [values[source_id] for source_id in ordered_ids if source_id in values]
+        if not sources or sources[0].id != project.source_id:
+            primary = db.get(SourceItem, project.source_id)
+            if primary is None:
+                raise ValueError("来源不存在")
+            sources = [primary, *(item for item in sources if item.id != primary.id)]
+        return sources
+
+    def source_summaries(self, db: Session, project: WritingProject) -> list[dict[str, Any]]:
+        return [
+            {
+                "id": source.id,
+                "role": "primary" if index == 0 else "supporting",
+                "author": source.author_name or source.author_handle,
+                "title": self._source_title(source),
+                "url": source.canonical_url,
+            }
+            for index, source in enumerate(self.selected_sources(db, project))
+        ]
+
+    def material_summaries(self, db: Session, project: WritingProject) -> list[dict[str, Any]]:
+        output: list[dict[str, Any]] = []
+        source_map = {item.id: item for item in self.selected_sources(db, project)}
+        for index, material in enumerate(self._selected_materials(db, project)):
+            kind = str(material.get("kind") or "source")
+            source_id = str(material.get("source_id") or material.get("id") or "")
+            source = source_map.get(source_id)
+            title = str(material.get("title") or (self._source_title(source) if source else "输入材料"))
+            output.append(
+                {
+                    "ref": str(material.get("ref") or ""),
+                    "id": str(material.get("id") or ""),
+                    "source_id": source_id,
+                    "kind": kind,
+                    "role": "primary_input" if index == 0 else "supporting_input",
+                    "title": title,
+                    "author": (source.author_name or source.author_handle) if source else "",
+                    "platform": str(material.get("platform") or (source.platform if source else "")),
+                    "version": material.get("version"),
+                    "status": str(material.get("status") or ""),
+                }
+            )
+        return output
+
+    def _selected_materials(self, db: Session, project: WritingProject) -> list[dict[str, Any]]:
+        selection = self.latest_artifact(
+            db,
+            project.id,
+            "source_selection",
+            approved_only=True,
+        )
+        payload = self._json(selection.content_json, {}) if selection else {}
+        materials = payload.get("materials") if isinstance(payload, dict) else None
+        if isinstance(materials, list) and materials:
+            return [item for item in materials if isinstance(item, dict)]
+        return [
+            {
+                "ref": f"source:{source.id}",
+                "kind": "source",
+                "id": source.id,
+                "source_id": source.id,
+                "title": self._source_title(source),
+            }
+            for source in self.selected_sources(db, project)
+        ]
+
+    @staticmethod
+    def _source_title(source: SourceItem) -> str:
+        structured: dict[str, Any] = {}
+        try:
+            value = json.loads(source.structured_content_json or "{}")
+            if isinstance(value, dict):
+                structured = value
+        except json.JSONDecodeError:
+            pass
+        title = str(structured.get("title") or "").strip()
+        if title:
+            return title[:160]
+        return re.sub(r"\s+", " ", source.text_original or "").strip()[:80]
+
     def _source_payload(self, db: Session, project: WritingProject) -> list[dict[str, Any]]:
-        source = db.get(SourceItem, project.source_id)
-        if source is None:
-            raise ValueError("来源不存在")
-        context = self.editorial._context(db, source)
-        return self.editorial._source_blocks(context)
+        roots = self.selected_sources(db, project)
+        root_ids = {item.id for item in roots}
+        context: list[SourceItem] = []
+        seen: set[str] = set()
+        for root in roots:
+            for item in self.editorial._context(db, root):
+                if item.id in seen:
+                    continue
+                seen.add(item.id)
+                context.append(item)
+        blocks = self.editorial._source_blocks(context)
+        block_by_id: dict[str, dict[str, Any]] = {}
+        for block, item in zip(blocks, context, strict=True):
+            if item.id == roots[0].id:
+                block["selection_role"] = "primary"
+            elif item.id in root_ids:
+                block["selection_role"] = "supporting"
+            else:
+                block["selection_role"] = "connected"
+            block["material_kind"] = "source"
+            block_by_id[item.id] = block
+
+        materials = self._selected_materials(db, project)
+        selected_budget = max(1400, min(9000, 26000 // max(1, len(materials))))
+        output: list[dict[str, Any]] = []
+        used_source_ids: set[str] = set()
+        for material in materials:
+            kind = str(material.get("kind") or "source")
+            source_id = str(material.get("source_id") or material.get("id") or "")
+            if kind == "source":
+                block = block_by_id.get(source_id)
+                if block is None or source_id in used_source_ids:
+                    continue
+                item = dict(block)
+                item["material_ref"] = str(material.get("ref") or f"source:{source_id}")
+                item["text"] = str(item.get("text") or "")[:selected_budget]
+                output.append(item)
+                used_source_ids.add(source_id)
+                continue
+            body = str(material.get("body") or "")
+            output.append(
+                {
+                    "source_id": source_id,
+                    "material_ref": str(material.get("ref") or ""),
+                    "material_id": str(material.get("id") or ""),
+                    "material_kind": kind,
+                    "selection_role": "written_version",
+                    "fact_contract": (
+                        "这是已写版本，可用于结构、表达和待整合内容；其中事实仍须由所关联的原始来源支持"
+                    ),
+                    "title": str(material.get("title") or "已写版本"),
+                    "version": material.get("version"),
+                    "platform": str(material.get("platform") or "draft"),
+                    "text": body[:selected_budget],
+                    "body_sha256": str(material.get("body_sha256") or ""),
+                }
+            )
+        for root in roots:
+            if root.id in used_source_ids:
+                continue
+            item = dict(block_by_id[root.id])
+            item["text"] = str(item.get("text") or "")[:selected_budget]
+            output.append(item)
+            used_source_ids.add(root.id)
+        for block in blocks:
+            source_id = str(block.get("source_id") or "")
+            if source_id in used_source_ids:
+                continue
+            item = dict(block)
+            item["text"] = str(item.get("text") or "")[:1200]
+            output.append(item)
+        for index, item in enumerate(output, start=1):
+            item["index"] = index
+        return output
 
     def _style_payload(self, db: Session, project: WritingProject) -> dict[str, Any]:
         if not project.style_profile_id:
@@ -286,7 +484,11 @@ class WritingCore:
             raise ValueError("来源不存在")
         content = self._json(artifact.content_json, {})
         context = self.editorial._context(db, source)
-        sanitized = self.editorial._sanitize_generated(
+        # The default editorial service is specialized for the 4,000-character
+        # short-draft editor. Deep writing feeds the 50,000-character WeChat
+        # workbench, so reuse only the base normalization and keep the full body.
+        sanitized = EditorialService._sanitize_generated(
+            self.editorial,
             {
                 "title": content.get("title"),
                 "body": content.get("body"),
@@ -301,7 +503,10 @@ class WritingCore:
             version=self.editorial._next_version(db, source.id),
             style="studio",
             title=sanitized["title"][:80],
-            body=sanitized["body"][:4000],
+            # Deep writing is now a WeChat longform sub-flow. Preserve the full
+            # reviewed article so the platform handoff cannot silently collapse
+            # a 4,000+ character draft before the final WeChat stage.
+            body=sanitized["body"][:50000],
             tags=sanitized["tags"][:500],
             claims_json=json.dumps(sanitized["claims"], ensure_ascii=False),
             provenance_json=json.dumps(
@@ -311,6 +516,9 @@ class WritingCore:
                     "final_artifact_id": artifact.id,
                     "roles": list(ROLE_SKILLS),
                     "style_profile_id": project.style_profile_id,
+                    "input_material_refs": [
+                        str(item.get("ref") or "") for item in self._selected_materials(db, project)
+                    ],
                     **self._memory_provenance(db, project),
                 },
                 ensure_ascii=False,
