@@ -31,6 +31,15 @@ FACT_BOUNDARY = (
 ROLE_DIMENSIONS: dict[str, set[str]] = {
     "editor_in_chief": {"identity", "reader_relationship", "judgment", "tone"},
     "outline_architect": {"opening", "structure", "transition", "ending"},
+    "title_strategist": {
+        "identity",
+        "reader_relationship",
+        "tone",
+        "title",
+        "judgment",
+        "forbidden_expression",
+        "positive_phrase",
+    },
     "writer": {
         "identity",
         "tone",
@@ -190,10 +199,28 @@ class PoolMemoryService:
             elif isinstance(item, dict):
                 text = self._compact(item.get("text"), 120)
                 lesson = self._compact(item.get("lesson"), 240)
+                duty = self._compact(item.get("rhetorical_duty"), 40) or "positive_phrase"
+                if duty not in {
+                    "opening",
+                    "title",
+                    "transition",
+                    "judgment",
+                    "ending",
+                    "sentence_rhythm",
+                    "paragraph_rhythm",
+                    "positive_phrase",
+                }:
+                    duty = "positive_phrase"
             else:
                 continue
             if text:
-                examples.append({"text": text, "lesson": lesson})
+                examples.append(
+                    {
+                        "text": text,
+                        "lesson": lesson,
+                        "rhetorical_duty": duty if isinstance(item, dict) else "positive_phrase",
+                    }
+                )
         if usage_policy == "abstract_pattern_only":
             examples = []
         normalized = {
@@ -362,6 +389,7 @@ class PoolMemoryService:
             )
             diff = self._object(self._json(feedback.diff_json, {}))
             affected = self._list(self._json(feedback.affected_rules_json, []))
+            article_type = str(diff.get("article_type") or "")
             text = "\n".join(
                 item
                 for item in (
@@ -382,9 +410,9 @@ class PoolMemoryService:
                     "label": feedback.feedback_reason or "真实改稿反馈",
                 },
                 "scope": {
-                    "platforms": ["xhs"],
+                    "platforms": ["wechat"],
                     "formats": ["article"],
-                    "article_types": [],
+                    "article_types": [article_type] if article_type else [],
                     "style_profile_ids": (
                         [project.style_profile_id] if project and project.style_profile_id else []
                     ),
@@ -394,7 +422,13 @@ class PoolMemoryService:
                     "reason": "用户主动保存的真实改稿反馈",
                     "requires_confirmation": False,
                 },
-                "metadata": {"affected_rules": affected, "diff": diff},
+                "metadata": {
+                    "affected_rules": affected,
+                    "affected_dimensions": affected,
+                    "article_type": article_type,
+                    "diff": diff,
+                    "preference_source": "model_to_human_revision",
+                },
             }
 
         if source_kind == "pattern_card":
@@ -443,7 +477,7 @@ class PoolMemoryService:
                 "text": str(content.get("body") or ""),
                 "source": {"kind": source_kind, "id": artifact.id, "label": title},
                 "scope": {
-                    "platforms": ["xhs"],
+                    "platforms": ["wechat"],
                     "formats": ["article"],
                     "style_profile_ids": (
                         [project.style_profile_id] if project and project.style_profile_id else []
@@ -550,7 +584,13 @@ class PoolMemoryService:
         else:
             if "opening" in dimensions and sentences:
                 rules.append("开头直接进入具体变化、场景或读者问题，不先堆定义")
-                examples.append({"text": sentences[0], "lesson": "仅学习开头动作，不继承其中事实"})
+                examples.append(
+                    {
+                        "text": sentences[0],
+                        "lesson": "仅学习开头动作，不继承其中事实",
+                        "rhetorical_duty": "opening",
+                    }
+                )
             if "title" in dimensions:
                 rules.append("标题给出具体信息增量，不使用空泛承诺或模板悬念")
             if {"sentence_rhythm", "paragraph_rhythm"} & set(dimensions):
@@ -564,7 +604,11 @@ class PoolMemoryService:
                 prefer.append("判断落到可验证效果、适用范围或下一项值得观察的问题")
                 if len(sentences) > 1:
                     examples.append(
-                        {"text": sentences[-1], "lesson": "仅学习收束方式，不继承结论事实"}
+                        {
+                            "text": sentences[-1],
+                            "lesson": "仅学习收束方式，不继承结论事实",
+                            "rhetorical_duty": "judgment",
+                        }
                     )
             if "forbidden_expression" in dimensions:
                 avoid.extend(["值得注意的是", "总的来说", "不难发现"])
@@ -621,7 +665,7 @@ class PoolMemoryService:
 正向例句只能保留不超过 120 字的短片段，并注明只学习什么；第三方抽象模式不得返回例句。
 只输出 JSON：
 {{"rules":["规则"],"avoid":["禁止"],"prefer":["偏好"],
-"positive_examples":[{{"text":"短例句","lesson":"学习点"}}],
+"positive_examples":[{{"text":"短例句","lesson":"学习点","rhetorical_duty":"opening|title|transition|judgment|ending|sentence_rhythm|paragraph_rhythm|positive_phrase"}}],
 "structure":["结构步骤"],"visual_directions":["视觉方向"]}}
 """.strip()
         try:
@@ -755,6 +799,13 @@ class PoolMemoryService:
         eligibility = self._object(payload.get("eligibility"))
         if eligibility.get("requires_confirmation") and not confirm_source_authorized:
             raise PoolMemoryError("该来源尚未完成授权或人工批准，请确认后再加入正式池子")
+        source_kind = str(self._object(payload.get("source")).get("kind") or "")
+        eligibility["source_authorized_confirmed"] = bool(
+            confirm_source_authorized
+            or source_kind
+            in {"authorized_sample", "writing_feedback", "manual_rule", "positive_example"}
+        )
+        payload["eligibility"] = eligibility
         card = ReviewArtifact(
             scope_type="pool_memory",
             scope_id="default",
@@ -1356,7 +1407,13 @@ class PoolMemoryService:
                 break
         return deduped
 
-    def _prompt_text(self, items: list[dict[str, Any]], *, max_chars: int) -> str:
+    def _prompt_text(
+        self,
+        items: list[dict[str, Any]],
+        *,
+        max_chars: int,
+        include_examples: bool = True,
+    ) -> str:
         if not items:
             return f"本任务没有命中已批准池子记忆。\n{FACT_BOUNDARY}"
         blocks = ["本任务检索到的池子记忆（只允许学习风格、结构、节奏与判断方式）："]
@@ -1376,7 +1433,7 @@ class PoolMemoryService:
                     lines.append(
                         f"   {label}：" + "；".join(self._compact(value, 180) for value in values)
                     )
-            examples = self._list(memory.get("positive_examples"))[:2]
+            examples = self._list(memory.get("positive_examples"))[:2] if include_examples else []
             if examples:
                 rendered = []
                 for example in examples:
@@ -1570,7 +1627,11 @@ class PoolMemoryService:
                 }
             )
         return {
-            "text": self._prompt_text(selected, max_chars=min(max_chars, 7000)),
+            "text": self._prompt_text(
+                selected,
+                max_chars=min(max_chars, 7000),
+                include_examples=False,
+            ),
             "memory_ids": [row["artifact"].id for row in selected],
             "snapshot_hash": snapshot.snapshot_hash,
             "applied": snapshot.applied or allow_pending,

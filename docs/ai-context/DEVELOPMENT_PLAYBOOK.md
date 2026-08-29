@@ -177,6 +177,7 @@ X2RED_EVIDENCE_EMBEDDING_BASE_URL=
 X2RED_EVIDENCE_EMBEDDING_API_KEY=
 X2RED_EVIDENCE_EMBEDDING_MODEL=
 X2RED_WRITING_SCHEMA_MODE=production
+X2RED_WRITING_QUALITY_MODE=production
 ```
 
 图片 endpoint 未单独配置时可以继承文本模型 provider；`X2RED_IMAGE_MODEL` 为空时不得把本地占位图伪装成原版 Minimal Zine 生成结果。
@@ -190,6 +191,8 @@ V4 `X2RED_TYPOGRAPHY_RECIPE_MODE=production|legacy` 独立控制本地中文构�
 W1 `X2RED_EVIDENCE_RETRIEVAL_MODE=hybrid|legacy` 独立控制写作证据输入。hybrid 默认使用本地 BM25、重排和 MMR；三个 embedding 配置全部留空时不会调用外部向量模型。配置单独的 OpenAI-compatible `/embeddings` endpoint 后只对召回候选重排。legacy 会在 artifact 中写入 `DEGRADED_LEGACY_CHARACTER_SLICE`，不改写历史版本。详细合同见 `EVIDENCE_COMPILER_HYBRID_RETRIEVAL_W1.md`。
 
 W2 `X2RED_WRITING_SCHEMA_MODE=production|legacy` 独立控制多 Agent 输出合同。production 对每个角色执行严格 Schema、一次结构修复以及最终 claim-evidence gate；legacy 恢复旧链但 AgentRun/artifact 一律显示 degraded。production 下无模型 fallback 也不会伪称成功，critical/major 无证据会进入 `claims_blocked` 且不创建 output DraftRevision。切换不重写历史产物，详细合同见 `STRUCTURED_WRITING_CLAIM_MATRIX_W2.md`。
+
+W3 `X2RED_WRITING_QUALITY_MODE=production|legacy` 独立控制标题竞赛、冻结标题选择和授权短范例注入。production 在大纲后生成 12—20 个证据化候选，本地过滤并返回 top 5，作者选择保存为不可变 preference；项目创建时从冻结 memory snapshot 选择最多四个授权、人工批准、带修辞职责且通过历史事实风险检查的短范例。人工修改必须先保存 direct human revision，diff 由服务端生成，再经池子记忆候选与人工批准。legacy 跳过 W3 层但不删除历史 artifact/revision；详细合同见 `TITLE_STYLE_FEEDBACK_W3.md`。
 
 ### 调度器
 

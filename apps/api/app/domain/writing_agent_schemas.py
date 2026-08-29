@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -10,6 +11,15 @@ IDENTIFIER_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_.:-]{1,119}$"
 EvidenceRef = Annotated[str, Field(pattern=EVIDENCE_REF_PATTERN, max_length=260)]
 AgentIdentifier = Annotated[str, Field(pattern=IDENTIFIER_PATTERN, max_length=120)]
 ClaimImportance = Literal["critical", "major", "minor"]
+TitleMechanism = Literal[
+    "result",
+    "conflict",
+    "counterintuitive",
+    "scene",
+    "question",
+    "number",
+    "judgment",
+]
 ClaimType = Literal[
     "fact",
     "number",
@@ -37,6 +47,30 @@ class EditorBriefOutput(StrictWritingAgentModel):
     tone: str = Field(min_length=1, max_length=300)
     open_questions: list[str] = Field(default_factory=list, max_length=30)
     success_criteria: list[str] = Field(default_factory=list, max_length=30)
+
+
+class TitleCandidateOutput(StrictWritingAgentModel):
+    candidate_id: AgentIdentifier
+    title: str = Field(min_length=4, max_length=80)
+    mechanism: TitleMechanism
+    reader_promise: str = Field(min_length=1, max_length=500)
+    evidence_refs: list[EvidenceRef] = Field(default_factory=list, max_length=8)
+
+
+class TitleCandidatesOutput(StrictWritingAgentModel):
+    candidates: list[TitleCandidateOutput] = Field(min_length=12, max_length=20)
+
+    @model_validator(mode="after")
+    def require_unique_diverse_candidates(self) -> TitleCandidatesOutput:
+        ids = [item.candidate_id for item in self.candidates]
+        titles = [re.sub(r"\s+", "", item.title).lower() for item in self.candidates]
+        if len(ids) != len(set(ids)):
+            raise ValueError("title strategist may report each candidate id exactly once")
+        if len(titles) != len(set(titles)):
+            raise ValueError("title strategist must return unique titles")
+        if len({item.mechanism for item in self.candidates}) < 5:
+            raise ValueError("title tournament requires at least five distinct mechanisms")
+        return self
 
 
 class EvidenceAssertion(StrictWritingAgentModel):
@@ -313,6 +347,7 @@ class StructuredOutputTrace(StrictWritingAgentModel):
 
 ARTIFACT_SCHEMAS: dict[str, type[StrictWritingAgentModel]] = {
     "editorial_brief": EditorBriefOutput,
+    "title_candidates": TitleCandidatesOutput,
     "evidence_pack": EvidencePackOutput,
     "outline": OutlineOutput,
     "draft": DraftOutput,
@@ -416,6 +451,13 @@ def validate_contract_context(
         if missing:
             raise WritingAgentContractError(
                 f"final reviser skipped required issue ids: {', '.join(sorted(missing))}"
+            )
+    if artifact_type in {"draft", "final_draft"}:
+        draft = DraftOutput.model_validate(output)
+        required_title = str(values.get("required_title") or "").strip()
+        if required_title and draft.title != required_title:
+            raise WritingAgentContractError(
+                "writer must preserve the selected title exactly: " + required_title
             )
     if artifact_type == "final_claims":
         extraction = FinalClaimsOutput.model_validate(output)

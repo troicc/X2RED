@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import difflib
 import hashlib
 import json
 import re
@@ -27,6 +28,7 @@ ROLE_SKILLS = {
     "editor_in_chief": "writing.editor",
     "evidence_researcher": "writing.research",
     "outline_architect": "writing.outline",
+    "title_strategist": "writing.writer",
     "writer": "writing.writer",
     "reader_reviewer": "review.reader",
     "fact_reviewer": "review.fact",
@@ -651,19 +653,82 @@ class WritingCore:
         db: Session,
         *,
         project: WritingProject,
-        draft_before_id: str | None,
-        draft_after_id: str | None,
-        diff: dict[str, Any],
+        draft_before_id: str,
+        draft_after_id: str,
+        article_type: str,
         feedback_reason: str,
-        affected_rules: list[str],
+        affected_dimensions: list[str],
     ) -> WritingFeedback:
+        before = db.get(DraftRevision, draft_before_id)
+        after = db.get(DraftRevision, draft_after_id)
+        if before is None or after is None:
+            raise ValueError("模型原稿或用户终稿不存在")
+        if before.id == after.id:
+            raise ValueError("模型原稿和用户终稿不能是同一版本")
+        if before.source_id != project.source_id or after.source_id != project.source_id:
+            raise ValueError("反馈版本不属于当前写作项目的来源")
+        if before.created_by not in {"model", "model-polish", "multi-agent"}:
+            raise ValueError("修改前版本必须是模型或多 Agent 生成稿")
+        if after.created_by != "human":
+            raise ValueError("修改后版本必须是用户明确保存的人工版本")
+        if after.version <= before.version:
+            raise ValueError("用户终稿版本必须晚于模型原稿")
+        before_provenance = self._json(before.provenance_json, {})
+        after_provenance = self._json(after.provenance_json, {})
+        if str(before_provenance.get("writing_project_id") or "") != project.id:
+            raise ValueError("修改前版本不是当前写作项目的模型输出")
+        if str(after_provenance.get("parent_draft_id") or "") != before.id:
+            raise ValueError("用户终稿必须由所选模型原稿直接编辑保存")
+
+        def snapshot(draft: DraftRevision) -> dict[str, Any]:
+            serialized = json.dumps(
+                {"title": draft.title, "body": draft.body, "tags": draft.tags},
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+            return {
+                "id": draft.id,
+                "version": draft.version,
+                "created_by": draft.created_by,
+                "title": draft.title,
+                "body": draft.body,
+                "tags": draft.tags,
+                "sha256": hashlib.sha256(serialized.encode()).hexdigest(),
+            }
+
+        before_lines = before.body.splitlines(keepends=True)
+        after_lines = after.body.splitlines(keepends=True)
+        unified = "".join(
+            difflib.unified_diff(
+                before_lines,
+                after_lines,
+                fromfile=f"model-draft-v{before.version}",
+                tofile=f"user-final-v{after.version}",
+                n=3,
+            )
+        )
+        diff = {
+            "schema_version": 1,
+            "generator": "server_difflib_v1",
+            "article_type": article_type.strip(),
+            "model_draft": snapshot(before),
+            "user_final": snapshot(after),
+            "changes": {
+                "title_changed": before.title != after.title,
+                "tags_changed": before.tags != after.tags,
+                "body_character_delta": len(after.body) - len(before.body),
+                "body_unified_diff": unified,
+            },
+            "affected_dimensions": affected_dimensions,
+            "memory_status_at_creation": "not_submitted",
+        }
         feedback = WritingFeedback(
             project_id=project.id,
             draft_before_id=draft_before_id,
             draft_after_id=draft_after_id,
             diff_json=json.dumps(diff, ensure_ascii=False),
             feedback_reason=feedback_reason.strip(),
-            affected_rules_json=json.dumps(affected_rules, ensure_ascii=False),
+            affected_rules_json=json.dumps(affected_dimensions, ensure_ascii=False),
         )
         db.add(feedback)
         db.flush()
@@ -706,6 +771,41 @@ class WritingCore:
                 "evidence_allocation": [],
                 "transitions": [],
                 "forbidden_moves": ["逐段翻译", "审计式边界清单"],
+            }
+        if role == "title_strategist":
+            topic = re.sub(
+                r"\s+",
+                "",
+                project.main_thesis or project.promise or "这项进展",
+            )[:18]
+            promise = project.promise or project.main_thesis or "讲清来源支持的核心进展"
+            templates = [
+                ("result", f"{topic}，最终解决了什么问题"),
+                ("result", f"从{topic}得到的两个确定结果"),
+                ("conflict", f"{topic}的价值，不在最热闹的部分"),
+                ("conflict", f"看似更快的{topic}，真正代价在哪里"),
+                ("counterintuitive", f"关于{topic}，直觉可能把方向带反"),
+                ("counterintuitive", f"{topic}越复杂，越要先删掉什么"),
+                ("scene", f"当{topic}进入真实工作流之后"),
+                ("scene", f"一次完整使用，暴露了{topic}的边界"),
+                ("question", f"{topic}到底改变了哪一步"),
+                ("question", f"为什么{topic}值得重新拆一遍"),
+                ("number", f"拆解{topic}的三个关键层次"),
+                ("number", f"理解{topic}，先回答四个问题"),
+                ("judgment", f"{topic}真正重要的是可验证，而非声量"),
+                ("judgment", f"我对{topic}的判断：先看边界，再谈结果"),
+            ]
+            return {
+                "candidates": [
+                    {
+                        "candidate_id": f"fallback-title-{index:02d}",
+                        "title": title[:80],
+                        "mechanism": mechanism,
+                        "reader_promise": promise[:500],
+                        "evidence_refs": [],
+                    }
+                    for index, (mechanism, title) in enumerate(templates, start=1)
+                ]
             }
         if role in {"writer", "final_reviser"}:
             payload: dict[str, Any] = {

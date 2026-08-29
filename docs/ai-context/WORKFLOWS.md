@@ -185,6 +185,8 @@ W1 hybrid 模式不会再按材料数平均分配字符开头。每个来源和�
 
 W2 production 模式要求每个 Agent 通过自己的严格 Pydantic Schema。JSON 或合同失败只允许一次结构修复；第二次仍失败则保留 failed AgentRun，但不保存普通成功 artifact。三路 reviewer 的 issue 必须可定位、分严重度、附证据和最小修复；Chief 只能逐一裁决既有 issue；Final 只能执行批准 issue。终稿随后由事实隔离角色重新提取 claims，本地 checker 对照 W1 evidence chunks、初稿 claims 和批准 issue 生成 matrix。critical/major 无证据、未经批准的主要主张扩张或找不到终稿原句时进入 `claims_blocked`，不创建 `DraftRevision`，也不能交接公众号。`legacy` 只恢复旧流程并显式标记 degraded，详细合同见 `STRUCTURED_WRITING_CLAIM_MATRIX_W2.md`。
 
+W3 production 模式在大纲之后增加标题锦标赛：标题 Agent 返回 12—20 个覆盖结果、冲突、反常识、场景、问题、数字和判断的候选；本地服务过滤空泛承诺、证据不足、过度悬念、套路词、强承诺和同质化，再用确定性读者第一眼排序返回 top 5。作者只能选择最新 top 5，选择冻结为 `title_preference`，writer/final 必须逐字保留。项目同时从冻结池子记忆快照建立最多四个授权、人工批准、标注修辞职责且通过历史事实风险检查的短范例；普通记忆 Prompt 不注入例句，事实角色永不接收范例。完成后的人工编辑保存 direct human `DraftRevision`，服务端保存模型/人工全文快照、hash 和 diff，之后仍需人工批准才能进入记忆。详细合同见 `TITLE_STYLE_FEEDBACK_W3.md`。
+
 ### 5.3 生成和编辑
 
 输入材料后，系统生成平台专用 `PlatformVariant`。模型长文使用 12000 输出 token 和最长 360 秒请求窗口，并记录 `finish_reason`。保存前必须同时通过以下完成度检查：正文不是短片段、至少三个完整 H2、Markdown 代码围栏闭合、没有连续代码行落在围栏外、正文不是半句话或半行代码、配图计划引用的章节真实存在。

@@ -6,9 +6,9 @@
 
 仓库：`troicc/X2RED`
 
-当前本地任务分支：`codex/x2red-w2-writing-schemas-claims`
+当前本地任务分支：`codex/x2red-w3-title-style-quality`
 
-W2 分支来源：已合并 W1 的 `agent/replace-crawlers-with-api-adapters`，准确基线 SHA `88b995bfc75f25673e78777ee6f575fc2a5eb666`
+W3 分支来源：已合并 W2 的 `agent/replace-crawlers-with-api-adapters`，准确基线 SHA `f6dd3bbb747cdfd1758f0542f6977f6f58dd4103`
 
 基线 PR：`#19 重构简中素材采集、语料池与三层创作工作区`
 
@@ -24,7 +24,9 @@ V4 PR：`#24 V4：本地中文排版 Recipe v2`，修复 head `0b87097865dc6d57b
 
 W1 PR：`#25 W1：证据编译与混合检索`，latest head `9085faf29b8b86d47cfcd4a1a2cd93c3cc9a7158` 的 CI run `826` 全部成功后已 squash merge；功能基线前进到 `88b995bfc75f25673e78777ee6f575fc2a5eb666`。
 
-W2 PR：`#26 W2：结构化 Agent 输出与最终主张矩阵`，当前为 Draft，指向 `agent/replace-crawlers-with-api-adapters`；首个实现提交为 `ba68082c46d3597fb1f92843a559bf9a048c24e8`，状态文档提交后须以新的 latest head CI 为准。
+W2 PR：`#26 W2：结构化 Agent 输出与最终主张矩阵`，latest head `4027d0c26ef9b76f4c976231322bca18cac1bb69` 的 CI run `33249003306` / job `99091311679` 成功后已 squash merge；功能基线前进到 `f6dd3bbb747cdfd1758f0542f6977f6f58dd4103`。
+
+W3 当前在独立分支 `codex/x2red-w3-title-style-quality` 实施，准确 base 为上述 W2 merge commit；实现提交 `0750999eb305f203d417c1066e9fcdb2e1de9bdf` 已推送并创建 Draft PR #27，状态文档提交后只认新的 latest-head CI。
 
 C0 首个提交：`08c0920f154d51a7cdfa5d35a604d48b3d393672`
 
@@ -58,6 +60,20 @@ PR #19 属于 C0 的基线功能分支，不是 C0 分支本身。
 
 2026-08-29 18:54：W2 实现提交 `ba68082c46d3597fb1f92843a559bf9a048c24e8` 已推送并创建 Draft PR #26，base 为准确 W1 合并 head `88b995bfc75f25673e78777ee6f575fc2a5eb666`。PR 创建前再次确认 PR #19 仍为 open、draft、mergeable且功能分支 head 未漂移。初始 CI 已启动，但状态文档提交会产生新 head；下一次合并只认状态提交后的 latest-head CI。
 
+2026-08-29：W2 状态 head `4027d0c26ef9b76f4c976231322bca18cac1bb69` 的 GitHub Actions run `33249003306` / job `99091311679` 在 2m54s 内成功；PR #26 转 Ready 后按该 expected head squash merge，功能基线 commit 为 `f6dd3bbb747cdfd1758f0542f6977f6f58dd4103`。W3 从这一准确 merge head 建立独立分支。
+
+2026-08-29 19:46：W3 实现提交 `0750999eb305f203d417c1066e9fcdb2e1de9bdf` 已推送并创建 Draft PR #27，base 为准确 W2 合并 head `f6dd3bbb747cdfd1758f0542f6977f6f58dd4103`。PR 创建前再次确认 PR #19 仍为 open、draft、mergeable，功能分支 head 未漂移。状态文档提交会产生新 head，下一次合并只认该 head 对应的 CI。
+
+### 2026-08-29 W3 标题、授权短范例与真实反馈
+
+- 大纲后由严格 Schema 的 `title_strategist` 生成 12—20 个候选，覆盖结果、冲突、反常识、场景、问题、数字与判断；候选必须使用当前 W1 evidence refs。确定性 tournament 过滤空泛承诺、未知或不相干证据、无支持数字、过度悬念、套路词、无支持绝对承诺和近似同质标题。
+- 本地读者第一眼模拟只做主题、价值、具体性、长度与自然度排序，不冒充真实读者。返回机制多样的 top 5；作者只能选择最新 tournament，选择冻结为 `title_preference`。writer/final 的 W2 合同要求逐字保留所选标题；未选择时使用显式 top-1 fallback，无合格 top 5 时不会伪称门禁通过。
+- 风格训练现在要求显式确认原创或授权。作者真实反馈确定性保存为 `author_overrides`，优先于已批准反馈和模型推断。项目创建时从冻结 memory snapshot 建立 `style_exemplar_bundle`；最多四个短范例必须正式批准、created_by human、来源授权或明确确认权利、标注修辞职责并通过 URL/账号/日期/金额/数字结果等历史事实风险检查。
+- 普通池子记忆 Prompt 不再注入原句；专用短范例只进入 title/writer/final 角色，事实研究、事实审稿和 claim extractor 继续只接收当前 evidence。原始风格样本与历史文章不整包注入。
+- `EditorialService.revise()` 为人工 revision 保存直接父版本；反馈接口只接受当前项目的模型/多 Agent 原稿与其 direct human revision。模型全文、用户全文、版本、角色、hash、服务端 unified diff、原因、文章类型和受影响维度均被冻结；是否进入记忆由 append-only candidate/approval 状态动态反映。
+- `X2RED_WRITING_QUALITY_MODE=production|legacy` 默认 production；legacy 跳过 W3 标题/范例层但保留全部历史 artifact、revision、feedback 和 memory。无数据库迁移，详细合同见 `TITLE_STYLE_FEEDBACK_W3.md`。
+- 新增专项覆盖全部标题过滤类别、确定性 top 5、多样性补位、降级竞赛拒绝选择、过期选择、逐字标题合同、授权与人工批准、四例上限、修辞职责、事实风险、服务端 diff、版本血缘和记忆状态。完整 API 套件为 `191 passed, 8 warnings`；Ruff、Python/JavaScript/Shell 编译、发布助手回归、全新 SQLite `0001→0012` 迁移和 wheel 构建通过。尚未调用真实模型或写用户数据库。任务书标题 ≥65% / 风格 ≥70% 只能由真实成对人工盲评确认，当前自动测试不作达标声明。
+
 ### 2026-08-29 W2 结构化写作 Agent 与 Claim-Evidence Matrix
 
 - 新增全角色严格 Pydantic Schema，覆盖任务单、证据包、大纲、初稿、三路审稿、主编裁决、终稿和 final claims。业务字段禁止额外键；artifact 保存 mode、valid/repaired/degraded、Schema、修复记录和 payload hash，API 暴露可重放 trace。
@@ -67,7 +83,7 @@ PR #19 属于 C0 的基线功能分支，不是 C0 分支本身。
 - 本地 `ClaimChecker` 对照当前 W1 evidence chunks、初稿 claims 与批准 issue，验证引用、证据原文、statement 语义支持、主张范围和终稿原句；引用真实但无关的原文不能通过。Agent 自造 evidence ref、重复 claim/issue 也会被 Schema 拒绝。critical/major 无支持、未经批准的主要扩张或原句不存在均阻断完成。
 - 阻断状态为 `claims_blocked / claim_evidence_gate`；保留候选终稿、final claims、matrix 和 AgentRun，但不创建 output DraftRevision、不显示公众号交接。UI 明示 Schema 通过/修复/降级和证据闸门结果。
 - `X2RED_WRITING_SCHEMA_MODE=production|legacy` 默认 production；legacy 恢复旧完成路径但明确 degraded，不删除或重写历史。无数据库迁移。详细合同见 `docs/ai-context/STRUCTURED_WRITING_CLAIM_MATRIX_W2.md`。
-- W2 专门回归覆盖 Schema 重放、一次修复、issue 权限、冻结 evidence ref、引文与主张语义一致性、critical/major 支持、范围扩张、完成阻断和 UI 状态。提交前定向回归为 `24 passed, 1 warning`，完整套件为 `184 passed, 8 warnings`；CI 仍须以 W2 PR latest head 为准。静态门禁、全新 SQLite `0001→0012` 迁移和 wheel 构建通过；验证未调用真实模型、未写用户数据库。
+- W2 专门回归覆盖 Schema 重放、一次修复、issue 权限、冻结 evidence ref、引文与主张语义一致性、critical/major 支持、范围扩张、完成阻断和 UI 状态。定向回归为 `24 passed, 1 warning`，完整套件为 `184 passed, 8 warnings`；latest head `4027d0c2` 的 CI run `33249003306` 成功后已合并为 `f6dd3bbb`。静态门禁、全新 SQLite `0001→0012` 迁移和 wheel 构建通过；验证未调用真实模型、未写用户数据库。
 
 ### 2026-08-29 W1 证据编译与混合检索
 

@@ -292,12 +292,36 @@ class ArtifactApprovalRequest(BaseModel):
     note: str = Field(default="", max_length=2000)
 
 
+class TitlePreferenceRequest(BaseModel):
+    tournament_artifact_id: str = Field(min_length=1, max_length=160)
+    candidate_id: str = Field(min_length=1, max_length=120)
+    note: str = Field(default="", max_length=2000)
+
+
 class WritingFeedbackCreate(BaseModel):
-    draft_before_id: str | None = None
-    draft_after_id: str | None = None
-    diff: dict[str, Any] = Field(default_factory=dict)
-    feedback_reason: str = Field(default="", max_length=4000)
-    affected_rules: list[str] = Field(default_factory=list)
+    model_config = ConfigDict(extra="forbid")
+
+    draft_before_id: str = Field(min_length=1, max_length=160)
+    draft_after_id: str = Field(min_length=1, max_length=160)
+    article_type: str = Field(min_length=1, max_length=80)
+    feedback_reason: str = Field(min_length=1, max_length=4000)
+    affected_dimensions: list[
+        Literal[
+            "identity",
+            "reader_relationship",
+            "tone",
+            "sentence_rhythm",
+            "paragraph_rhythm",
+            "opening",
+            "title",
+            "structure",
+            "transition",
+            "judgment",
+            "ending",
+            "forbidden_expression",
+            "positive_phrase",
+        ]
+    ] = Field(min_length=1, max_length=13)
 
 
 class WritingRunRequest(BaseModel):

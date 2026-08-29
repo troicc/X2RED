@@ -25,6 +25,7 @@ _AUTHOR_CONTEXT_ROLES = {
     "editor_in_chief",
     "evidence_researcher",
     "outline_architect",
+    "title_strategist",
     "writer",
     "chief_editor",
     "final_reviser",
@@ -87,6 +88,22 @@ class DurableAgentRunnerMixin:
             f"{user_prompt}\n\n当前任务冻结的池子记忆：\n{memory['text']}\n"
             "长期风格宪法与任务记忆必须分开理解；任务记忆只决定怎么写，不能补充事实。"
         )
+
+        if (
+            self.settings.writing_quality_mode == "production"
+            and role in {"title_strategist", "writer", "final_reviser"}
+        ):
+            exemplars = self._style_exemplar_payload(db, project)
+            exemplar_prompt = str(exemplars.get("prompt_text") or "").strip()
+            if exemplar_prompt:
+                user_prompt = f"{user_prompt}\n\n{exemplar_prompt}"
+            style = self._style_payload(db, project)
+            author_overrides = style.get("author_overrides")
+            if isinstance(author_overrides, list) and author_overrides:
+                user_prompt = (
+                    f"{user_prompt}\n\n作者明确覆盖规则（优先级高于模型推断与范例）：\n"
+                    f"{bounded_json(author_overrides, 8000)}"
+                )
 
         if role in _AUTHOR_CONTEXT_ROLES:
             decision = self.latest_artifact(db, project.id, "author_decision")
@@ -185,6 +202,9 @@ class DurableAgentRunnerMixin:
                     response_meta = raw_meta if isinstance(raw_meta, dict) else None
             else:
                 result = self._fallback_agent(role, project)
+                required_title = str((schema_context or {}).get("required_title") or "")
+                if required_title and role in {"writer", "final_reviser"}:
+                    result["title"] = required_title
 
             if schema is not None:
                 try:
@@ -279,7 +299,7 @@ class DurableAgentRunnerMixin:
             )
             run.output_artifact_id = artifact.id
             run.finished_at = utcnow()
-            estimated_cost = run.attempts if model_configured else 1
+            estimated_cost = run.attempts if model_configured else 0
             run.usage_json = json.dumps(
                 {
                     "estimated_cost_cents": estimated_cost,

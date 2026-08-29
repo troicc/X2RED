@@ -245,6 +245,8 @@ def test_signal_monitor_and_multi_agent_writing_studio(
             "editorial_brief",
             "evidence_pack",
             "outline",
+            "title_candidates",
+            "title_tournament",
             "draft",
             "reader_review",
             "fact_review",
@@ -254,7 +256,7 @@ def test_signal_monitor_and_multi_agent_writing_studio(
             "final_claims",
             "claim_evidence_matrix",
         } <= artifact_types
-        assert len(project["runs"]) == 10
+        assert len(project["runs"]) == 11
         assert all(item["status"] == "degraded" for item in project["runs"])
         matrix = next(
             item

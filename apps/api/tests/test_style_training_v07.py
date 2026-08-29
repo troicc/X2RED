@@ -103,6 +103,7 @@ def test_style_training_uses_originals_held_out_and_feedback(
                 ],
                 "held_out_samples": ["留出样本：开头直接进入问题。"],
                 "author_feedback": ["删掉‘值得注意的是’，太像 AI。"],
+                "confirm_original_or_authorized": True,
             },
         )
         assert queued.status_code == 202, queued.text
@@ -126,7 +127,15 @@ def test_style_training_uses_originals_held_out_and_feedback(
         assert "值得注意的是" in forbidden
         assert samples["held_out_samples"]
         assert samples["author_feedback"]
+        assert samples["rights"]["confirmed_original_or_authorized"] is True
+        assert rules["author_overrides"][0]["rule"].startswith("删掉")
+        assert rules["rule_priority"][0] == "explicit_author_override"
 
         skills = client.get("/api/settings/skills").json()
         assert "writing.style_train" in {item["skill_name"] for item in skills}
-        assert client.get("/health").json()["style_pipeline"] == "original-samples-held-out-feedback"
+        health = client.get("/health").json()
+        assert health["style_pipeline"] == (
+            "authorized-originals-held-out-author-overrides-short-exemplars-real-feedback"
+        )
+        assert health["writing_quality_mode"] == "production"
+        assert health["title_tournament"] is True
