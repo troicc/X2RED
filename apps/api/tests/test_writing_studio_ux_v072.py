@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[3]
 STATIC = ROOT / "apps" / "api" / "app" / "static"
 
@@ -49,3 +48,22 @@ def test_current_action_bar_is_sticky_and_legacy_controls_are_hidden() -> None:
     assert ".writing-stage-list" in stylesheet
     assert ".artifact-explainer" in stylesheet
     assert ":focus-visible" in stylesheet
+
+
+def test_schema_degraded_and_claim_gate_states_are_visible_and_block_handoff() -> None:
+    script = (STATIC / "studio-ux-v072.js").read_text(encoding="utf-8")
+    base_script = (STATIC / "studio-v07.js").read_text(encoding="utf-8")
+    platform_script = (STATIC / "platform-v08.js").read_text(encoding="utf-8")
+    stylesheet = (STATIC / "studio-ux-v072.css").read_text(encoding="utf-8")
+    assert "Schema 通过" in script
+    assert "Schema 已修复" in script
+    assert "降级输出" in script
+    assert "证据闸门阻断" in script
+    assert "claims_blocked" in script
+    assert "候选终稿 · 禁止交接公众号" in script
+    assert "claim_evidence_matrix" in script
+    assert ".artifact-schema-status.is-degraded" in stylesheet
+    assert ".artifact-schema-status.is-blocked" in stylesheet
+    assert 'project.state === "claims_blocked" ? "证据闸门阻断"' in base_script
+    assert "候选终稿不能交接公众号" in platform_script
+    assert 'project?.state === "claims_blocked"' in platform_script

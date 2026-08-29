@@ -48,3 +48,9 @@
 @media(prefers-reduced-motion:reduce){.writing-action-dock.busy .writing-dock-copy strong::after{animation:none}.writing-stage-button,.artifact-toggle{scroll-behavior:auto}}
 
 .artifact-toggle{min-height:44px;padding:7px 12px}
+
+.artifact-schema-status{flex:0 0 auto;margin-left:8px;padding:5px 8px;border:1px solid #d7ddeb;border-radius:999px;background:#f8f9fc;color:#566078;font-size:10px;font-weight:850;white-space:nowrap}
+.artifact-schema-status.is-valid{border-color:#bcdcca;background:#eff9f3;color:#216948}
+.artifact-schema-status.is-repaired{border-color:#e5cf9d;background:#fff8e8;color:#805b13}
+.artifact-schema-status.is-degraded,.artifact-schema-status.is-blocked{border-color:#ebb8c0;background:#fff1f3;color:#a42239}
+.writing-action-dock.is-claims-blocked{border-top-color:#e8bbc2;background:rgba(255,246,247,.97)}

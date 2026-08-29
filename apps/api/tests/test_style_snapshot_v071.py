@@ -18,6 +18,9 @@ def test_writing_project_freezes_style_profile_version(
     monkeypatch.setenv("X2RED_EXPORT_DIR", str(tmp_path / "exports"))
     monkeypatch.setenv("X2RED_BROWSER_PROFILE_DIR", str(tmp_path / "profiles"))
     monkeypatch.setenv("X2RED_SCHEDULER_ENABLED", "false")
+    # This test isolates immutable style snapshots. W2's explicit legacy mode
+    # preserves the pre-claim-gate fallback path while marking every run degraded.
+    monkeypatch.setenv("X2RED_WRITING_SCHEMA_MODE", "legacy")
     monkeypatch.delenv("X2RED_MODEL_BASE_URL", raising=False)
     monkeypatch.delenv("X2RED_MODEL_NAME", raising=False)
     monkeypatch.delenv("X2RED_MODEL_API_KEY", raising=False)
@@ -122,7 +125,8 @@ def test_writing_project_freezes_style_profile_version(
         )
         assert run.status_code == 202, run.text
 
-        # Structured fallback completes the same nine-role chain without a model.
+        # Legacy compatibility may finish without a model, but its runs are
+        # explicitly degraded and never represented as validated model output.
         import time
 
         for _ in range(200):
@@ -131,6 +135,10 @@ def test_writing_project_freezes_style_profile_version(
                 break
             time.sleep(0.05)
         assert job["state"] == "succeeded", job
+
+        project_payload = client.get(f"/api/writing/projects/{project_id}").json()
+        assert project_payload["state"] == "completed"
+        assert all(item["status"] == "degraded" for item in project_payload["runs"])
 
         drafts = client.get(f"/api/sources/{source_id}/drafts").json()
         assert drafts

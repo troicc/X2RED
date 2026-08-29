@@ -1,26 +1,41 @@
 from __future__ import annotations
 
-import hashlib
 import json
+from typing import Any
 
-from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
-from app.domain.models import utcnow
-from app.domain.studio import (
-    AgentRun,
-    AgentRunStatus,
-    WritingArtifact,
-    WritingProject,
-    WritingState,
+from app.domain.studio import WritingArtifact, WritingProject
+from app.domain.writing_agent_schemas import (
+    FinalClaimsOutput,
+    WritingAgentContractError,
 )
+from app.services.claim_checker import ClaimChecker
 from app.services.platform_studio import PlatformStudioService
 from app.services.retrieval import bounded_json
-from app.services.skills import binding_for
-from app.services.writing_core import ROLE_SKILLS
 
 
 class WritingAgentsMixin:
+    @staticmethod
+    def _evidence_refs(*payloads: object) -> list[str]:
+        refs: set[str] = set()
+
+        def visit(value: object) -> None:
+            if isinstance(value, dict):
+                evidence_ref = value.get("evidence_ref")
+                text = value.get("text")
+                if isinstance(evidence_ref, str) and evidence_ref and isinstance(text, str) and text:
+                    refs.add(evidence_ref)
+                for child in value.values():
+                    visit(child)
+            elif isinstance(value, list):
+                for child in value:
+                    visit(child)
+
+        for payload in payloads:
+            visit(payload)
+        return sorted(refs)
+
     @staticmethod
     def _longform_completion_issues(
         payload: dict,
@@ -47,9 +62,7 @@ class WritingAgentsMixin:
         reference_chars = len("".join(reference_body.split()))
         retention_floor = int(reference_chars * 0.7)
         if reference_chars >= minimum_chars and body_chars < retention_floor:
-            issues.append(
-                f"终稿仅保留初稿约 {body_chars}/{reference_chars} 字符，疑似过度压缩"
-            )
+            issues.append(f"终稿仅保留初稿约 {body_chars}/{reference_chars} 字符，疑似过度压缩")
         return list(dict.fromkeys(issues))
 
     async def _run_complete_longform(
@@ -64,6 +77,7 @@ class WritingAgentsMixin:
         user_prompt: str,
         temperature: float,
         reference_body: str = "",
+        schema_context: dict[str, Any] | None = None,
     ) -> WritingArtifact:
         artifact = await self._run_agent(
             db,
@@ -77,6 +91,7 @@ class WritingAgentsMixin:
             max_tokens=12000,
             capture_response_meta=True,
             request_timeout_seconds=360,
+            schema_context=schema_context,
         )
         first = self._json(artifact.content_json, {})
         issues = self._longform_completion_issues(first, reference_body=reference_body)
@@ -106,6 +121,7 @@ class WritingAgentsMixin:
             max_tokens=12000,
             capture_response_meta=True,
             request_timeout_seconds=360,
+            schema_context=schema_context,
         )
         remaining = self._longform_completion_issues(
             self._json(repaired.content_json, {}),
@@ -120,9 +136,9 @@ class WritingAgentsMixin:
         source = evidence_bundle.prompt_payload()
         prompt = f"""
 你是写作总编辑。围绕来源建立一份可审批的写作任务单，不写正文。
-作者预设读者：{project.reader or '未指定'}
-作者预设承诺：{project.promise or '未指定'}
-作者预设主张：{project.main_thesis or '未指定'}
+作者预设读者：{project.reader or "未指定"}
+作者预设承诺：{project.promise or "未指定"}
+作者预设主张：{project.main_thesis or "未指定"}
 来源（按任务章节检索的 evidence chunks）：{json.dumps(source, ensure_ascii=False)}
 
 输出 JSON：reader、article_promise、main_thesis、reader_hook、must_use、must_not_claim、
@@ -175,6 +191,7 @@ written_version 是需要整合的已写材料，请列出可复用结构、已�
             system_prompt="你是严谨的材料研究员。只整理证据和材料缺口，不写文章。",
             user_prompt=prompt,
             temperature=0.1,
+            schema_context={"allowed_evidence_refs": self._evidence_refs(source)},
         )
         return self._attach_evidence_trace(artifact, evidence_bundle)
 
@@ -190,7 +207,8 @@ written_version 是需要整合的已写材料，请列出可复用结构、已�
 
 输出 JSON：opening、sections、ending、cognitive_load_plan、terms_first_use、evidence_allocation、
 transitions、forbidden_moves。
-每一节包含 purpose、reader_question、key_point、evidence_ids、terms_allowed、target_length。
+每一节包含 section_id、heading、purpose、reader_question、key_point、evidence_refs、
+terms_allowed、target_length；evidence_refs 只能逐字引用证据包中的 source_id:chunk_id。
 顺序必须是：先让读者知道发生了什么和为什么值得看，再引入复杂术语；一节只承担一个认知任务。
 """.strip()
         return await self._run_agent(
@@ -202,6 +220,11 @@ transitions、forbidden_moves。
             system_prompt="你擅长控制读者认知负荷，让复杂内容按最自然的顺序被理解。",
             user_prompt=prompt,
             temperature=0.25,
+            schema_context={
+                "allowed_evidence_refs": self._evidence_refs(
+                    evidence.get("evidence_retrieval") or {}
+                )
+            },
         )
 
     async def _run_writer(self, db: Session, project: WritingProject) -> WritingArtifact:
@@ -245,6 +268,12 @@ transitions、forbidden_moves。
             system_prompt="你是中文母语写作者。只写已经被任务单与证据包允许的内容。",
             user_prompt=prompt,
             temperature=0.55,
+            schema_context={
+                "allowed_evidence_refs": self._evidence_refs(
+                    source,
+                    evidence.get("evidence_retrieval") or {},
+                )
+            },
         )
         return self._attach_evidence_trace(artifact, evidence_bundle)
 
@@ -260,23 +289,26 @@ transitions、forbidden_moves。
 目标与承诺：{bounded_json(brief, 7000)}
 大纲：{bounded_json(outline, 9000)}
 初稿：{bounded_json(draft, 16000)}
-输出 JSON：verdict、exit_points、confusing_terms、unexplained_numbers、report_tone、
-strong_parts、minimal_fixes。逐项标明位置、原句、原因和最小修改建议。
+输出 JSON：verdict、issues、strong_parts。每个 issue 必须包含 issue_id、category、location、
+severity、message、evidence_refs、evidence_quote、minimal_fix；issue_id 使用 reader- 前缀。
+location 至少给出 section、paragraph_index 或初稿 exact quote 之一，禁止无法定位的泛泛建议。
 重点判断第一屏是否看懂，以及哪里会让聪明但不熟悉细节的读者退出。
 """.strip()
         fact_prompt = f"""
 你是事实核查编辑。只输出报告，不直接改正文。
 证据包：{bounded_json(evidence, 18000)}
 初稿：{bounded_json(draft, 16000)}
-输出 JSON：verdict、unsupported_claims、scope_inflation、number_errors、missing_attribution、
-approved_claims、minimal_fixes。每项指出原句与证据 ID；不要把写作风格偏好当成事实错误。
+输出 JSON：verdict、issues、strong_parts。每个 issue 必须包含 issue_id、category、location、
+severity、message、evidence_refs、evidence_quote、minimal_fix；issue_id 使用 fact- 前缀。
+证据引用必须是证据包中的 source_id:chunk_id，并给出对应原文；不要把风格偏好当成事实错误。
 """.strip()
         style_prompt = f"""
 你是个人风格与去 AI 味审稿人。只输出报告，不直接改正文。
 风格规则：{bounded_json(style, 10000)}
 初稿：{bounded_json(draft, 16000)}
-输出 JSON：verdict、ai_phrases、rhythm_issues、template_transitions、identity_mismatch、
-strong_parts、minimal_fixes。查找空话、匀速排比、伪纠偏、过度总结、讲课味和虚构真人感。
+输出 JSON：verdict、issues、strong_parts。每个 issue 必须包含 issue_id、category、location、
+severity、message、evidence_refs、evidence_quote、minimal_fix；issue_id 使用 style- 前缀。
+风格问题用初稿 exact quote 作为定位证据。查找空话、匀速排比、伪纠偏、过度总结、讲课味和虚构真人感。
 只改明确命中的问题，不把文章重写成你的风格。
 """.strip()
 
@@ -291,6 +323,7 @@ strong_parts、minimal_fixes。查找空话、匀速排比、伪纠偏、过度�
             system_prompt="你代表真实读者，检查理解阻力，而不是展示专业术语。",
             user_prompt=reader_prompt,
             temperature=0.15,
+            schema_context={"issue_id_prefix": "reader-"},
         )
         fact_artifact = await self._run_agent(
             db,
@@ -301,6 +334,12 @@ strong_parts、minimal_fixes。查找空话、匀速排比、伪纠偏、过度�
             system_prompt="你只检查来源支持度、数字、范围和归属。",
             user_prompt=fact_prompt,
             temperature=0.05,
+            schema_context={
+                "issue_id_prefix": "fact-",
+                "allowed_evidence_refs": self._evidence_refs(
+                    evidence.get("evidence_retrieval") or {}
+                ),
+            },
         )
         style_artifact = await self._run_agent(
             db,
@@ -311,18 +350,28 @@ strong_parts、minimal_fixes。查找空话、匀速排比、伪纠偏、过度�
             system_prompt="你只检查文章类型规则、禁用表达和作者风格，不直接改稿。",
             user_prompt=style_prompt,
             temperature=0.15,
+            schema_context={"issue_id_prefix": "style-"},
         )
         reports = {
             "reader_review": self._json(reader_artifact.content_json, {}),
             "fact_review": self._json(fact_artifact.content_json, {}),
             "style_review": self._json(style_artifact.content_json, {}),
         }
+        issue_ids = [
+            str(issue.get("issue_id") or "")
+            for report in reports.values()
+            for issue in report.get("issues", [])
+            if isinstance(report, dict) and isinstance(issue, dict)
+        ]
+        if len(issue_ids) != len(set(issue_ids)):
+            raise WritingAgentContractError("reviewers returned duplicate issue ids")
         chief_prompt = f"""
 你是资深主编。综合三份独立审稿报告，制作最小修改计划，不直接重写正文。
 初稿：{bounded_json(draft, 15000)}
 审稿报告：{bounded_json(reports, 24000)}
-输出 JSON：must_fix、should_fix、reject_suggestions、author_decisions、revision_instructions、
-release_readiness。事实错误优先；读者理解问题次之；风格只做最小修改；审稿人意见冲突时说明取舍。
+输出 JSON：decisions、release_readiness、rationale。decisions 必须对每个既有 issue_id 恰好裁决一次，
+只能填写 issue_id、decision（approve/reject/defer）、reason、approved_fix；禁止新建 issue 或直接改正文。
+事实错误优先；读者理解问题次之；风格只做最小修改；意见冲突时在 reason 中说明取舍。
 """.strip()
         return await self._run_agent(
             db,
@@ -333,6 +382,7 @@ release_readiness。事实错误优先；读者理解问题次之；风格只做
             system_prompt="你是最终把关主编。你裁决审稿意见，但不擅自扩大文章主张。",
             user_prompt=chief_prompt,
             temperature=0.15,
+            schema_context={"allowed_issue_ids": issue_ids},
         )
 
     async def _run_final_revision(self, db: Session, project: WritingProject) -> WritingArtifact:
@@ -348,6 +398,18 @@ release_readiness。事实错误优先；读者理解问题次之；风格只做
         )
         source = evidence_bundle.prompt_payload()
         style = self._style_payload(db, project)
+        decisions = plan.get("decisions") if isinstance(plan, dict) else None
+        initial_claim_ids = [
+            str(item.get("claim_id") or "")
+            for item in (draft.get("claims") if isinstance(draft.get("claims"), list) else [])
+            if isinstance(item, dict) and item.get("claim_id")
+        ]
+        approved_issue_ids = [
+            str(item.get("issue_id") or "")
+            for item in (decisions if isinstance(decisions, list) else [])
+            if isinstance(item, dict)
+            if item.get("decision") == "approve" and item.get("issue_id")
+        ]
         prompt = f"""
 你是微信公众号终稿修订者。落实主编批准的修改，不擅自改变主线，也不能把完整初稿压缩成短稿。
 初稿：{bounded_json(draft, 30000)}
@@ -356,6 +418,8 @@ release_readiness。事实错误优先；读者理解问题次之；风格只做
 逐节原始证据：{json.dumps(source, ensure_ascii=False)}
 风格规则：{bounded_json(style, 9000)}
 输出 JSON：title、body、tags、claims、applied_changes。
+applied_changes 只能引用主编批准的 issue_id，并必须逐项执行：
+{json.dumps(approved_issue_ids, ensure_ascii=False)}
 不得新增证据包没有支持的事实；不要恢复被审稿删除的免责声明和模板标题；
 保持 1800—4500 个中文字符、3—6 个完整 H2、闭合代码围栏和完整结尾。
 """.strip()
@@ -369,110 +433,82 @@ release_readiness。事实错误优先；读者理解问题次之；风格只做
             user_prompt=prompt,
             temperature=0.25,
             reference_body=str(draft.get("body") or ""),
+            schema_context={
+                "approved_issue_ids": approved_issue_ids,
+                "required_issue_ids": approved_issue_ids,
+                "allowed_evidence_refs": self._evidence_refs(
+                    source,
+                    evidence.get("evidence_retrieval") or {},
+                ),
+            },
         )
         self._attach_evidence_trace(artifact, evidence_bundle)
-        self._create_draft_revision(db, project, artifact)
-        return artifact
-
-    async def _run_agent(
-        self,
-        db: Session,
-        *,
-        project: WritingProject,
-        role: str,
-        stage: str,
-        artifact_type: str,
-        system_prompt: str,
-        user_prompt: str,
-        temperature: float,
-        max_tokens: int | None = None,
-        capture_response_meta: bool = False,
-        request_timeout_seconds: float | None = None,
-    ) -> WritingArtifact:
-        skill_name = ROLE_SKILLS[role]
-        binding = binding_for(db, skill_name, self.settings.model_name)
-        if not binding.enabled:
-            raise ValueError(f"Skill {skill_name} 已关闭")
-        input_hash = hashlib.sha256(
-            (
-                f"{role}\n{system_prompt}\n{user_prompt}\n{binding.model_name}\n"
-                f"{binding.prompt_version}\nmax_tokens={max_tokens}\n"
-                f"request_timeout_seconds={request_timeout_seconds}"
-            ).encode()
-        ).hexdigest()
-        cached_run = db.scalar(
-            select(AgentRun)
-            .where(
-                AgentRun.project_id == project.id,
-                AgentRun.role == role,
-                AgentRun.input_hash == input_hash,
-                AgentRun.status.in_([AgentRunStatus.succeeded.value, AgentRunStatus.cached.value]),
-                AgentRun.output_artifact_id.is_not(None),
-            )
-            .order_by(desc(AgentRun.finished_at))
-            .limit(1)
-        )
-        if cached_run and cached_run.output_artifact_id:
-            cached = db.get(WritingArtifact, cached_run.output_artifact_id)
-            if cached is not None:
-                return cached
-
-        if project.spent_estimate_cents >= project.budget_limit_cents:
-            raise ValueError("写作项目已达到模型预算上限")
-
-        run = AgentRun(
-            project_id=project.id,
-            role=role,
-            stage=stage,
-            status=AgentRunStatus.running.value,
-            model_name=binding.model_name or self.settings.model_name,
-            reasoning_effort=binding.reasoning_effort,
-            input_hash=input_hash,
-            attempts=1,
-            started_at=utcnow(),
-        )
-        db.add(run)
-        db.flush()
-        try:
-            if self.settings.model_base_url and self.settings.model_name:
-                result = await self.editorial._chat_json(
-                    system_prompt=system_prompt,
-                    user_prompt=user_prompt,
-                    temperature=temperature,
-                    reasoning_effort=binding.reasoning_effort,
-                    model_name=binding.model_name,
-                    max_tokens=max_tokens,
-                    capture_response_meta=capture_response_meta,
-                    request_timeout_seconds=request_timeout_seconds,
-                )
-                response_meta = result.pop("_x2red_response_meta", None)
-                if capture_response_meta and isinstance(response_meta, dict):
-                    result["_completion"] = {
-                        "finish_reason": str(response_meta.get("finish_reason") or ""),
-                        "completion_tokens": response_meta.get("completion_tokens"),
-                    }
-            else:
-                result = self._fallback_agent(role, project)
-            artifact = self._store_artifact(
-                db,
-                project=project,
-                artifact_type=artifact_type,
-                content=result,
-                role=role,
-                approved=False,
-            )
-            run.status = AgentRunStatus.succeeded.value
-            run.output_artifact_id = artifact.id
-            run.finished_at = utcnow()
-            run.usage_json = json.dumps({"estimated_cost_cents": 1}, ensure_ascii=False)
-            project.spent_estimate_cents += 1
-            db.flush()
+        if self.settings.writing_schema_mode == "legacy":
+            self._create_draft_revision(db, project, artifact)
             return artifact
-        except Exception as exc:
-            run.status = AgentRunStatus.failed.value
-            run.error = str(exc)[:2000]
-            run.finished_at = utcnow()
-            project.error = run.error
-            project.state = WritingState.failed.value
-            db.flush()
-            raise
+
+        evidence_scope = {
+            "retrievals": [
+                evidence.get("evidence_retrieval") or {},
+                source,
+            ]
+        }
+        claim_prompt = f"""
+你是终稿 claim 提取器，只做事实与主张抽取，不做风格改写。
+终稿：{bounded_json(self._json(artifact.content_json, {}), 36000)}
+初稿 claims：{bounded_json(draft.get("claims") or [], 16000)}
+已批准修订 issue_id：{json.dumps(approved_issue_ids, ensure_ascii=False)}
+可用逐节证据：{json.dumps(evidence_scope, ensure_ascii=False)}
+
+输出 JSON：claims。每条 claim 必须包含 claim_id、statement、终稿中的 exact_quote、location、
+claim_type、importance、evidence_refs、evidence_quote、origin_claim_id、approved_issue_ids。
+evidence_refs 只能逐字使用输入中的 source_id:chunk_id；若无法支持则保留空数组，不得伪造。
+origin_claim_id 只能引用初稿 claim_id；approved_issue_ids 只能引用上方已批准 ID。
+必须抽取终稿中的全部 critical/major 事实、数字、因果、比较与能力主张，禁止用空 claims 逃避核查。
+""".strip()
+        final_claims_artifact = await self._run_agent(
+            db,
+            project=project,
+            role="claim_extractor",
+            stage="final_claims",
+            artifact_type="final_claims",
+            system_prompt="你是事实 claim 提取器。历史风格记忆不能参与事实判断。",
+            user_prompt=claim_prompt,
+            temperature=0,
+            schema_context={
+                "initial_claim_ids": initial_claim_ids,
+                "approved_issue_ids": approved_issue_ids,
+                "allowed_evidence_refs": self._evidence_refs(evidence_scope),
+            },
+        )
+        claims_payload = self._json(final_claims_artifact.content_json, {})
+        extraction = FinalClaimsOutput.model_validate(
+            {"claims": claims_payload.get("claims") or []}
+        )
+        matrix = ClaimChecker().evaluate(
+            final_artifact_id=artifact.id,
+            final_claims_artifact_id=final_claims_artifact.id,
+            final_body=str(self._json(artifact.content_json, {}).get("body") or ""),
+            extraction=extraction,
+            evidence_retrieval=evidence_scope,
+            initial_claims=draft.get("claims") or [],
+            approved_issue_ids=set(approved_issue_ids),
+        )
+        matrix_payload = matrix.model_dump(mode="json")
+        matrix_artifact = self._store_artifact(
+            db,
+            project=project,
+            artifact_type="claim_evidence_matrix",
+            content=matrix_payload,
+            role="claim_checker",
+            approved=True,
+        )
+        self._attach_claim_trace(
+            artifact,
+            final_claims_artifact=final_claims_artifact,
+            matrix_artifact=matrix_artifact,
+            matrix=matrix_payload,
+        )
+        if matrix.completion_allowed:
+            self._create_draft_revision(db, project, artifact)
+        return artifact

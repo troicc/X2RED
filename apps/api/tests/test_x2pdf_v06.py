@@ -220,7 +220,10 @@ def test_x2pdf_bridge_lifecycle_skills_and_publish_archive(
         assert health["editorial_pipeline"] == (
             "multi-agent-signal-to-story-plus-platform-skill-packs"
         )
-        assert health["writing_pipeline"].endswith("chief-editor")
+        assert "three-reviews-chief" in health["writing_pipeline"]
+        assert health["writing_pipeline"].endswith("final-claims-evidence-gate")
+        assert health["writing_schema_mode"] == "production"
+        assert health["writing_claim_gate"] is True
         assert health["platforms"] == ["xiaohongshu", "wechat"]
         assert health["wechat_workbench"] is True
         assert health["review_pipeline"] == (

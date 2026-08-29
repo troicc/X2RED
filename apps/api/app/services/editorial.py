@@ -13,6 +13,7 @@ from app.core.config import Settings
 from app.domain.evidence_schemas import EvidenceBundle, EvidenceSectionRequest
 from app.domain.models import DraftRevision, SkillBinding, SourceItem, new_id
 from app.services.evidence_compiler import EvidenceCompiler
+from app.services.model_client import StructuredOutputError
 from app.services.pool_memory import PoolMemoryService
 from app.services.retrieval import bounded_json, keyword_digest
 from app.services.skills import binding_for
@@ -654,9 +655,18 @@ audience_value、angles、recommended_angle、title_candidates、outline、avoid
             start, end = cleaned.find("{"), cleaned.rfind("}")
             if start >= 0 and end > start:
                 cleaned = cleaned[start : end + 1]
-        parsed = json.loads(cleaned)
+        try:
+            parsed = json.loads(cleaned)
+        except json.JSONDecodeError as exc:
+            raise StructuredOutputError(
+                "模型没有返回有效 JSON",
+                raw_content=content,
+            ) from exc
         if not isinstance(parsed, dict):
-            raise ValueError("model response is not a JSON object")
+            raise StructuredOutputError(
+                "模型返回值不是 JSON 对象",
+                raw_content=content,
+            )
         return parsed
 
     @staticmethod

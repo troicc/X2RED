@@ -30,6 +30,7 @@ ROLE_SKILLS = {
     "writer": "writing.writer",
     "reader_reviewer": "review.reader",
     "fact_reviewer": "review.fact",
+    "claim_extractor": "review.fact",
     "style_reviewer": "review.style",
     "chief_editor": "writing.chief_editor",
     "final_reviser": "writing.final_revision",
@@ -431,6 +432,34 @@ class WritingCore:
         artifact.content_hash = hashlib.sha256(serialized.encode()).hexdigest()
         return artifact
 
+    @staticmethod
+    def _attach_claim_trace(
+        artifact: WritingArtifact,
+        *,
+        final_claims_artifact: WritingArtifact,
+        matrix_artifact: WritingArtifact,
+        matrix: dict[str, Any],
+    ) -> WritingArtifact:
+        try:
+            payload = json.loads(artifact.content_json or "{}")
+        except json.JSONDecodeError:
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        payload["claim_evidence_gate"] = {
+            "final_claims_artifact_id": final_claims_artifact.id,
+            "matrix_artifact_id": matrix_artifact.id,
+            "checker_version": matrix.get("checker_version"),
+            "completion_allowed": bool(matrix.get("completion_allowed")),
+            "critical_unsupported_claims": int(matrix.get("critical_unsupported_claims") or 0),
+            "major_unsupported_claims": int(matrix.get("major_unsupported_claims") or 0),
+            "unauthorized_major_expansions": int(matrix.get("unauthorized_major_expansions") or 0),
+        }
+        serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        artifact.content_json = serialized
+        artifact.content_hash = hashlib.sha256(serialized.encode()).hexdigest()
+        return artifact
+
     def _style_payload(self, db: Session, project: WritingProject) -> dict[str, Any]:
         if not project.style_profile_id:
             return {
@@ -584,12 +613,17 @@ class WritingCore:
                     "generator": "multi-agent-writing-studio",
                     "writing_project_id": project.id,
                     "final_artifact_id": artifact.id,
-                    "roles": list(ROLE_SKILLS),
+                    "roles": list(
+                        dict.fromkeys(
+                            run.role for run in self.runs(db, project.id) if run.output_artifact_id
+                        )
+                    ),
                     "style_profile_id": project.style_profile_id,
                     "input_material_refs": [
                         str(item.get("ref") or "") for item in self._selected_materials(db, project)
                     ],
                     "evidence_retrieval": content.get("evidence_retrieval") or {},
+                    "claim_evidence_gate": content.get("claim_evidence_gate") or {},
                     **self._memory_provenance(db, project),
                 },
                 ensure_ascii=False,
@@ -674,20 +708,48 @@ class WritingCore:
                 "forbidden_moves": ["逐段翻译", "审计式边界清单"],
             }
         if role in {"writer", "final_reviser"}:
-            return {
+            payload: dict[str, Any] = {
                 "title": "需要配置模型后生成终稿",
                 "body": "当前写作项目已经建立，但多 Agent 成稿需要配置兼容模型。",
                 "tags": ["内容创作", "X平台观察", "AI写作", "本地工具"],
-                "claims": [],
-                "applied_changes": [],
+                "claims": [
+                    {
+                        "claim_id": "fallback-claim",
+                        "statement": "多 Agent 成稿需要配置兼容模型",
+                        "location": {"quote": "多 Agent 成稿需要配置兼容模型"},
+                        "claim_type": "capability",
+                        "importance": "critical",
+                        "evidence_refs": [],
+                        "evidence_quote": "",
+                    }
+                ],
             }
+            if role == "final_reviser":
+                payload["applied_changes"] = []
+            return payload
         if role.endswith("reviewer"):
-            return {"verdict": "needs_human_review", "minimal_fixes": ["未配置模型"]}
-        return {
-            "must_fix": ["未配置模型，不能自动完成主编审稿"],
-            "should_fix": [],
-            "reject_suggestions": [],
-            "author_decisions": [],
-            "revision_instructions": [],
-            "release_readiness": "blocked",
-        }
+            return {"verdict": "blocked", "issues": [], "strong_parts": []}
+        if role == "chief_editor":
+            return {
+                "decisions": [],
+                "release_readiness": "blocked",
+                "rationale": "未配置模型，不能自动完成主编审稿",
+            }
+        if role == "claim_extractor":
+            return {
+                "claims": [
+                    {
+                        "claim_id": "final-fallback-claim",
+                        "statement": "多 Agent 成稿需要配置兼容模型",
+                        "exact_quote": "多 Agent 成稿需要配置兼容模型",
+                        "location": {"quote": "多 Agent 成稿需要配置兼容模型"},
+                        "claim_type": "capability",
+                        "importance": "critical",
+                        "evidence_refs": [],
+                        "evidence_quote": "",
+                        "origin_claim_id": "fallback-claim",
+                        "approved_issue_ids": [],
+                    }
+                ]
+            }
+        raise ValueError(f"没有角色 {role} 的确定性降级输出")

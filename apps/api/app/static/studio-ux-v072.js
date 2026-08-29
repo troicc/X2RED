@@ -18,6 +18,8 @@
     style_review: "风格审稿",
     revision_plan: "主编修改计划",
     final_draft: "深度写作终稿",
+    final_claims: "终稿 Claims",
+    claim_evidence_matrix: "Claim-Evidence Matrix",
     author_decision: "作者决定",
   };
   const stageNames = {
@@ -27,6 +29,7 @@
     drafting: "写手正在生成公众号完整初稿",
     reviewing: "三路审稿与主编正在工作",
     revising: "终稿 Agent 正在执行修改",
+    claims_blocked: "终稿证据闸门未通过",
     awaiting_brief_approval: "请确认总编辑任务单",
     awaiting_outline_approval: "请确认文章大纲",
     awaiting_revision_approval: "请确认主编修改计划",
@@ -94,7 +97,7 @@
     revision_plan: {
       verb: "产生修改单",
       reads: "三份审稿报告和完整初稿",
-      writes: "必须修、建议修、拒绝建议和最终修改指令",
+      writes: "对每个已有 issue_id 的批准、拒绝或延后裁决",
       optimize: "审稿意见冲突或修改优先级不合理时，调整这里。",
       skill: "writing.chief_editor",
     },
@@ -104,6 +107,20 @@
       writes: "不缩短主线、通过完整度门禁的深度写作终稿",
       optimize: "修改执行不完整、文章被压短或引入新问题时，调整这里。",
       skill: "writing.final_revision",
+    },
+    final_claims: {
+      verb: "重提主张",
+      reads: "终稿、初稿 claims、获批 issue 和冻结证据",
+      writes: "终稿全部关键主张、原句位置、来源引用和主张来源",
+      optimize: "抽取遗漏或归因不准时，应修复 claim 提取，不得绕过证据闸门。",
+      skill: "review.fact",
+    },
+    claim_evidence_matrix: {
+      verb: "核验证据",
+      reads: "终稿 claims、W1 evidence chunks、初稿 claims 和获批 issue",
+      writes: "逐 claim 支持度、范围变化、阻断原因和完成许可",
+      optimize: "关键主张无支持或终稿扩大主张时，必须回到证据或终稿修订阶段。",
+      skill: "claim-checker-v1",
     },
     author_decision: {
       verb: "记录决定",
@@ -120,7 +137,7 @@
     { key: "draft", number: "04", title: "完整初稿", types: ["draft"], roles: ["writer"] },
     { key: "reviews", number: "05", title: "三路审稿", types: ["reader_review", "fact_review", "style_review"], roles: ["reader_reviewer", "fact_reviewer", "style_reviewer"] },
     { key: "plan", number: "06", title: "修改裁决", types: ["revision_plan"], roles: ["chief_editor"] },
-    { key: "final", number: "07", title: "终稿修订", types: ["final_draft"], roles: ["final_reviser"] },
+    { key: "final", number: "07", title: "终稿与证据闸门", types: ["final_draft", "final_claims", "claim_evidence_matrix"], roles: ["final_reviser", "claim_extractor"] },
     { key: "handoff", number: "08", title: "公众号成稿", types: [], roles: [] },
   ];
 
@@ -191,7 +208,8 @@
     const model = run.model_name || "确定性回退";
     const effort = run.reasoning_effort ? ` · 推理 ${run.reasoning_effort}` : "";
     const attempts = run.attempts > 1 ? ` · ${run.attempts} 次尝试` : "";
-    return `模型：${model}${effort}${attempts}`;
+    const degraded = run.status === "degraded" ? " · 降级输出" : "";
+    return `模型：${model}${effort}${attempts}${degraded}`;
   }
 
   function guideForStage(stage) {
@@ -227,7 +245,7 @@
     const stage = project.current_stage || "";
     const state = project.state || "";
     if (["completed"].includes(stage) || state === "completed") return 7;
-    if (["final_revision"].includes(stage) || state === "revising") return 6;
+    if (["final_revision", "claim_evidence_gate"].includes(stage) || ["revising", "claims_blocked"].includes(state)) return 6;
     if (["approve_revision_plan"].includes(stage) || state === "awaiting_revision_approval") return 5;
     if (["parallel_reviews"].includes(stage) || state === "reviewing") return 4;
     if (["draft"].includes(stage) || state === "drafting") return 3;
@@ -245,6 +263,7 @@
     const artifacts = stage.types.map((type) => latestArtifact(project, (item) => item.artifact_type === type));
     const complete = artifacts.every(Boolean);
     const waitingApproval = artifacts.some((artifact) => artifact && approvalTypes.has(artifact.artifact_type) && !artifact.approved);
+    if (project.state === "claims_blocked" && stage.key === "final") return { kind: "error", label: "证据阻断" };
     if (project.state === "failed" && index === activeIndex) return { kind: "error", label: "失败" };
     if (waitingApproval && index === activeIndex) return { kind: "waiting", label: "等你确认" };
     if (complete && (index < activeIndex || project.state === "completed")) return { kind: "complete", label: "已产出" };
@@ -544,7 +563,9 @@
     preview.className = "final-article-preview";
 
     const heading = document.createElement("header");
-    heading.innerHTML = '<span class="section-kicker">STAGE 07 OUTPUT</span><strong>深度写作终稿 · 尚未覆盖公众号版本</strong>';
+    heading.innerHTML = project.state === "claims_blocked"
+      ? '<span class="section-kicker">CLAIM GATE BLOCKED</span><strong>候选终稿 · 禁止交接公众号</strong>'
+      : '<span class="section-kicker">STAGE 07 OUTPUT</span><strong>深度写作终稿 · 尚未覆盖公众号版本</strong>';
     const title = document.createElement("h2");
     title.textContent = content.title || project.promise || "完成文章";
     const body = document.createElement("div");
@@ -568,7 +589,11 @@
     const cards = [...detail.querySelectorAll(".artifact-card")];
     if (!cards.length) return null;
     const pending = pendingArtifact(project);
+    const blockedMatrix = project.state === "claims_blocked"
+      ? latestArtifact(project, (item) => item.artifact_type === "claim_evidence_matrix")
+      : null;
     const focusArtifact = pending
+      || blockedMatrix
       || latestArtifact(project, (item) => item.artifact_type === "final_draft")
       || latestArtifact(project);
 
@@ -580,6 +605,25 @@
       const header = card.querySelector(".artifact-header");
       if (!header) return;
       card.querySelector(".artifact-explainer")?.remove();
+      header.querySelector(".artifact-schema-status")?.remove();
+      const artifactPayload = parseArtifact(artifact);
+      const structured = artifact.structured_output || artifactPayload._structured_output;
+      if (structured && ["valid", "repaired", "degraded"].includes(structured.status)) {
+        const schemaStatus = document.createElement("span");
+        schemaStatus.className = `artifact-schema-status is-${structured.status}`;
+        schemaStatus.textContent = {
+          valid: "Schema 通过",
+          repaired: "Schema 已修复",
+          degraded: "降级输出",
+        }[structured.status];
+        schemaStatus.title = structured.warning || `Schema：${structured.schema_name || "unknown"}`;
+        header.insertBefore(schemaStatus, header.querySelector(".artifact-toggle"));
+      } else if (artifact.artifact_type === "claim_evidence_matrix") {
+        const gateStatus = document.createElement("span");
+        gateStatus.className = `artifact-schema-status ${artifactPayload.completion_allowed ? "is-valid" : "is-blocked"}`;
+        gateStatus.textContent = artifactPayload.completion_allowed ? "证据闸门通过" : "证据闸门阻断";
+        header.insertBefore(gateStatus, header.querySelector(".artifact-toggle"));
+      }
       const guide = artifactGuides[artifact.artifact_type] || guideForStage({ key: "unknown", types: [artifact.artifact_type] });
       const run = latestRun(project, [artifact.created_by_role], artifact.id);
       const explainer = document.createElement("section");
@@ -633,11 +677,13 @@
   function buildDock(project) {
     const dock = document.createElement("section");
     dock.className = "writing-action-dock";
+    dock.classList.toggle("is-claims-blocked", project.state === "claims_blocked");
     const copy = document.createElement("div");
     copy.className = "writing-dock-copy";
     const kicker = document.createElement("span");
     kicker.textContent = project.state === "completed"
       ? project.wechat_variant_id ? "WECHAT VERSION READY" : "NEXT: WECHAT ARTICLE"
+      : project.state === "claims_blocked" ? "CLAIM GATE BLOCKED"
       : "CURRENT ACTION";
     const title = document.createElement("strong");
     title.textContent = stageNames[project.state] || project.current_stage || "继续写作流程";
@@ -649,7 +695,9 @@
         ? project.wechat_variant_id
           ? `深度终稿已关联公众号 v${project.wechat_variant_version || ""}；可打开继续编辑、配图与排版。`
           : `深度终稿已完整保存（${project.output_draft_chars || 0} 字符）；下一步以它和原始证据生成公众号版本。`
-        : "系统会运行到下一个人工确认点。";
+        : project.state === "claims_blocked"
+          ? project.error || "关键主张缺少证据或终稿扩大了主张；当前候选终稿不会进入公众号成稿。"
+          : "系统会运行到下一个人工确认点。";
     copy.append(kicker, title, detail);
 
     const actions = document.createElement("div");
@@ -680,6 +728,13 @@
       preview.textContent = "查看本页终稿";
       preview.addEventListener("click", showFinalPreview);
       actions.append(article, preview);
+    } else if (project.state === "claims_blocked") {
+      const preview = document.createElement("button");
+      preview.type = "button";
+      preview.className = "secondary-action";
+      preview.textContent = "查看候选终稿";
+      preview.addEventListener("click", showFinalPreview);
+      actions.append(preview);
     } else if (!["failed", "canceled"].includes(project.state)) {
       const run = document.createElement("button");
       run.type = "button";
@@ -729,7 +784,7 @@
     const header = detail.querySelector(".project-detail-header");
     if (header) header.after(buildStageMap(project));
     const timeline = detail.querySelector(".artifact-timeline");
-    if (project.state === "completed" && timeline) {
+    if (["completed", "claims_blocked"].includes(project.state) && timeline) {
       const preview = buildFinalPreview(project);
       if (preview) timeline.before(preview);
     }

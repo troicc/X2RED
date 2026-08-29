@@ -44,6 +44,7 @@ class WritingState(str, enum.Enum):
     reviewing = "reviewing"
     awaiting_revision_approval = "awaiting_revision_approval"
     revising = "revising"
+    claims_blocked = "claims_blocked"
     completed = "completed"
     canceled = "canceled"
     failed = "failed"
@@ -53,6 +54,7 @@ class AgentRunStatus(str, enum.Enum):
     pending = "pending"
     running = "running"
     succeeded = "succeeded"
+    degraded = "degraded"
     failed = "failed"
     cached = "cached"
 

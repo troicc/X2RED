@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 
 class MonitorTargetCreate(BaseModel):
@@ -224,6 +225,16 @@ class WritingArtifactOut(BaseModel):
     created_by_role: str
     approved: bool
     created_at: datetime
+
+    @computed_field(return_type=dict[str, Any])
+    @property
+    def structured_output(self) -> dict[str, Any]:
+        try:
+            payload = json.loads(self.content_json or "{}")
+        except (TypeError, json.JSONDecodeError):
+            return {}
+        trace = payload.get("_structured_output") if isinstance(payload, dict) else None
+        return trace if isinstance(trace, dict) else {}
 
 
 class AgentRunOut(BaseModel):

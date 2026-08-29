@@ -232,11 +232,7 @@ def test_completed_agent_stages_survive_later_model_failures(
             if item["artifact_type"] in {"editorial_brief", "evidence_pack"}
         ]
         assert traced and all(item["mode"] == "hybrid" for item in traced)
-        assert all(
-            section["evidence_chunks"]
-            for item in traced
-            for section in item["sections"]
-        )
+        assert all(section["evidence_chunks"] for item in traced for section in item["sections"])
         assert all(
             ":" in chunk["evidence_ref"]
             for item in traced
@@ -289,6 +285,15 @@ def test_deep_writing_preserves_complete_longform_and_links_wechat_output(
         f"## 章节{index}\n\n{sentence * 47}" for index in range(1, 4)
     )
     assert 4000 < len(long_body) < 4500
+    draft_claim = {
+        "claim_id": "claim-001",
+        "statement": "这段论述解释成果、边界与对读者的实际意义",
+        "location": {"quote": sentence},
+        "claim_type": "interpretation",
+        "importance": "minor",
+        "evidence_refs": [],
+        "evidence_quote": "",
+    }
 
     with TestClient(main_module.app) as client:
         with db_session.SessionLocal() as db:
@@ -322,37 +327,69 @@ def test_deep_writing_preserves_complete_longform_and_links_wechat_output(
                 "success_criteria": [],
             },
             {
-                "facts": [], "author_claims": [], "unknowns": [], "numbers": [],
-                "terms": [], "source_map": [], "material_gaps": [],
-                "usable_examples": [], "claims_for_draft": [],
+                "facts": [],
+                "author_claims": [],
+                "unknowns": [],
+                "numbers": [],
+                "terms": [],
+                "source_map": [],
+                "material_gaps": [],
+                "usable_examples": [],
+                "claims_for_draft": [],
             },
             {
-                "opening": {}, "sections": [], "ending": {}, "cognitive_load_plan": [],
-                "terms_first_use": [], "evidence_allocation": [], "transitions": [],
+                "opening": {},
+                "sections": [],
+                "ending": {},
+                "cognitive_load_plan": [],
+                "terms_first_use": [],
+                "evidence_allocation": [],
+                "transitions": [],
                 "forbidden_moves": [],
             },
             {
                 "title": "被长度上限截断的初稿",
                 "body": "## 第一节\n\n正文尚未完成。\n\n## 第二节\n\n仍在输出。\n\n## 第三节\n\n半句",
                 "tags": ["长文"],
-                "claims": [],
+                "claims": [draft_claim],
                 "_finish_reason": "length",
             },
-            {"title": "完整公众号初稿", "body": long_body, "tags": ["长文"], "claims": []},
-            {"verdict": "pass", "minimal_fixes": []},
-            {"verdict": "pass", "minimal_fixes": []},
-            {"verdict": "pass", "minimal_fixes": []},
             {
-                "must_fix": [], "should_fix": [], "reject_suggestions": [],
-                "author_decisions": [], "revision_instructions": [],
+                "title": "完整公众号初稿",
+                "body": long_body,
+                "tags": ["长文"],
+                "claims": [draft_claim],
+            },
+            {"verdict": "pass", "issues": [], "strong_parts": []},
+            {"verdict": "pass", "issues": [], "strong_parts": []},
+            {"verdict": "pass", "issues": [], "strong_parts": []},
+            {
+                "decisions": [],
                 "release_readiness": "ready",
+                "rationale": "三路审稿均无待修 issue",
             },
             {
                 "title": "完整公众号终稿",
                 "body": long_body.replace("成果", "技术成果", 1),
                 "tags": ["长文"],
-                "claims": [],
-                "applied_changes": ["完成审稿修订"],
+                "claims": [draft_claim],
+                "applied_changes": [],
+            },
+            {
+                "claims": [
+                    {
+                        "claim_id": "final-claim-001",
+                        "statement": draft_claim["statement"],
+                        "exact_quote": sentence,
+                        "location": {"quote": sentence},
+                        "claim_type": "interpretation",
+                        "importance": "minor",
+                        "evidence_refs": [],
+                        "evidence_quote": "",
+                        "origin_claim_id": "claim-001",
+                        "approved_issue_ids": [],
+                    }
+                ]
             },
         ]
         calls: list[dict] = []
@@ -409,6 +446,36 @@ def test_deep_writing_preserves_complete_longform_and_links_wechat_output(
         assert project["output_draft_version"] == 1
         assert project["output_draft_chars"] > 4000
         assert len([item for item in project["artifacts"] if item["artifact_type"] == "draft"]) == 2
+        artifact_types = {item["artifact_type"] for item in project["artifacts"]}
+        assert {"final_claims", "claim_evidence_matrix"} <= artifact_types
+        matrix_artifact = next(
+            item
+            for item in project["artifacts"]
+            if item["artifact_type"] == "claim_evidence_matrix"
+        )
+        assert json.loads(matrix_artifact["content_json"])["completion_allowed"] is True
+        structured_artifacts = [
+            item
+            for item in project["artifacts"]
+            if item["artifact_type"]
+            in {
+                "editorial_brief",
+                "evidence_pack",
+                "outline",
+                "draft",
+                "reader_review",
+                "fact_review",
+                "style_review",
+                "revision_plan",
+                "final_draft",
+                "final_claims",
+            }
+        ]
+        assert structured_artifacts
+        assert all(
+            item["structured_output"]["status"] in {"valid", "repaired"}
+            for item in structured_artifacts
+        )
 
         with db_session.SessionLocal() as db:
             output_draft = db.get(DraftRevision, project["output_draft_id"])
@@ -418,6 +485,7 @@ def test_deep_writing_preserves_complete_longform_and_links_wechat_output(
             provenance = json.loads(output_draft.provenance_json)
             assert provenance["writing_project_id"] == project_id
             assert provenance["final_artifact_id"]
+            assert provenance["claim_evidence_gate"]["completion_allowed"] is True
 
         async def use_structured_fallback(*args, **kwargs):
             return None
@@ -458,9 +526,7 @@ def test_deep_writing_preserves_complete_longform_and_links_wechat_output(
 def test_deep_longform_gate_rejects_short_or_overcompressed_model_output() -> None:
     from app.services.writing_agents import WritingAgentsMixin
 
-    short_body = "\n\n".join(
-        f"## 章节{index}\n\n{'短段落。' * 70}" for index in range(1, 4)
-    )
+    short_body = "\n\n".join(f"## 章节{index}\n\n{'短段落。' * 70}" for index in range(1, 4))
     short_issues = WritingAgentsMixin._longform_completion_issues(
         {
             "body": short_body,

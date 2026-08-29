@@ -31,6 +31,7 @@
 - `IMAGE_CANDIDATE_VISUAL_REVIEW_V3.md`：任务书 V3 的图片多候选、Contact Sheet、十维视觉审稿、单次定向修复、发布门禁与回滚合同。
 - `LOCAL_CHINESE_TYPOGRAPHY_RECIPE_V4.md`：任务书 V4 的八种本地中文构图模式、严格 schema、主体避让、比例验收、诊断与回滚合同。
 - `EVIDENCE_COMPILER_HYBRID_RETRIEVAL_W1.md`：任务书 W1 的语义 chunk、BM25/可选 embedding、逐节重排、MMR、证据引用和回滚合同。
+- `STRUCTURED_WRITING_CLAIM_MATRIX_W2.md`：任务书 W2 的 Agent Schema、一次修复、issue 权限链、终稿 claims、证据矩阵、完成阻断和回滚合同。
 - `context.json`：供模型或脚本快速解析的结构化摘要。
 - 根目录 `AGENTS.md`：Agent 入口和不可违反的约束。
 

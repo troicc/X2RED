@@ -92,7 +92,12 @@ ROLE_DIMENSIONS: dict[str, set[str]] = {
     },
 }
 
-FACT_ONLY_ROLES = {"evidence_researcher", "fact_reviewer", "culture_reviewer"}
+FACT_ONLY_ROLES = {
+    "evidence_researcher",
+    "fact_reviewer",
+    "claim_extractor",
+    "culture_reviewer",
+}
 
 SOURCE_WEIGHTS = {
     "writing_feedback": 3.0,
