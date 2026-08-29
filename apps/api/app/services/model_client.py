@@ -18,6 +18,21 @@ class ModelClientError(RuntimeError):
     pass
 
 
+class StructuredOutputError(ModelClientError, ValueError):
+    """A model response was returned but could not be decoded as an object."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        raw_content: str = "",
+        phase: str = "parse",
+    ) -> None:
+        super().__init__(message)
+        self.raw_content = raw_content
+        self.phase = phase
+
+
 class CandidateCountUnsupported(ModelClientError):
     """The provider accepted image generation but rejected a multi-image count."""
 
@@ -491,7 +506,13 @@ class ModelClient:
         try:
             parsed = json.loads(cleaned)
         except json.JSONDecodeError as exc:
-            raise ModelClientError("模型没有返回有效 JSON") from exc
+            raise StructuredOutputError(
+                "模型没有返回有效 JSON",
+                raw_content=content,
+            ) from exc
         if not isinstance(parsed, dict):
-            raise ModelClientError("模型返回值不是 JSON 对象")
+            raise StructuredOutputError(
+                "模型返回值不是 JSON 对象",
+                raw_content=content,
+            )
         return parsed

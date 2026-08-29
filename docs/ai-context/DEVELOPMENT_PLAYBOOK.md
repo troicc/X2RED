@@ -176,6 +176,7 @@ X2RED_EVIDENCE_RETRIEVAL_MODE=hybrid
 X2RED_EVIDENCE_EMBEDDING_BASE_URL=
 X2RED_EVIDENCE_EMBEDDING_API_KEY=
 X2RED_EVIDENCE_EMBEDDING_MODEL=
+X2RED_WRITING_SCHEMA_MODE=production
 ```
 
 图片 endpoint 未单独配置时可以继承文本模型 provider；`X2RED_IMAGE_MODEL` 为空时不得把本地占位图伪装成原版 Minimal Zine 生成结果。
@@ -187,6 +188,8 @@ V2 `X2RED_VISUAL_BRIEF_MODE=production|legacy` 和 V3 `X2RED_IMAGE_CANDIDATE_MOD
 V4 `X2RED_TYPOGRAPHY_RECIPE_MODE=production|legacy` 独立控制本地中文构图层。production 冻结八模式 recipe 与逐区域诊断；legacy 恢复单一安全区 compositor。切换不会删除 raw/final、候选或审计记录，也不会把旧成品静默重排。
 
 W1 `X2RED_EVIDENCE_RETRIEVAL_MODE=hybrid|legacy` 独立控制写作证据输入。hybrid 默认使用本地 BM25、重排和 MMR；三个 embedding 配置全部留空时不会调用外部向量模型。配置单独的 OpenAI-compatible `/embeddings` endpoint 后只对召回候选重排。legacy 会在 artifact 中写入 `DEGRADED_LEGACY_CHARACTER_SLICE`，不改写历史版本。详细合同见 `EVIDENCE_COMPILER_HYBRID_RETRIEVAL_W1.md`。
+
+W2 `X2RED_WRITING_SCHEMA_MODE=production|legacy` 独立控制多 Agent 输出合同。production 对每个角色执行严格 Schema、一次结构修复以及最终 claim-evidence gate；legacy 恢复旧链但 AgentRun/artifact 一律显示 degraded。production 下无模型 fallback 也不会伪称成功，critical/major 无证据会进入 `claims_blocked` 且不创建 output DraftRevision。切换不重写历史产物，详细合同见 `STRUCTURED_WRITING_CLAIM_MATRIX_W2.md`。
 
 ### 调度器
 
@@ -253,6 +256,7 @@ ruff check apps/api --select E,F,I,B,UP --ignore E501,E701,E702,UP035,UP042,B008
 - 直接加载的 v15 产品壳和轻内容控制器语法；旧 v10/v12/v14 控制器只留在磁盘，不是 runtime/CI 入口。
 - Minimal Zine v15 分镜不可变修订、raw/final 分离、render mode 校验和发布包 allowlist。
 - V4 八种本地中文 recipe、3:5/3:4/21:9/1:1 无溢出、主体避让、缩略图差异、公众号双比例封面和 legacy 回滚。
+- W2 全角色 Schema 重放、一次修复上限、review issue 定位/证据、Chief/Final issue 权限、final claims、critical/major 支持度与 `claims_blocked` 完成阻断。
 
 ## 8. 手工 smoke test
 

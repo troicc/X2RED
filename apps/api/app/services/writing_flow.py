@@ -51,8 +51,28 @@ class WritingFlowMixin:
 
         if project.state == WritingState.revising.value:
             artifact = await self._run_final_revision(db, project)
+            if self.settings.writing_schema_mode == "production":
+                matrix_artifact = self.latest_artifact(
+                    db,
+                    project.id,
+                    "claim_evidence_matrix",
+                )
+                if matrix_artifact is None:
+                    raise ValueError("生产模式缺少终稿 claim-evidence matrix")
+                matrix = self._json(matrix_artifact.content_json, {})
+                if not matrix.get("completion_allowed"):
+                    project.state = WritingState.claims_blocked.value
+                    project.current_stage = "claim_evidence_gate"
+                    project.error = (
+                        "终稿 claim-evidence 闸门未通过："
+                        f"critical unsupported={matrix.get('critical_unsupported_claims', 0)}，"
+                        f"major unsupported={matrix.get('major_unsupported_claims', 0)}，"
+                        f"unauthorized expansion={matrix.get('unauthorized_major_expansions', 0)}"
+                    )
+                    return matrix_artifact
             project.state = WritingState.completed.value
             project.current_stage = "completed"
+            project.error = ""
             return artifact
 
         if project.state in {
@@ -63,6 +83,8 @@ class WritingFlowMixin:
             raise ValueError("当前阶段需要作者确认后才能继续")
         if project.state == WritingState.completed.value:
             raise ValueError("写作项目已经完成")
+        if project.state == WritingState.claims_blocked.value:
+            raise ValueError("终稿 claim-evidence 闸门未通过，项目不能标记完成")
         raise ValueError(f"当前状态不能继续执行：{project.state}")
 
     async def run_until_gate(
@@ -79,6 +101,7 @@ class WritingFlowMixin:
                 WritingState.awaiting_outline_approval.value,
                 WritingState.awaiting_revision_approval.value,
                 WritingState.completed.value,
+                WritingState.claims_blocked.value,
                 WritingState.failed.value,
                 WritingState.canceled.value,
             }:

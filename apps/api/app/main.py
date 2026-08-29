@@ -312,7 +312,11 @@ def health() -> dict:
         if model_configured
         else "multi-agent-structured-fallback",
         "intelligence_pipeline": "monitor-score-l1-l2",
-        "writing_pipeline": "editor-research-outline-writer-three-reviews-chief-editor",
+        "writing_pipeline": (
+            "editor-research-outline-writer-three-reviews-chief-final-claims-evidence-gate"
+        ),
+        "writing_schema_mode": settings.writing_schema_mode,
+        "writing_claim_gate": settings.writing_schema_mode == "production",
         "style_pipeline": "original-samples-held-out-feedback",
         "platform_pipeline": "reviewable-artifacts-shared-evidence-platform-variants",
         "review_pipeline": "storyboard-module-tree-cover-brief-versioned-approval",

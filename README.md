@@ -101,6 +101,7 @@ X2RED_EVIDENCE_RETRIEVAL_MODE=hybrid
 X2RED_EVIDENCE_EMBEDDING_BASE_URL=
 X2RED_EVIDENCE_EMBEDDING_API_KEY=
 X2RED_EVIDENCE_EMBEDDING_MODEL=
+X2RED_WRITING_SCHEMA_MODE=production
 ```
 
 When `IMAGE_BASE_URL` or `IMAGE_API_KEY` is empty, X2RED reuses the corresponding text-provider setting. Without `X2RED_IMAGE_MODEL`, the application keeps the reviewed prompt but does not falsely label a local placeholder as an original Skill render.
@@ -114,6 +115,8 @@ When `IMAGE_BASE_URL` or `IMAGE_API_KEY` is empty, X2RED reuses the correspondin
 `X2RED_TYPOGRAPHY_RECIPE_MODE=production` enables V4 local Chinese composition recipes. Eight deterministic modes can lead, press, fragment, ghost, archive, block or scatter exact local text around protected subjects; `safe_zone_caption` is a last fallback rather than the universal default. Set it to `legacy` to restore the previous feathered safe-zone compositor without rewriting historical artifacts.
 
 `X2RED_EVIDENCE_RETRIEVAL_MODE=hybrid` enables W1 semantic chunks, local BM25 full-text recall, factor-based reranking, source diversity and MMR deduplication for each article section. Embeddings are optional: leave all three `X2RED_EVIDENCE_EMBEDDING_*` values empty to use local BM25, or provide a separate OpenAI-compatible `/embeddings` endpoint and model for candidate reranking. `legacy` remains available as an explicitly degraded character-slice rollback and does not rewrite historical artifacts.
+
+`X2RED_WRITING_SCHEMA_MODE=production` enables W2 strict schemas for every deep-writing Agent, one bounded structure repair, traceable review/chief/final issue permissions and the final claim-evidence completion gate. Critical or major unsupported claims and unauthorized major expansions enter `claims_blocked` and do not create an output draft. `legacy` restores the earlier flow but marks every result degraded and does not rewrite history.
 
 ## Simplified-Chinese material research
 

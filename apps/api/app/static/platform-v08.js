@@ -277,15 +277,17 @@
     } else if (platformState.currentVariant?.source_id === sourceId) {
       variant = platformState.currentVariant;
     }
-    const projectRunning = project && !["completed", "failed", "canceled"].includes(project.state);
+    const projectRunning = project && !["claims_blocked", "completed", "failed", "canceled"].includes(project.state);
+    const projectBlocked = project?.state === "claims_blocked";
     const packaged = variant?.status === "packaged";
     let active = "input";
-    if (materialCount) active = projectRunning ? "deep" : variant ? (packaged ? "package" : "edit") : "article";
+    if (materialCount) active = projectRunning || projectBlocked ? "deep" : variant ? (packaged ? "package" : "edit") : "article";
     return {
       materialCount,
       project,
       variant,
       projectRunning,
+      projectBlocked,
       packaged,
       active,
       viewingCompletedArtifact: Boolean(packaged && !projectRunning),
@@ -293,6 +295,9 @@
   }
 
   function pipelineContext(status) {
+    if (status.projectBlocked) {
+      return "深度终稿证据闸门阻断 · 候选终稿不能交接公众号";
+    }
     if (status.projectRunning) {
       return `正在创作 · ${status.project.current_stage || "深度写作进行中"}`;
     }
@@ -326,8 +331,8 @@
   function stageRoute(stage, status) {
     if (stage.key === "deep" && status.project?.runs?.length) {
       const models = [...new Set(status.project.runs
-        .filter((run) => run.status === "succeeded" && run.model_name)
-        .map((run) => `${run.model_name}${run.reasoning_effort ? ` · ${run.reasoning_effort}` : ""}`))];
+        .filter((run) => ["succeeded", "degraded"].includes(run.status) && run.model_name)
+        .map((run) => `${run.model_name}${run.reasoning_effort ? ` · ${run.reasoning_effort}` : ""}${run.status === "degraded" ? " · 降级输出" : ""}`))];
       return models.length ? `${stage.skill} · ${models.join(" / ")}` : stage.skill;
     }
     if (status.variant && ["article", "package"].includes(stage.key)) {
@@ -362,6 +367,7 @@
       if (status.project.state === "completed") {
         return { kind: "complete", label: `终稿 ${status.project.output_draft_chars || 0} 字符` };
       }
+      if (status.project.state === "claims_blocked") return { kind: "error", label: "证据阻断" };
       if (status.project.state === "failed") return { kind: "error", label: "需要处理" };
       if (status.project.state.startsWith("awaiting_")) return { kind: "waiting", label: "等你确认" };
       return { kind: "active", label: "进行中" };

@@ -418,6 +418,7 @@
       source_selection: "冻结的输入材料与事实来源", editorial_brief: "总编辑任务单", evidence_pack: "证据包", outline: "文章大纲",
       draft: "初稿", reader_review: "读者审稿", fact_review: "事实审稿",
       style_review: "风格审稿", revision_plan: "主编修改计划", final_draft: "终稿",
+      final_claims: "终稿 Claims", claim_evidence_matrix: "Claim-Evidence Matrix",
       author_decision: "作者决定",
     }[type] || type;
   }
@@ -430,8 +431,8 @@
     const header = createElement("div", "project-detail-header");
     header.innerHTML = `<div><span class="section-kicker">${project.mode.toUpperCase()} MODE</span><h3>${project.promise || "写作项目"}</h3><p>${project.reader || "尚未明确读者"}</p></div><div class="project-state"><strong>${project.state}</strong><small>${project.current_stage}</small></div>`;
     const actions = createElement("div", "project-run-actions");
-    const run = createElement("button", "primary-action", project.state.startsWith("awaiting_") ? "等待作者确认" : project.state === "completed" ? "已完成" : "运行下一阶段");
-    run.disabled = project.state.startsWith("awaiting_") || ["completed", "failed", "canceled"].includes(project.state);
+    const run = createElement("button", "primary-action", project.state.startsWith("awaiting_") ? "等待作者确认" : project.state === "claims_blocked" ? "证据闸门阻断" : project.state === "completed" ? "已完成" : "运行下一阶段");
+    run.disabled = project.state.startsWith("awaiting_") || ["claims_blocked", "completed", "failed", "canceled"].includes(project.state);
     run.addEventListener("click", async () => {
       run.disabled = true;
       try {
