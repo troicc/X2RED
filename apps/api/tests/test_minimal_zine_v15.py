@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import Settings
 from app.db.base import Base
+from app.domain.image_candidate_schemas import ProviderCapabilities
 from app.domain.models import SourceItem
 from app.domain.platforms import PlatformVariant, PlatformVariantState
 from app.services.light_visual_renderer import CJKFontError, LightVisualRenderer
@@ -24,6 +25,7 @@ from app.services.minimal_zine_native import (
     _model_input_fingerprint,
     storyboard_model_input_changed,
 )
+from app.services.model_client import GeneratedImage, ImageGenerationResult
 from app.services.native_skill_manager import NativeSkillError
 
 
@@ -64,6 +66,13 @@ def monochrome_image_bytes() -> bytes:
     image = Image.new("RGB", (1024, 1536), "#d8d8d8")
     draw = ImageDraw.Draw(image)
     draw.rectangle((310, 320, 650, 640), fill="#555555")
+    data = io.BytesIO()
+    image.save(data, "PNG")
+    return data.getvalue()
+
+
+def blank_image_bytes() -> bytes:
+    image = Image.new("RGB", (1024, 1536), "#e6dcc8")
     data = io.BytesIO()
     image.save(data, "PNG")
     return data.getvalue()
@@ -369,6 +378,148 @@ def test_chatgpt_web_handoff_uses_no_api_and_accepts_fresh_pages_incrementally(
     assert web_handoff["api_used"] is False
     assert web_handoff["imported_pages"] == [1, 2, 3]
     assert web_handoff["pending_pages"] == []
+    lifecycle = metadata["image_candidate_lifecycle"]
+    assert lifecycle["schema_version"] == "image-candidates-v1"
+    assert set(lifecycle["pages"]) == {"1", "2", "3"}
+    assert all(
+        page_state["selected_candidate_id"]
+        and page_state["candidates"][0]["review"]["passed"] is True
+        for page_state in lifecycle["pages"].values()
+    )
+    assert all(f"contact_sheet_{page:02d}" in outputs for page in (1, 2, 3))
+    assert sum(key.startswith("candidate_") for key in outputs) == 3
+    with zipfile.ZipFile(outputs["package"]) as archive:
+        names = archive.namelist()
+    assert not any(name.startswith(("anchor-", "candidate-", "contact-sheet-")) for name in names)
+
+
+def test_api_failed_candidates_survive_for_human_review_without_package(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = session(tmp_path)
+    configured = settings(tmp_path).model_copy(
+        update={
+            "image_base_url": "https://images.example.invalid/v1",
+            "image_api_key": "test-key",
+            "image_model": "fake-image-v1",
+        }
+    )
+    service = MinimalZineNativeService(configured)
+    variant = stored_variant(db, service, variant_id="variant_candidate_review")
+    allow_portable_render_font(service, monkeypatch)
+
+    skill_dir = tmp_path / "legacy-skill"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text("test skill", encoding="utf-8")
+    monkeypatch.setattr(service.manager, "ensure_installed", lambda *_args, **_kwargs: skill_dir)
+    monkeypatch.setattr(
+        service,
+        "_compile_prompt",
+        lambda **kwargs: {
+            "final_prompt": "NO TEXT. Preserve the frozen evidence object.",
+            "recipe": service._recipe_for(kwargs["spec"]),
+            "interpretation": "候选失败后转人工",
+        },
+    )
+
+    capabilities = ProviderCapabilities(
+        provider="fake-provider",
+        model="fake-image-v1",
+        candidate_count=True,
+        max_candidate_count=4,
+        image_reference=False,
+        image_edit=False,
+        multi_turn=False,
+        usage=True,
+        detection_mode="known-provider",
+    )
+
+    class FailingCandidateModel:
+        calls = 0
+
+        @staticmethod
+        def image_capabilities() -> ProviderCapabilities:
+            return capabilities
+
+        def generate_images(
+            self,
+            *,
+            prompt: str,
+            count: int,
+            reference_image: bytes | None = None,
+            edit: bool = False,
+        ) -> ImageGenerationResult:
+            del prompt, reference_image, edit
+            self.calls += 1
+            return ImageGenerationResult(
+                images=[
+                    GeneratedImage(
+                        image_bytes=blank_image_bytes(),
+                        latency_ms=20,
+                        cost_usd=0.05,
+                    )
+                    for _ in range(count)
+                ],
+                capabilities=capabilities,
+                request_strategy="single-call",
+                call_count=1,
+                usage={"images": count},
+                cost_usd=0.05 * count,
+                latency_ms=20,
+                requested_count=count,
+            )
+
+    failing_model = FailingCandidateModel()
+    service.image_candidates.model = failing_model  # type: ignore[assignment]
+
+    rendered, pages = service.render_variant(
+        db,
+        variant,
+        mode="regenerate",
+        pages=[1],
+    )
+
+    assert failing_model.calls == 2
+    assert pages[0]["action"] == "candidate_review_required"
+    assert pages[0]["review_required"] is True
+    outputs = json.loads(rendered.output_paths_json)
+    assert "package" not in outputs
+    assert "anchor_01" not in outputs
+    assert "poster_01" not in outputs
+    assert "contact_sheet_01" in outputs
+    assert sum(key.startswith("candidate_01_") for key in outputs) == 4
+    assert Path(outputs["manifest"]).is_file()
+    metadata = json.loads(rendered.metadata_json)
+    page_state = metadata["image_candidate_lifecycle"]["pages"]["1"]
+    assert page_state["auto_repair_count"] == 1
+    assert page_state["selected_candidate_id"] == ""
+    assert len(page_state["candidates"]) == 4
+    assert all(candidate["review"]["passed"] is False for candidate in page_state["candidates"])
+
+    candidate_id = page_state["candidates"][0]["candidate_id"]
+    service.review_image_candidate(
+        db,
+        rendered,
+        page=1,
+        candidate_id=candidate_id,
+        action="approve",
+        reason="人工确认该极简留白符合本页意图",
+    )
+    selected, response = service.select_image_candidate(
+        db,
+        rendered,
+        page=1,
+        candidate_id=candidate_id,
+    )
+    selected_outputs = json.loads(selected.output_paths_json)
+    assert response["deferred_composition"] is False
+    assert "poster_01" in selected_outputs
+    assert "package" in selected_outputs
+    selected_metadata = json.loads(selected.metadata_json)
+    assert len(
+        selected_metadata["image_candidate_lifecycle"]["pages"]["1"]["candidates"]
+    ) == 4
 
 
 def test_recompose_rejects_missing_anchor_and_never_uses_final_as_raw(

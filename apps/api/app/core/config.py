@@ -37,6 +37,8 @@ class Settings(BaseSettings):
         "production"
     )
     visual_brief_mode: Literal["legacy", "production"] = "production"
+    image_candidate_mode: Literal["legacy", "production"] = "production"
+    image_candidate_count: int = Field(default=3, ge=1, le=4)
     request_timeout_seconds: float = 20.0
 
     material_user_agent: str = "X2RED-MaterialResearch/0.13 (+local research)"

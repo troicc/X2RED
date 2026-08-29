@@ -94,6 +94,8 @@ X2RED_IMAGE_MODEL=glm-image
 X2RED_IMAGE_SIZE=1024x1536
 X2RED_MINIMAL_ZINE_PROMPT_MODE=production
 X2RED_VISUAL_BRIEF_MODE=production
+X2RED_IMAGE_CANDIDATE_MODE=production
+X2RED_IMAGE_CANDIDATE_COUNT=3
 ```
 
 When `IMAGE_BASE_URL` or `IMAGE_API_KEY` is empty, X2RED reuses the corresponding text-provider setting. Without `X2RED_IMAGE_MODEL`, the application keeps the reviewed prompt but does not falsely label a local placeholder as an original Skill render.
@@ -101,6 +103,8 @@ When `IMAGE_BASE_URL` or `IMAGE_API_KEY` is empty, X2RED reuses the correspondin
 `X2RED_MINIMAL_ZINE_PROMPT_MODE` defaults to `production`: the pinned v0.3 compiler chooses the visual recipe and X2RED applies only a text-safe transformation before image generation. `skill_v03` preserves the faithful v0.3 prompt, while `legacy` rolls both web handoff and API rendering back to the pinned v0.1 behavior. Existing raw anchors without a structured v0.3 trace are read as legacy automatically.
 
 `X2RED_VISUAL_BRIEF_MODE` also defaults to `production`. It enables the V2 Visual Bible, three candidates per page, series distinctness and frozen `PageVisualBrief`; set it to `legacy` to roll back only that layer without changing the v0.3 compiler or rewriting existing variants.
+
+`X2RED_IMAGE_CANDIDATE_MODE=production` enables the V3 image-candidate lifecycle after Prompt compilation: API rendering requests three raw anchors by default, manual web handoff accepts 1–4 uploads, and both paths share Contact Sheets, ten-dimension visual review, explicit selection/rejection and one bounded directed repair. Set it to `legacy` to restore single-anchor rendering without deleting existing candidate records. `X2RED_IMAGE_CANDIDATE_COUNT` accepts 1–4 and defaults to 3.
 
 ## Simplified-Chinese material research
 
@@ -176,12 +180,16 @@ The native chain:
 4. returns and persists one structured `VisualPromptSpec` with compiler mode, Skill version, upstream recipe, warnings, source fingerprint and Prompt fingerprint;
 5. lets both ChatGPT web handoff and API rendering consume that same spec; the web route may call the text compiler but never calls an image API;
 6. calls the configured image model only for raw visual anchors and labels model/compiler failure as `DEGRADED_FALLBACK` instead of silently claiming faithful Skill execution;
-7. stores raw `anchor-XX.png` files separately from final `poster-XX.png` files;
-8. composes Chinese text and page numbers locally with a cmap-verified CJK font;
-9. supports `render_missing`, local-only `recompose`, and model-calling `regenerate` modes;
-10. atomically rebuilds `article.md`, `manifest.json`, `preview.html` and the release ZIP under `data/exports/wechat/{variant_id}/`.
+7. requests three API candidates by default (or accepts 1–4 web uploads), preserves every Prompt run/candidate/hash/cost/latency, renders a numbered text-free Contact Sheet and reviews ten visual dimensions;
+8. permits explicit selection/rejection and at most one directed repair, preferring image edit when the provider supports it and repeating all frozen invariants;
+9. stores candidate files and raw `anchor-XX.png` separately from final `poster-XX.png` files, while excluding candidates, Contact Sheets and raw anchors from the release ZIP;
+10. composes Chinese text and page numbers locally with a cmap-verified CJK font;
+11. supports `render_missing`, local-only `recompose`, and model-calling `regenerate` modes;
+12. atomically rebuilds `article.md`, `manifest.json`, `preview.html` and the release ZIP under `data/exports/wechat/{variant_id}/` only after every page has an approved selected candidate.
 
 `X2RED_VISUAL_BRIEF_MODE=production|legacy` controls the V2 brief layer independently. Production rejects missing/damaged frozen briefs and storyboard edits that violate Bible invariants or series distinctness; legacy preserves historical behavior without rewriting old artifacts.
+
+`X2RED_IMAGE_CANDIDATE_MODE=production|legacy` controls the V3 image-review layer independently. Production preserves all competing candidates and blocks unreviewed or failed candidates from packaging; legacy keeps the pre-V3 single-anchor route available without rewriting historical artifacts.
 
 The release ZIP uses an explicit allowlist and excludes raw anchors. Negative prompts, constrained high-risk edge cleanup and local recomposition reduce watermark/badge risk but cannot prove that an image model will never emit one; final visual, copyright and factual review remains mandatory.
 

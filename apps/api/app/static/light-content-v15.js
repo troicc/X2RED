@@ -285,6 +285,18 @@
     return parse(variant?.output_paths_json, {});
   }
 
+  function imageCandidateLifecycle(variant = state.currentVariant) {
+    const lifecycle = metadata(variant).image_candidate_lifecycle;
+    return lifecycle && typeof lifecycle === "object" ? lifecycle : {};
+  }
+
+  function imageCandidatePage(page, variant = state.currentVariant) {
+    const pages = imageCandidateLifecycle(variant).pages;
+    if (!pages || typeof pages !== "object") return null;
+    const value = pages[String(page)];
+    return value && typeof value === "object" ? value : null;
+  }
+
   function sourceGroup(source) {
     if (source?.provider === "corpus_pool" || source?.content_kind === "corpus_batch") return "pool";
     if (source?.platform === "x" || source?.provider === "fxtwitter" || source?.provider === "signal-studio") return "x";
@@ -863,6 +875,20 @@
         ingestRenderResult(result);
         const fresh = await reloadCurrentVariant();
         if (fresh) variant = fresh;
+        const reviewPages = (Array.isArray(result?.pages) ? result.pages : [])
+          .filter((item) => item?.action === "candidate_review_required")
+          .map((item) => Number(item.page))
+          .filter((page) => Number.isInteger(page) && page > 0);
+        if (reviewPages.length) {
+          state.stage = 3;
+          saveStage();
+          status(
+            `${reviewPages.map((page) => `第 ${page} 页`).join("、")}候选和单次定向修复仍未通过，已保留全部候选；请人工批准、选择或替换概念。`,
+            "error",
+          );
+          render();
+          return;
+        }
       } else {
         if (mode !== "render_missing") {
           throw new Error("仅 Minimal Zine 支持保留原始锚点后的重新排版或逐页再生图。请先切换到 Minimal Zine 视觉路线。");
@@ -1434,7 +1460,7 @@
     }
   }
 
-  async function uploadChatGptWebAnchor(page, file) {
+  async function uploadChatGptWebAnchor(page, files) {
     if (state.storyboardDirty) {
       status("分镜在 Prompt 生成后又被修改了。旧 Prompt 已过期，请重新生成、复制和回传。", "error");
       render();
@@ -1446,13 +1472,18 @@
       render();
       return;
     }
-    if (file.size > 12 * 1024 * 1024) {
+    const selectedFiles = Array.from(files || []);
+    if (!selectedFiles.length || selectedFiles.length > 4) {
+      status("每页请选择 1–4 张图片进入同一候选审稿。", "error");
+      return;
+    }
+    if (selectedFiles.some((file) => file.size > 12 * 1024 * 1024)) {
       status("单张图片不能超过 12 MB。", "error");
       return;
     }
-    await run(`正在回传第 ${page} 页并进行本地中文排版…`, async () => {
+    await run(`正在回传第 ${page} 页的 ${selectedFiles.length} 张候选并进行视觉审稿…`, async () => {
       const form = new FormData();
-      form.append("file", file);
+      selectedFiles.forEach((file) => form.append("file", file));
       const response = await fetch(
         `/api/native-skills/minimal-zine/variants/${encodeURIComponent(state.currentVariant.id)}/external-anchor?page=${encodeURIComponent(page)}`,
         { method: "POST", body: form },
@@ -1469,11 +1500,85 @@
       saveStage();
       status(
         result.complete
-          ? `第 ${page} 页已回传；整组已完成并重建预览与发布包。`
-          : `第 ${page} 页已回传并完成本地排版；其余页面可继续逐页回传。`,
+          ? `第 ${page} 页候选已审稿并选中；整组已重建预览与发布包。`
+          : result?.pages?.[0]?.action === "candidate_review_required"
+            ? `第 ${page} 页候选已保留，但没有候选通过自动审稿；请人工批准、驳回或定向修复。`
+            : `第 ${page} 页候选已审稿并完成本地排版；其余页面可继续逐页回传。`,
         "ok",
       );
       render();
+    });
+  }
+
+  async function reviewImageCandidate(page, candidateId, action, reason = "") {
+    const labels = { keep: "保留候选", reject: "驳回候选", approve: "人工批准候选" };
+    await run(`正在${labels[action] || "更新候选"}…`, async () => {
+      await call(
+        `/api/native-skills/minimal-zine/variants/${encodeURIComponent(state.currentVariant.id)}/candidates/${encodeURIComponent(page)}/review`,
+        {
+          method: "POST",
+          body: JSON.stringify({ candidate_id: candidateId, action, reason }),
+        },
+      );
+      await reloadCurrentVariant();
+      status(`${labels[action] || "候选状态"}已记录；其他候选和文件均保留。`, "ok");
+      render();
+    });
+  }
+
+  async function selectImageCandidate(page, candidateId) {
+    await run("正在选中候选并重建本地版式与发布门禁…", async () => {
+      const result = await call(
+        `/api/native-skills/minimal-zine/variants/${encodeURIComponent(state.currentVariant.id)}/candidates/${encodeURIComponent(page)}/select`,
+        {
+          method: "POST",
+          body: JSON.stringify({ candidate_id: candidateId }),
+        },
+      );
+      if (Array.isArray(result?.pages)) ingestRenderResult(result);
+      await reloadCurrentVariant();
+      status(
+        result.deferred_composition
+          ? `第 ${page} 页候选已选中；待其余页面有锚点后统一重建图组。`
+          : `第 ${page} 页候选已选中并完成本地排版；未选候选仍可回看。`,
+        "ok",
+      );
+      render();
+    });
+  }
+
+  async function repairImageCandidate(page, candidateId) {
+    await run("正在进行唯一一次定向修复：只修改主要缺陷…", async () => {
+      const result = await call(
+        `/api/native-skills/minimal-zine/variants/${encodeURIComponent(state.currentVariant.id)}/candidates/${encodeURIComponent(page)}/repair`,
+        {
+          method: "POST",
+          body: JSON.stringify({ candidate_id: candidateId }),
+        },
+      );
+      if (Array.isArray(result?.pages)) ingestRenderResult(result);
+      await reloadCurrentVariant();
+      status(
+        result.publish_allowed
+          ? `第 ${page} 页定向修复已通过并更新成品。`
+          : `第 ${page} 页已完成一次定向修复；若仍不合格，请人工选择或替换概念。`,
+        result.publish_allowed ? "ok" : "error",
+      );
+      render();
+    });
+  }
+
+  function replaceVisualConcept(page) {
+    state.selectedPage = page;
+    renderVisual();
+    requestAnimationFrame(() => {
+      const card = document.querySelector(`.light-storyboard-card-expanded[data-page="${page}"]`);
+      const field = [...(card?.querySelectorAll("label.light-field") || [])]
+        .find((value) => value.textContent?.includes("具体主体"));
+      const control = field?.querySelector("input,textarea");
+      control?.focus();
+      control?.select?.();
+      status("请替换具体主体或动作关系并保存分镜；旧 Prompt、候选和 raw anchor 会按指纹失效。", "ok");
     });
   }
 
@@ -1553,8 +1658,8 @@
     [
       "生成并检查当前页无字 Prompt",
       "复制完整 Prompt",
-      "在 ChatGPT Images 生成并保存",
-      "上传下载图，本地重建海报",
+      "在 ChatGPT Images 生成并保存 1–4 张",
+      "上传候选、审稿后本地重建海报",
     ].forEach((value) => {
       steps.appendChild(create("li", "", value));
     });
@@ -1604,19 +1709,20 @@
       open.tabIndex = -1;
       open.title = "请先生成并检查本页 Prompt";
     }
-    const uploadLabel = create("label", "light-web-upload", "4 · 上传下载图");
+    const uploadLabel = create("label", "light-web-upload", "4 · 上传下载图（1–4 张候选）");
     const upload = document.createElement("input");
     upload.type = "file";
     upload.accept = "image/png,image/jpeg,image/webp";
+    upload.multiple = true;
     upload.disabled = !ready;
     upload.dataset.lightAction = "true";
     upload.addEventListener("change", () => {
-      const file = upload.files?.[0];
-      if (file) void uploadChatGptWebAnchor(page.page, file);
+      const files = upload.files ? Array.from(upload.files) : [];
+      if (files.length) void uploadChatGptWebAnchor(page.page, files);
       upload.value = "";
     });
     uploadLabel.classList.toggle("disabled", !ready);
-    uploadLabel.title = ready ? "选择从 ChatGPT Images 保存的图片" : "请先生成本页 Prompt";
+    uploadLabel.title = ready ? "选择从 ChatGPT Images 保存的 1–4 张候选图" : "请先生成本页 Prompt";
     uploadLabel.appendChild(upload);
     actions.append(prepare, copyPrompt, open, uploadLabel);
     const handoffStatus = create(
@@ -1637,6 +1743,9 @@
 
   function pageActionLabel(page) {
     const evidence = state.pageEvidence.get(page);
+    const candidatePage = imageCandidatePage(page);
+    const candidates = Array.isArray(candidatePage?.candidates) ? candidatePage.candidates : [];
+    if (candidates.length && !candidatePage.selected_candidate_id) return `${candidates.length} 张候选待审`;
     if (evidence?.action === "recomposed") return "已仅重新排版";
     if (evidence?.action === "regenerated") return "已重新生成视觉锚点";
     if (evidence?.action === "cached") return "已使用已有成品";
@@ -1759,6 +1868,127 @@
     return figure;
   }
 
+  function candidateStatusLabel(candidate, selectedId) {
+    if (candidate.candidate_id === selectedId) return "已选中";
+    return {
+      eligible: "自动审稿通过",
+      kept: "已保留",
+      rejected: "已驳回",
+      pending_review: "待人工审稿",
+      repair_failed: "修复后仍待人工",
+      selected: "已选中",
+    }[String(candidate.status || "")] || "候选";
+  }
+
+  function renderImageCandidates(page) {
+    const candidatePage = imageCandidatePage(page);
+    const candidates = Array.isArray(candidatePage?.candidates) ? candidatePage.candidates : [];
+    if (!candidates.length) return null;
+    const lifecycle = imageCandidateLifecycle();
+    const panel = create("section", "light-image-candidates");
+    const head = create("div", "light-image-candidates-head");
+    const title = create("div");
+    title.append(
+      create("strong", "", `图片候选 · ${candidates.length} 张`),
+      create(
+        "span",
+        "",
+        `生成 ${Number(candidatePage.generation_count || 0)} 次 · API ${Number(lifecycle.total_api_calls || 0)} 次 · 自动修复 ${Number(candidatePage.auto_repair_count || 0)}/1`,
+      ),
+    );
+    const totalCost = lifecycle.total_cost_usd;
+    head.append(title, create("span", "light-candidate-cost", totalCost === null || totalCost === undefined ? "成本未返回" : `$${Number(totalCost).toFixed(4)}`));
+    panel.appendChild(head);
+
+    if (candidatePage.contact_sheet_key) {
+      const sheet = create("figure", "light-contact-sheet");
+      const image = document.createElement("img");
+      image.src = renderFileUrl(candidatePage.contact_sheet_key);
+      image.alt = `第 ${page} 页候选 Contact Sheet`;
+      sheet.append(image, create("figcaption", "", "Contact Sheet 仅显示原始候选与编号，不叠加长文字。"));
+      panel.appendChild(sheet);
+    }
+
+    const scoreLabels = {
+      semantic_match: "语义",
+      subject_clarity: "主体",
+      composition: "构图",
+      thumbnail_hook: "缩略钩子",
+      series_consistency: "系列",
+      texture: "质感",
+      color_anchor: "色锚",
+      artifacts: "伪影风险",
+      text_safety: "无字安全",
+      cliche_score: "俗套风险",
+    };
+    const grid = create("div", "light-candidate-grid");
+    candidates.forEach((candidate) => {
+      const review = candidate.review && typeof candidate.review === "object" ? candidate.review : {};
+      const scores = review.scores && typeof review.scores === "object" ? review.scores : {};
+      const selected = candidate.candidate_id === candidatePage.selected_candidate_id;
+      const card = create("article", `light-candidate-card${selected ? " selected" : ""}${candidate.status === "rejected" ? " rejected" : ""}`);
+      const preview = document.createElement("img");
+      preview.className = "light-candidate-image";
+      preview.src = renderFileUrl(candidate.artifact_key);
+      preview.alt = `第 ${page} 页候选 ${candidate.candidate_index}`;
+      const cardHead = create("div", "light-candidate-card-head");
+      cardHead.append(
+        create("strong", "", `#${candidate.candidate_index}`),
+        create("span", `light-candidate-state${review.passed ? " passed" : ""}`, candidateStatusLabel(candidate, candidatePage.selected_candidate_id)),
+      );
+      const meta = create(
+        "p",
+        "light-candidate-meta",
+        `${candidate.provider || "unknown"} · ${candidate.model || "unknown"} · ${candidate.width || "?"}×${candidate.height || "?"} · ${Number(candidate.latency_ms || 0)}ms · ${candidate.cost_usd === null || candidate.cost_usd === undefined ? "成本未返回" : `$${Number(candidate.cost_usd).toFixed(4)}`}`,
+      );
+      const total = create("div", "light-candidate-total");
+      total.append(
+        create("strong", "", `${Math.round(Number(review.overall_score || 0))}`),
+        create("span", "", "综合分"),
+      );
+      const scoreGrid = create("dl", "light-candidate-scores");
+      Object.entries(scoreLabels).forEach(([key, label]) => {
+        scoreGrid.append(create("dt", "", label), create("dd", "", `${Math.round(Number(scores[key] || 0))}`));
+      });
+      card.append(preview, cardHead, meta, total, scoreGrid);
+      const issues = Array.isArray(review.issues) ? review.issues.filter(Boolean) : [];
+      if (issues.length) card.appendChild(create("p", "light-candidate-issues", issues.join("；")));
+      if (candidate.rejection_reason) card.appendChild(create("p", "light-candidate-reason", `驳回理由：${candidate.rejection_reason}`));
+
+      const actions = create("div", "light-candidate-actions");
+      const choose = button(selected ? "已选中" : "选中候选", "light-page-action", () => { void selectImageCandidate(page, candidate.candidate_id); });
+      choose.disabled = selected || !review.passed || candidate.status === "rejected";
+      choose.title = review.passed ? "选中后重建 raw anchor、本地版式和发布门禁" : "未通过审稿，需先人工批准或定向修复";
+      const keep = button("保留", "light-page-action", () => { void reviewImageCandidate(page, candidate.candidate_id, "keep"); });
+      keep.disabled = candidate.status === "rejected";
+      keep.title = candidate.status === "rejected" ? "已驳回候选需先由人工批准后才能恢复" : "保留候选及其完整追溯记录";
+      const approve = button("人工批准", "light-page-action", () => { void reviewImageCandidate(page, candidate.candidate_id, "approve", "人工复核后批准"); });
+      approve.hidden = Boolean(review.passed);
+      const repair = button("定向修复 1 次", "light-page-action regenerate", () => { void repairImageCandidate(page, candidate.candidate_id); });
+      repair.disabled = Number(candidatePage.auto_repair_count || 0) >= 1 || Boolean(review.passed) || candidate.status === "rejected";
+      actions.append(choose, keep, approve, repair);
+      card.appendChild(actions);
+
+      const rejectRow = create("div", "light-candidate-reject");
+      const reason = input("", { placeholder: "写明主体、构图、伪影或版权等具体问题", maxLength: 600 });
+      reason.setAttribute("aria-label", `候选 ${candidate.candidate_index} 驳回理由`);
+      const reject = button("记录驳回", "light-page-action", () => {
+        const value = reason.value.trim();
+        if (!value) {
+          status("驳回候选必须填写具体理由。", "error");
+          reason.focus();
+          return;
+        }
+        void reviewImageCandidate(page, candidate.candidate_id, "reject", value);
+      });
+      rejectRow.append(reason, reject);
+      card.appendChild(rejectRow);
+      grid.appendChild(card);
+    });
+    panel.appendChild(grid);
+    return panel;
+  }
+
   function renderInspector() {
     const card = create("aside", "light-section-card light-page-inspector");
     const page = state.storyboard.find((item) => item.page === state.selectedPage) || state.storyboard[0];
@@ -1798,6 +2028,8 @@
       if (sourceRefs.length) copyEvidence.appendChild(create("small", "", sourceRefs.join(" · ")));
       card.appendChild(copyEvidence);
     }
+    const candidatePanel = renderImageCandidates(page.page);
+    if (candidatePanel) card.appendChild(candidatePanel);
     const raw = anchorKey(page.page);
     const poster = posterKey(page.page);
     if (!raw) {
@@ -1813,10 +2045,12 @@
     recompose.dataset.lightAction = "true";
     recompose.disabled = !raw || !isMinimalZine();
     recompose.title = raw ? "基于已有原始视觉锚点重新本地合成" : "此版本没有保留原始视觉锚点";
-    const regenerate = button("重新生成本页（调用图片模型）", "light-page-action regenerate", () => { void regenerateSelected(); });
+    const regenerate = button("再生本页三候选（调用图片模型）", "light-page-action regenerate", () => { void regenerateSelected(); });
     regenerate.dataset.lightAction = "true";
     regenerate.disabled = !isMinimalZine();
-    actions.append(recompose, regenerate);
+    const replaceConcept = button("替换概念", "light-page-action", () => replaceVisualConcept(page.page));
+    replaceConcept.dataset.lightAction = "true";
+    actions.append(recompose, regenerate, replaceConcept);
     card.appendChild(actions);
     return card;
   }
@@ -1838,11 +2072,11 @@
     grid.append(listCard, renderInspector());
     body.appendChild(grid);
     const routeNote = isMinimalZine()
-      ? "推荐使用右侧 ChatGPT 网页回传；接口图片模型只作为可选备用。已有锚点可无成本重新排版。"
+      ? "网页可上传 1–4 张，接口默认生成 3 张；候选经 Contact Sheet 与审稿后才进入本地排版和发布包。"
       : "当前视觉路线使用常规图组渲染；要使用逐页无成本重新排版，请切换到 Minimal Zine。";
     body.appendChild(actionBar(
       routeNote,
-      button("生成缺失页面（接口图片模型）", "light-primary-action", () => { void renderMissing(); }),
+      button("生成缺失页面三候选（接口图片模型）", "light-primary-action", () => { void renderMissing(); }),
       [button("保存分镜", "light-secondary-action", () => { void saveStoryboardOnly(); })],
     ));
   }

@@ -255,6 +255,10 @@ v15 工作台固定为四阶段：任务设置、文案候选、视觉分镜、�
 7. 生成后强制刷新并定位接口返回的准确版本；
 8. 进入成品交付，检查整组图片、预览、清单、ZIP 和人工复核状态。
 
+图片 Prompt 编译完成后进入 V3 候选生命周期：API 默认同一 Prompt 生成 3 张，provider 不支持或运行时拒绝 `n` 时按单张顺序调用并记录回退；网页人工路径每页可上传 1—4 张。每张候选保存 Prompt run、序号、provider/model、hash、尺寸、成本、延迟和状态，并生成只含缩略图与编号的 Contact Sheet。系统对 semantic match、主体、构图、缩略钩子、系列一致性、质感、色锚、伪影、无字安全和视觉俗套进行结构化预检；未通过者不得自动选中。
+
+用户可以选中、保留、人工批准或带具体理由驳回候选。选择不会删除其他候选；每页最多允许一次定向修复，优先使用 provider edit，完整重复 Visual Bible、PageVisualBrief、Prompt invariants 和参考图要求，并且只修改一个主要缺陷。修复后仍未通过则停止自动重试。全部页面都存在通过审稿或人工批准的选中候选时才允许构建发布包；候选原图、Contact Sheet 和 raw anchor 永不进入 ZIP。
+
 因此用户无需手动执行“采用 → 保存 → 刷新 → 生图”的四步临时流程。
 
 ### 6.4 ChatGPT Images 网页人工交接
@@ -264,8 +268,8 @@ v15 工作台固定为四阶段：任务设置、文案候选、视觉分镜、�
 1. 用户点击“生成并显示本页 Prompt”；X2RED 先保存当前候选、编辑稿和分镜，再冻结当前页 Prompt 及 fingerprint；
 2. X2RED 通过 `POST /api/native-skills/minimal-zine/variants/{variant_id}/web-handoff` 本地编译 Prompt，不调用文本或图片 API，并把完整 Prompt 常驻显示在只读文本框中供人工检查；
 3. 只有 Prompt 成功显示后，“复制完整 Prompt”、ChatGPT Images 外链和上传控件才解锁；用户复制 Prompt，在 `https://chatgpt.com/images` 的已登录网页中自行生成并下载图片。X2RED 不后台控制账号，也不把网页包装成隐藏 API；
-4. 用户把下载图回传至 `POST /api/native-skills/minimal-zine/variants/{variant_id}/external-anchor?page={page}`；
-5. X2RED 校验并统一为 PNG，再使用本地 compositor 排中文、页码和最终版式；
+4. 用户把 1—4 张下载图以重复 `file` 字段回传至 `POST /api/native-skills/minimal-zine/variants/{variant_id}/external-anchor?page={page}`；
+5. X2RED 校验并统一为 PNG，建立与 API 相同的候选/审稿记录和 Contact Sheet；选中通过门禁的候选后再使用本地 compositor 排中文、页码和最终版式；
 6. 分镜在 Prompt 生成后发生任何变化时，旧 Prompt 立即标为过期，复制、外链和上传同步锁定，必须重新生成并检查；
 7. 可以逐页回传并预览，但只有全部页面齐全时才生成 manifest、HTML preview 和 ZIP 发布包。
 

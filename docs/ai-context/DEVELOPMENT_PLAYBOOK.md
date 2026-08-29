@@ -2,15 +2,15 @@
 
 ## 1. 当前分支和 PR
 
-2026-08-09 C0 质量基线任务：
+2026-08-09 当前 V3 任务：
 
 - 基线分支：`agent/replace-crawlers-with-api-adapters`
-- 基线 SHA：`9073a4bc8a71a76dbf6762d7fc64a425eb3c99fe`
-- 当前本地任务分支：`codex/x2red-c0-quality-baseline`
-- PR #19 仍是基线功能 PR；C0 不继续堆入该 PR
-- 重新查询时 PR #19 open、draft、mergeable，head 为 `9073a4b`，PR CI run `811` 成功
-- 修改前完整基线：`94 passed, 8 warnings`
-- C0 修改后完整验证：`99 passed, 8 warnings`；定向 `5 passed`，Ruff、compileall、导出脚本 py_compile、JSON 与 diff check 通过
+- 基线 SHA：`9086b6226b68e367e10327a577eb625e4d251b5b`（V2 PR #22 squash merge）
+- 当前本地任务分支：`codex/x2red-v3-contact-sheet-visual-review`
+- PR #19 仍是基线功能 PR；V3 使用独立分支和独立 PR
+- V3 当前完整验证：`128 passed, 8 warnings`；候选生命周期定向 `9 passed`，候选与 Minimal Zine 联合 `21 passed, 1 warning`
+- V3 浏览器验证：1280×800 / 375×812，无横向溢出、console 0 error；候选切换、保留和带理由驳回通过
+- V3 尚需最终静态门禁、latest-head CI、PR 与合并；完成前不得创建 V4 分支
 
 任务书后续阶段必须从最新已合并的前一阶段创建独立分支；C0 后依次为 V1、V2、V3、V4、W1、W2、W3、UI1、OPS1。
 
@@ -168,11 +168,16 @@ X2RED_IMAGE_API_KEY=
 X2RED_IMAGE_MODEL=glm-image
 X2RED_IMAGE_SIZE=1024x1536
 X2RED_MINIMAL_ZINE_PROMPT_MODE=production
+X2RED_VISUAL_BRIEF_MODE=production
+X2RED_IMAGE_CANDIDATE_MODE=production
+X2RED_IMAGE_CANDIDATE_COUNT=3
 ```
 
 图片 endpoint 未单独配置时可以继承文本模型 provider；`X2RED_IMAGE_MODEL` 为空时不得把本地占位图伪装成原版 Minimal Zine 生成结果。
 
 Minimal Zine Prompt 模式支持 `production`（默认 v0.3 + text-safe）、`skill_v03`（忠实 v0.3）和 `legacy`（v0.1 回滚）。修改后需要重启服务。历史 raw anchor 没有 `visual_prompt_spec` 时自动按 legacy 读取，不能通过切换模式批量重写旧版本。
+
+V2 `X2RED_VISUAL_BRIEF_MODE=production|legacy` 和 V3 `X2RED_IMAGE_CANDIDATE_MODE=production|legacy` 各自独立回滚。V3 production 默认请求 3 张 API 候选；`X2RED_IMAGE_CANDIDATE_COUNT` 只允许 1—4。网页人工回传允许每页 1—4 张，并与 API 使用同一候选、审稿和发布门禁模型。切换 legacy 不删除既有候选、Contact Sheet 或审计记录。
 
 ### 调度器
 
