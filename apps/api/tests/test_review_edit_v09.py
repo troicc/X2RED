@@ -20,6 +20,7 @@ def test_review_edit_render_and_wechat_publisher_flow(
     monkeypatch.setenv("X2RED_EXPORT_DIR", str(tmp_path / "exports"))
     monkeypatch.setenv("X2RED_BROWSER_PROFILE_DIR", str(tmp_path / "profiles"))
     monkeypatch.setenv("X2RED_SCHEDULER_ENABLED", "false")
+    monkeypatch.setenv("X2RED_TYPOGRAPHY_RECIPE_MODE", "legacy")
     monkeypatch.delenv("X2RED_MODEL_BASE_URL", raising=False)
     monkeypatch.delenv("X2RED_MODEL_NAME", raising=False)
     monkeypatch.delenv("X2RED_MODEL_API_KEY", raising=False)

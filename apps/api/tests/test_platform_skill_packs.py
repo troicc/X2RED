@@ -37,6 +37,7 @@ def settings(tmp_path: Path) -> Settings:
         scheduler_enabled=False,
         model_base_url="",
         model_name="",
+        typography_recipe_mode="legacy",
     )
     values.ensure_directories()
     return values
@@ -512,6 +513,10 @@ def test_platform_frontend_and_health_contracts() -> None:
     assert 'storyboardSelectField(item, "page_visual_role", "页面职责", VISUAL_ROLE_OPTIONS)' in light_v15_js
     assert 'storyboardField(item, "concrete_subject", "具体主体"' in light_v15_js
     assert "Visual Bible 不变量" in light_v15_js
+    assert "TYPOGRAPHY_MODE_LABELS" in light_v15_js
+    assert "本地排版配方" in light_v15_js
+    assert "主体未遮挡" in light_v15_js
+    assert "无溢出" in light_v15_js
     assert 'type: "number", min: 0, max: 1, step: 0.01' in light_v15_js
     assert 'type: "number", min: 0.65, max: 2, step: 0.05' in light_v15_js
     assert ".light-storyboard-card-compact" in light_v15_css

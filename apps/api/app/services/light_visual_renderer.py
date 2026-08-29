@@ -10,7 +10,8 @@ from typing import Any
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
 
 from app.core.config import Settings
-
+from app.domain.typography_schemas import TypographyRenderDiagnostic
+from app.services.typography_recipes import TypographyRecipeEngine, TypographySelection
 
 VISUAL_STYLE_LABELS = {
     "minimal_zine": "极简杂志",
@@ -53,6 +54,37 @@ class LightVisualRenderer:
         self._font_cache: dict[tuple[int, bool, bool], ImageFont.FreeTypeFont | ImageFont.ImageFont] = {}
         self._font_resolutions: dict[tuple[bool, bool], dict[str, Any] | None] = {}
         self._font_attempts: list[dict[str, Any]] = []
+        self.typography_recipes = TypographyRecipeEngine()
+
+    def render_typography(
+        self,
+        canvas: Image.Image,
+        *,
+        selection: TypographySelection,
+        phrase: str,
+        note: str,
+        folio: str,
+        label: str,
+        ink: str = "#171614",
+        muted: str = "#514c45",
+        paper: str = "#eee5d5",
+        accent: str = "#8c3f2d",
+    ) -> tuple[Image.Image, TypographyRenderDiagnostic]:
+        """Render exact local Chinese through the shared aspect-ratio recipe engine."""
+
+        return self.typography_recipes.render(
+            canvas,
+            selection=selection,
+            phrase=phrase,
+            note=note,
+            folio=folio,
+            label=label,
+            font_resolver=self._font,
+            ink=ink,
+            muted=muted,
+            paper=paper,
+            accent=accent,
+        )
 
     def render(
         self,
@@ -555,7 +587,7 @@ class LightVisualRenderer:
 
     @staticmethod
     def _newspaper_placeholder(draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int], rng: random.Random, accent: str) -> None:
-        left, top, right, bottom = box
+        left, top, right, _bottom = box
         draw.rectangle(box, fill="#c8bea4")
         for row in range(12):
             y = top + 20 + row * 42

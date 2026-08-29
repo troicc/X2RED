@@ -1,6 +1,6 @@
 # X2RED 未完成事项和风险
 
-更新时间：2026-08-09 +08:00
+更新时间：2026-08-29 +08:00
 
 ## P0：合并前必须确认
 
@@ -15,11 +15,12 @@
 - C0 PR #20 已通过最新 head CI 并 squash merge 到 `agent/replace-crawlers-with-api-adapters`；合并后准确 head 为 `02aa1db7f5eef45e438c8776bad0703c3e3ef441`。
 - V1 PR #21 已在 head `291d6a13ca8606628d1c2c781f7f15e298e57bc2` 的 `test (3.12)` 成功后 squash merge；功能基线准确 head 为 `a7b00d0005d024ab16a770dd7513031f5e21d548`。
 - V2 PR #22 已在 head `833c0d422ab9a8e942e79f0340408e199b40c210` 的 CI run `817` 成功后 squash merge；功能基线准确 head 为 `9086b6226b68e367e10327a577eb625e4d251b5b`。
-- V3 已从该准确 head 创建独立分支 `codex/x2red-v3-contact-sheet-visual-review`。provider 能力检测、API 默认三候选、网页 1—4 张统一生命周期、运行时 `n` 回退、候选 trace、Contact Sheet、十维视觉审稿、一次定向修复、失败候选转人工、打包门禁、UI 与 legacy feature flag 已落地。当前图片候选定向 `9 passed`、候选与 Minimal Zine 联合 `21 passed, 1 warning`、完整套件 `128 passed, 8 warnings`；Ruff、compileall、全部 JavaScript、wheel 内容、JSON、敏感信息和 diff 门禁通过。隔离数据库的桌面/手机真实浏览器验收通过，候选切换与带理由驳回可操作，无横向溢出和 console error。仍须完成 latest-head CI、PR 与合并。
+- V3 PR #23 已在 head `5ceeefcbe894cbc8e367f6fcdb314ae738e56d40` 的 CI run `819` 成功后 squash merge；功能基线准确 head 为 `bd77743808a3eb1ccb0bfa29efa959c0aee2b33a`。
+- V4 已从该准确 head 创建独立分支 `codex/x2red-v4-local-chinese-typography-recipe-v2`。严格 schema、八种模式、冻结指纹、四向主体避让、无溢出门禁、四比例测试、缩略图差异、Minimal Zine/公众号封面共用 engine、UI 诊断和 legacy flag 已落地；最后兜底顺序回归补齐后 V4 定向 `30 passed`、完整套件 `159 passed, 8 warnings`。隔离浏览器 1280×800 与手机断点请求 375×812（实际最小 450×812）验证诊断卡片和响应式布局，无根页面横向溢出或 console error/warning；最终静态、迁移与 wheel 内容门禁均通过。剩余项只有独立 PR、latest-head CI 与合并。
 - C0 修改前完整测试为 `94 passed, 8 warnings`；C0 修改后完整套件为 `99 passed, 8 warnings`，新增 C0 定向测试为 `5 passed`。全仓 CI 范围 Ruff、compileall、导出脚本 py_compile、JSON 校验、敏感信息扫描和 diff check 通过。
 - 12 个写作 fixture、20 个视觉页、两套 rubric、Pydantic schema、旧 Prompt 逐字重放和只读脱敏导出器已经落地；未修改生产行为。
 - 已冻结的关键旧缺陷：`visual-firewall-03-comparison` 与 `visual-firewall-04-conclusion` 的 phrase、note、evidence 和 visual role 不同，但现有 Prompt 与 model fingerprint 相同。
-- 下一阶段只能是 V4 `local-chinese-typography-recipe-v2`，且必须等待 V3 独立 PR 的最新 head CI 通过并合入功能基线后再创建新分支；不得把 V4 堆进 V3。
+- 下一阶段只能是 W1 `evidence-compiler-and-hybrid-retrieval`，且必须等待 V4 独立 PR 的最新 head CI 通过并合入功能基线后再创建新分支；不得把 W1 堆进 V4。
 - C0 fixture 是合成防回归材料，不是视觉质量已达标的证据；真实图片、真实长文和模型盲评仍须在后续阶段按权利与成本边界完成。
 
 ### 1. 真实浏览器端到端 smoke test（本轮已完成最新基线，仍需后续回归）
@@ -54,17 +55,19 @@
 
 2026-08-09 00:43 轻内容文案与成图专项验收：已定位并删除“保存文章即从正文连续切句覆盖分镜”的破坏性同步，四页文案现在经过生成、候选采用和 storyboard API 三层跨页去重门禁；真实语料池范围（18 条全池记忆、40280 字、6 条详细来源）与逐页取材依据可追溯。旧 v10 保留，修复后的不可变 v11 使用四组互异文案；已有 raw anchor 的第 1、3 页由 compositor v6 重合成，主体完整、边缘裁切为 0、无本地伪造强调标记。第 2、4 页没有 raw anchor，继续标为待回传且不生成 ZIP。真实浏览器 console 0 error；完整套件 `94 passed, 8 warnings`，CI Ruff、compileall、JavaScript 语法、context JSON 和 diff check 通过。
 
-### 2. PR #19 仍需重查；C0 #20 / V1 #21 / V2 #22 已合并，V3 尚待独立 PR
+### 2. PR #19 仍需重查；C0 #20 / V1 #21 / V2 #22 / V3 #23 已合并，V4 尚待独立 PR
 
 2026-08-09 重新查询后，PR #19 仍为 open、draft、mergeable，head 已为 `9073a4bc8a71a76dbf6762d7fc64a425eb3c99fe`，该 head 的 PR CI run `811` 成功，尚未进入 `main`。C0 从这一 head 建立独立分支，不继续堆入 PR #19。
 
-2026-08-09，C0 PR #20 已在 head `dd10c9f959c2b518be6f9ef1b910e3e9b7a9b261` 的 CI run `813` 成功后 squash merge，基线前进到 `02aa1db7f5eef45e438c8776bad0703c3e3ef441`。V1 PR #21 随后在 head `291d6a13ca8606628d1c2c781f7f15e298e57bc2` 的 Python 3.12 CI 成功后 squash merge，功能基线前进到 `a7b00d0005d024ab16a770dd7513031f5e21d548`。V2 PR #22 又在 head `833c0d422ab9a8e942e79f0340408e199b40c210` 的 CI run `817` 成功后 squash merge，功能基线前进到 `9086b6226b68e367e10327a577eb625e4d251b5b`。V3 从该准确 head 建立，尚未提交/推送/创建 PR。因此：
+2026-08-29 16:45 最新查询：PR #19 仍为 open、draft、mergeable，head 已前进到 `bd77743808a3eb1ccb0bfa29efa959c0aee2b33a`；V3 PR #23 已合并。下方 2026-08-09 记录只保留为历史时间线，不再代表当前 head。
+
+2026-08-29，C0 PR #20、V1 PR #21、V2 PR #22 和 V3 PR #23 均已按顺序通过各自 latest-head CI 后 squash merge。V3 合并后的功能基线为 `bd77743808a3eb1ccb0bfa29efa959c0aee2b33a`，V4 从该准确 head 建立，尚未提交/推送/创建 PR。因此：
 
 - `git pull main` 不会获得本轮功能；
-- C0 / V1 / V2 历史评审查看已合并 PR #20 / #21 / #22，不继续扩大 PR #19；
-- V3 必须作为新 PR 指向 `agent/replace-crawlers-with-api-adapters`，最新 CI 通过后才能合并；
-- V3 合并完成前不得创建 V4 分支；
-- 每次准备合并仍要重新确认 PR #19、V3 PR 的 base/head、mergeability 和 CI 是否对应最新 head。
+- C0 / V1 / V2 / V3 历史评审查看已合并 PR #20 / #21 / #22 / #23，不继续扩大 PR #19；
+- V4 必须作为新 PR 指向 `agent/replace-crawlers-with-api-adapters`，latest-head CI 通过后才能合并；
+- V4 合并完成前不得创建 W1 分支；
+- 每次准备合并仍要重新确认 PR #19、V4 PR 的 base/head、mergeability 和 CI 是否对应最新 head。
 
 ## P1：高价值后续工作
 

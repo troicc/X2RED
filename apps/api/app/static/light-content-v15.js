@@ -68,6 +68,17 @@
     ["conclusion", "结论 · 收束判断"],
   ];
 
+  const TYPOGRAPHY_MODE_LABELS = new Map([
+    ["type_led_large", "大字主导"],
+    ["edge_pressed_phrase", "边缘压字"],
+    ["diagonal_fragments", "对角碎句"],
+    ["ghost_text", "幽灵底字"],
+    ["archive_microtype", "档案微排"],
+    ["type_in_color_block", "色块承字"],
+    ["margin_scatter", "边注散排"],
+    ["safe_zone_caption", "安全区说明"],
+  ]);
+
   const ANCHOR_OPTIONS = [
     ["tiny-faded-photo", "小幅褪色照片"],
     ["torn-paper-clipping", "撕纸剪贴"],
@@ -2018,6 +2029,44 @@
         briefSummary.appendChild(details);
       }
       card.appendChild(briefSummary);
+    }
+    const composition = page.composition_diagnostics && typeof page.composition_diagnostics === "object"
+      ? page.composition_diagnostics
+      : {};
+    const typography = composition.typography && typeof composition.typography === "object"
+      ? composition.typography
+      : {};
+    if (typography.schema_version === "typography-render-v2") {
+      const recipe = composition.typography_recipe && typeof composition.typography_recipe === "object"
+        ? composition.typography_recipe
+        : {};
+      const modeLabel = TYPOGRAPHY_MODE_LABELS.get(typography.mode) || typography.mode || "未知模式";
+      const typographySummary = create("section", "light-visual-brief-summary");
+      typographySummary.append(
+        create("strong", "", `本地排版配方 · ${modeLabel}`),
+        create(
+          "p",
+          "",
+          `${typography.canvas_ratio || "未知比例"} · ${typography.visible_text_region_count || 0} 个可见文字区域 · ${typography.no_overflow ? "无溢出" : "存在溢出"} · ${typography.subject_clear ? "主体未遮挡" : "主体被遮挡"}`,
+        ),
+      );
+      const chips = create("div", "light-compiler-chips");
+      [
+        recipe.font_role && `字体 ${recipe.font_role}`,
+        recipe.weight && `字重 ${recipe.weight}`,
+        recipe.size_ratio && `字号比 ${Number(recipe.size_ratio).toFixed(3)}`,
+        recipe.line_height && `行高 ${recipe.line_height}`,
+        recipe.tracking !== undefined && `字距 ${recipe.tracking}`,
+        typography.transform && `避让 ${typography.transform}`,
+      ].filter(Boolean).forEach((value) => chips.appendChild(create("code", "", value)));
+      typographySummary.appendChild(chips);
+      if (typography.selection_reason) {
+        typographySummary.appendChild(create("small", "", typography.selection_reason));
+      }
+      if (typography.fallback_from) {
+        typographySummary.appendChild(create("small", "", `已从 ${typography.fallback_from} 降级；请人工复核主体安全区。`));
+      }
+      card.appendChild(typographySummary);
     }
     const sourceRefs = Array.isArray(page.source_refs) ? page.source_refs.filter(Boolean) : [];
     const evidenceBasis = String(page.evidence_basis || "").trim();

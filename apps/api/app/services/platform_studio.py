@@ -49,7 +49,7 @@ class PlatformStudioService:
         self.settings = settings
         self.editorial = editorial
         self.renderer = WeChatHtmlRenderer()
-        self.cover_renderer = WeChatCoverRenderer()
+        self.cover_renderer = WeChatCoverRenderer(settings)
         self.visual_briefs = VisualBriefService(settings, editorial)
 
     async def create_wechat_variant(

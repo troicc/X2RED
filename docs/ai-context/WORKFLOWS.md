@@ -346,11 +346,21 @@ Feature flag：
 
 1. 读取并校正模型图方向；
 2. 按原始宽高比完整 contain 模型 plate，不再固定裁掉顶部、底部和两侧；
-3. 从 raw anchor 取样纸色，只用羽化纸色遮罩清理高风险外沿，文字安全区使用低透明纸色 veil，不覆盖硬边米色矩形；
+3. 从 raw anchor 取样纸色，只用羽化纸色遮罩清理高风险外沿，不用硬边米色矩形覆盖主体；
 4. 保留模型的稀疏 plate 和颜色，颜色贫乏时也不自动伪造蓝色方块、短线或 registration mark；
-5. 对旧版中文 layout 名称做兼容归一，根据安全区动态排 phrase、note 和页码，并用语义弱起始规则避免“下班 / 后”、单字尾行等中文孤行；
-6. 使用 cmap 已验证的本地 CJK 字体；缺少可验证字体时明确失败；
-7. 写入 exports，并将 raw `anchor_XX` 与 final `poster_XX` 分开记录。
+5. 对旧版中文 layout 名称做兼容归一，并根据明确模式、页面职责和 layout 冻结一个 `TypographyRecipe`；
+6. 在归一化文字区域上尝试水平/垂直镜像避让关键主体，其他模式都无法安全放置时才使用 `safe_zone_caption`；
+7. 按 3:5、3:4、21:9 或 1:1 的实际区域动态缩放和换行 phrase、note、label 与页码，无法容纳或触边时明确失败，不做静默截断；
+8. 使用 cmap 已验证的本地 CJK 字体；缺少可验证字体时明确失败；
+9. 保存逐区域字号、换行、像素框、旋转、透明度、溢出和主体碰撞诊断；
+10. 写入 exports，并将 raw `anchor_XX` 与 final `poster_XX` 分开记录。
+
+V4 feature flag：
+
+- `X2RED_TYPOGRAPHY_RECIPE_MODE=production`：默认八模式 recipe v2；
+- `legacy`：恢复单一安全区和羽化纸色 veil。
+
+详细 schema、模式、指纹、公众号封面集成和回滚合同见 `LOCAL_CHINESE_TYPOGRAPHY_RECIPE_V4.md`。
 
 ### 8.4 重建产物
 

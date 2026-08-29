@@ -1,14 +1,14 @@
 # X2RED 项目记忆
 
-更新时间：2026-08-09 +08:00
+更新时间：2026-08-29 +08:00
 
 ## 一、当前快照
 
 仓库：`troicc/X2RED`
 
-当前本地任务分支：`codex/x2red-v3-contact-sheet-visual-review`
+当前本地任务分支：`codex/x2red-v4-local-chinese-typography-recipe-v2`
 
-V3 分支来源：已合并 V2 的 `agent/replace-crawlers-with-api-adapters`，准确基线 SHA `9086b6226b68e367e10327a577eb625e4d251b5b`
+V4 分支来源：已合并 V3 的 `agent/replace-crawlers-with-api-adapters`，准确基线 SHA `bd77743808a3eb1ccb0bfa29efa959c0aee2b33a`
 
 基线 PR：`#19 重构简中素材采集、语料池与三层创作工作区`
 
@@ -17,6 +17,8 @@ C0 PR：`#20 C0：冻结创作质量基线与可重放评测夹具`，已于 202
 V1 PR：`#21 V1：对齐 Minimal Zine v0.3 视觉 Prompt compiler`，head `291d6a13ca8606628d1c2c781f7f15e298e57bc2` 的 `test (3.12)` 成功后已于 2026-08-09 squash merge，功能基线前进到 `a7b00d0005d024ab16a770dd7513031f5e21d548`。
 
 V2 PR：`#22 V2：Visual Bible 与逐页视觉简报`，head `833c0d422ab9a8e942e79f0340408e199b40c210` 的 CI run `817` 成功后已于 2026-08-09 squash merge，功能基线前进到 `9086b6226b68e367e10327a577eb625e4d251b5b`。
+
+V3 PR：`#23 V3：图片多候选、Contact Sheet 与视觉审稿`，head `5ceeefcbe894cbc8e367f6fcdb314ae738e56d40` 的 CI run `819` 成功后已 squash merge，功能基线前进到 `bd77743808a3eb1ccb0bfa29efa959c0aee2b33a`。
 
 C0 首个提交：`08c0920f154d51a7cdfa5d35a604d48b3d393672`
 
@@ -33,6 +35,21 @@ PR #19 属于 C0 的基线功能分支，不是 C0 分支本身。
 2026-08-09 21:34：C0 首个提交 `08c0920f154d51a7cdfa5d35a604d48b3d393672` 已推送到远端 `codex/x2red-c0-quality-baseline`，并创建 Draft PR #20，目标为 `agent/replace-crawlers-with-api-adapters`。PR #20 的 CI、mergeability 和 head 属于易变化事实，合并前必须重新查询。
 
 2026-08-09 随后重新查询并完成 C0：PR #20 head `dd10c9f959c2b518be6f9ef1b910e3e9b7a9b261` 的 CI run `813` 成功，PR 标记 ready 后 squash merge；功能基线分支的新 head 为 `02aa1db7f5eef45e438c8776bad0703c3e3ef441`。V1 从这个已合并 head 创建独立分支。
+
+2026-08-29 16:45 再次查询 GitHub：PR #19 仍为 open、draft、mergeable，head 为 `bd77743808a3eb1ccb0bfa29efa959c0aee2b33a`。V3 PR #23 已在 head `5ceeefcbe894cbc8e367f6fcdb314ae738e56d40` 的 CI run `819` 成功后 squash merge，merge commit 即该功能基线 head。V4 从这个准确远端 head 创建；这些 PR/CI 事实在下一次合并前仍须重新查询。
+
+2026-08-29 17:06 提交 V4 前再次查询 GitHub：PR #19 仍为 open、draft、mergeable，功能分支 head 仍为 `bd77743808a3eb1ccb0bfa29efa959c0aee2b33a`，与 V4 本地基线一致。
+
+### 2026-08-29 V4 本地中文排版 Recipe v2
+
+- 新增严格 `TypographyRecipe` / `TextRegion` / render diagnostic schema。recipe 冻结模式、归一化区域、字体职责、字重、字号比、行高、字距、旋转、对齐、透明度、blend 和碰撞策略；额外字段被拒绝，区域越界或 ID 重复明确失败。
+- 本地 engine 实现 `type_led_large`、`edge_pressed_phrase`、`diagonal_fragments`、`ghost_text`、`archive_microtype`、`type_in_color_block`、`margin_scatter` 和 `safe_zone_caption` 八种模式。选择优先明确冻结模式，再结合页面职责/layout 和确定性轮换；安全区模式只在其他模式及四种镜像避让都失败后降级。
+- source fingerprint 绑定比例、phrase/note、页码、layout、visual role、请求模式和关键主体矩形。相同输入复用已冻结 recipe；输入改变会重新选择。composition fingerprint 同时包含 recipe，旧版本不会被静默覆盖。
+- 渲染按区域自身尺寸计算内边距，从目标字号向下拟合准确中文、说明、label 和页码；不以截断掩盖溢出。任一区域无法容纳、像素触边或可读文字覆盖主体时明确失败，并保存逐区域框、字号、换行、旋转、透明度、碰撞和裁切诊断。
+- Minimal Zine compositor 升至 `minimal-zine-local-type-v7-typography-recipes`，仍完整 contain raw plate、只清理高风险外沿、不伪造强调色，并把 `typography_recipe_v2` 与诊断保存到 immutable page spec。ZIP allowlist 继续排除 raw anchor、候选和 Contact Sheet。
+- 公众号 21:9 / 1:1 封面先生成无字视觉底图，再由同一 engine 本地叠加中文；Playwright 和 Pillow fallback 因此共用排版合同。轻内容页检查器显示中文模式名、比例、区域数、无溢出/主体状态、字体参数、避让变换、选择原因和降级提示。
+- `X2RED_TYPOGRAPHY_RECIPE_MODE=production|legacy` 默认 production；legacy 恢复 V4 前单一安全区和羽化纸色 veil，不删除或改写历史工件。详细合同见 `docs/ai-context/LOCAL_CHINESE_TYPOGRAPHY_RECIPE_V4.md`。
+- 自动化覆盖 3:5、3:4、21:9、1:1、八模式原生 1200×2000、主体镜像避让、冻结指纹、四模式缩略图差异、公众号四类封面双比例、`safe_zone_caption` 最后兜底顺序和 legacy 回滚；V4 定向 `30 passed`，完整 API 套件 `159 passed, 8 warnings`。人工 8 模式联系表已复核中文清晰和空间骨架差异。隔离浏览器在 1280×800 与手机断点请求 375×812（内置浏览器实际最小 450×812）验证诊断卡片、双栏到单栏响应、参数折行和局部阶段滚动；根页面无横向溢出、console 0 error/warning，未调用模型或写用户数据库。最终 Ruff、compileall、Python/shell/活动 JavaScript、发布助手、JSON、diff、全新 0001→0012 迁移和 wheel 内容门禁均通过。
 
 ### 2026-08-09 V3 图片多候选、Contact Sheet 与视觉审稿
 
