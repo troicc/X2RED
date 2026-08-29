@@ -10,8 +10,11 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
+from app.domain.evidence_schemas import EvidenceBundle, EvidenceSectionRequest
 from app.domain.models import DraftRevision, SkillBinding, SourceItem, new_id
+from app.services.evidence_compiler import EvidenceCompiler
 from app.services.pool_memory import PoolMemoryService
+from app.services.retrieval import bounded_json, keyword_digest
 from app.services.skills import binding_for
 from app.services.source_graph import connected_sources
 
@@ -77,6 +80,7 @@ class EditorialService:
 
     async def generate(self, db: Session, source: SourceItem, style: str) -> DraftRevision:
         context = self._context(db, source)
+        evidence_bundle = self._editorial_evidence_bundle(context, style=style)
         draft_id = new_id("draft")
         bindings = {
             name: binding_for(db, name, self.settings.model_name)
@@ -101,7 +105,10 @@ class EditorialService:
                     "news": "news",
                     "opinion": "commentary",
                 }.get(style, style),
-                "source_text": "\n".join(item.text_original for item in context)[:30000],
+                "source_text": keyword_digest(
+                    "\n".join(item.text_original for item in context),
+                    max_terms=512,
+                ),
                 "topics": [],
                 "limit": 6,
                 "max_chars": 6000,
@@ -131,6 +138,7 @@ class EditorialService:
             style,
             bindings,
             memory_prompts=memory_prompts,
+            evidence_bundle=evidence_bundle,
         )
         analysis: dict = {}
         quality_passes: list[str] = []
@@ -171,6 +179,7 @@ class EditorialService:
                     "model": model_name,
                     "quality_passes": quality_passes,
                     "editorial_analysis": analysis,
+                    "evidence_retrieval": evidence_bundle.prompt_payload(),
                     "skills": {name: binding.enabled for name, binding in bindings.items()},
                     "memory_snapshot_id": memory_summary["snapshot_id"],
                     "memory_snapshot_hash": memory_summary["snapshot_hash"],
@@ -216,7 +225,12 @@ class EditorialService:
             raise ValueError(f"Skill {_TRANSFORM_SKILLS[action]} 已在设置中关闭")
 
         context = self._context(db, current.source)
-        source_json = json.dumps(self._source_blocks(context), ensure_ascii=False)[:24000]
+        evidence_bundle = self._editorial_evidence_bundle(
+            context,
+            style=current.style,
+            focus=f"{current.title} {action} {instruction}",
+        )
+        source_json = json.dumps(evidence_bundle.prompt_payload(), ensure_ascii=False)
         provenance = self._parse_object(current.provenance_json)
         memory_service = PoolMemoryService(self.settings, self)
         source_memory_snapshot = memory_service.snapshot(
@@ -250,7 +264,7 @@ class EditorialService:
 要求：{_TRANSFORM_GUIDES[action]}
 用户补充：{instruction.strip() or "无"}
 
-编辑分析：{json.dumps(analysis or {}, ensure_ascii=False)[:9000]}
+编辑分析：{bounded_json(analysis or {}, 9000)}
 原始来源：{source_json}
 当前标题：{current.title}
 当前标签：{current.tags}
@@ -300,6 +314,7 @@ class EditorialService:
             "parent_draft_id": current.id,
             "transform_action": action,
             "quality_passes": passes[-12:],
+            "evidence_retrieval": evidence_bundle.prompt_payload(),
             "memory_snapshot_id": memory_summary["snapshot_id"],
             "memory_snapshot_hash": memory_summary["snapshot_hash"],
             "memory_ids": memory_summary["memory_ids"],
@@ -325,6 +340,56 @@ class EditorialService:
     def _context(self, db: Session, source: SourceItem) -> list[SourceItem]:
         connected = connected_sources(db, source.id)
         return [source, *(item for item in connected if item.id != source.id)]
+
+    def _editorial_evidence_bundle(
+        self,
+        context: list[SourceItem],
+        *,
+        style: str,
+        focus: str = "",
+    ) -> EvidenceBundle:
+        style_label = _STYLE_LABELS.get(style, style)
+        query = f"{style_label} {focus}".strip() or "来源核心内容"
+        sections = [
+            EvidenceSectionRequest(
+                section_id="opening",
+                heading="发生了什么与阅读价值",
+                query=f"{query} 做成了什么 为什么重要",
+                role="opening",
+                max_chunks=3,
+                max_chars=2400,
+            ),
+            EvidenceSectionRequest(
+                section_id="mechanism",
+                heading="关键方法与机制",
+                query=f"{query} 方法 机制 过程 如何实现",
+                role="mechanism",
+                max_chunks=3,
+                max_chars=2400,
+            ),
+            EvidenceSectionRequest(
+                section_id="evidence",
+                heading="数字、测试与来源归属",
+                query=f"{query} 数字 数据 测试 结果 来源",
+                role="evidence",
+                max_chunks=3,
+                max_chars=2400,
+            ),
+            EvidenceSectionRequest(
+                section_id="limitations",
+                heading="限制、反例与未知",
+                query=f"{query} 限制 条件 反例 风险 未知",
+                role="limitations",
+                max_chunks=3,
+                max_chars=2400,
+            ),
+        ]
+        return EvidenceCompiler(self.settings).compile_sources(
+            context,
+            sections,
+            primary_source_id=context[0].id,
+            selected_source_ids=[item.id for item in context],
+        )
 
     @staticmethod
     def _next_version(db: Session, source_id: str, fallback: int = 0) -> int:
@@ -352,6 +417,7 @@ class EditorialService:
         style: str,
         bindings: dict[str, SkillBinding] | None = None,
         memory_prompts: dict[str, str] | None = None,
+        evidence_bundle: EvidenceBundle | None = None,
     ) -> dict | None:
         if not (self.settings.model_base_url and self.settings.model_name):
             return None
@@ -365,7 +431,11 @@ class EditorialService:
         if not analysis_binding.enabled or not draft_binding.enabled:
             return None
 
-        source_json = json.dumps(self._source_blocks(context), ensure_ascii=False)[:28000]
+        evidence_bundle = evidence_bundle or self._editorial_evidence_bundle(
+            context,
+            style=style,
+        )
+        source_json = json.dumps(evidence_bundle.prompt_payload(), ensure_ascii=False)
         memory = memory_prompts or {}
         style_label = _STYLE_LABELS.get(style, style)
         analysis_prompt = f"""
@@ -393,7 +463,7 @@ audience_value、angles、recommended_angle、title_candidates、outline、avoid
             writing_prompt = f"""
 根据编辑分析和原始来源写一篇可发布的小红书笔记。
 类型：{style_label}。{_STYLE_GUIDES.get(style, _STYLE_GUIDES["explain"])}
-编辑分析：{json.dumps(analysis, ensure_ascii=False)[:14000]}
+编辑分析：{bounded_json(analysis, 14000)}
 原始来源：{source_json}
 当前任务相关个人记忆：
 {memory.get("writer", "")}
@@ -424,6 +494,7 @@ audience_value、angles、recommended_angle、title_candidates、outline、avoid
                 "analysis": analysis,
                 "quality_passes": passes,
                 "model": draft_binding.model_name or self.settings.model_name,
+                "evidence_retrieval": evidence_bundle.prompt_payload(),
                 "draft": {
                     "title": str(final.get("title") or initial.get("title") or ""),
                     "body": str(final.get("body") or initial.get("body") or ""),
@@ -447,9 +518,9 @@ audience_value、angles、recommended_angle、title_candidates、outline、avoid
         prompt = f"""
 把初稿做最后一轮中文编辑：事实、数字、来源归属和不确定性边界不变；打散英文语序；
 删除机械过渡、同义反复和模板句；每段只承担一个意思；不增加背景或个人体验。
-编辑分析：{json.dumps(analysis, ensure_ascii=False)[:9000]}
+编辑分析：{bounded_json(analysis, 9000)}
 原始来源：{source_json}
-初稿：{json.dumps(initial, ensure_ascii=False)[:14000]}
+初稿：{bounded_json(initial, 14000)}
 当前任务冻结的个人记忆：{memory_prompt}
 只输出 JSON：{{"title":"标题","body":"正文","tags":["标签"]}}
 """.strip()

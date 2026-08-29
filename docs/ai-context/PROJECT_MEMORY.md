@@ -6,9 +6,9 @@
 
 仓库：`troicc/X2RED`
 
-当前本地任务分支：`codex/x2red-v4-local-chinese-typography-recipe-v2`
+当前本地任务分支：`codex/x2red-w1-evidence-compiler-hybrid-retrieval`
 
-V4 分支来源：已合并 V3 的 `agent/replace-crawlers-with-api-adapters`，准确基线 SHA `bd77743808a3eb1ccb0bfa29efa959c0aee2b33a`
+W1 分支来源：已合并 V4 的 `agent/replace-crawlers-with-api-adapters`，准确基线 SHA `012299e2c77a02b076eb15aed33e17ad6196ce38`
 
 基线 PR：`#19 重构简中素材采集、语料池与三层创作工作区`
 
@@ -20,7 +20,7 @@ V2 PR：`#22 V2：Visual Bible 与逐页视觉简报`，head `833c0d422ab9a8e942
 
 V3 PR：`#23 V3：图片多候选、Contact Sheet 与视觉审稿`，head `5ceeefcbe894cbc8e367f6fcdb314ae738e56d40` 的 CI run `819` 成功后已 squash merge，功能基线前进到 `bd77743808a3eb1ccb0bfa29efa959c0aee2b33a`。
 
-V4 PR：`#24 V4：本地中文排版 Recipe v2`，当前为 Draft，指向 `agent/replace-crawlers-with-api-adapters`；首轮 CI run `822` 暴露旧 V0.8 兼容测试依赖宿主机 CJK 字体，最小隔离修复完成后等待新 head CI。
+V4 PR：`#24 V4：本地中文排版 Recipe v2`，修复 head `0b87097865dc6d57b1bb082cb12b37e938a4e9bb` 的 CI run `823` 成功后已 squash merge；功能基线前进到 `012299e2c77a02b076eb15aed33e17ad6196ce38`。
 
 C0 首个提交：`08c0920f154d51a7cdfa5d35a604d48b3d393672`
 
@@ -45,6 +45,19 @@ PR #19 属于 C0 的基线功能分支，不是 C0 分支本身。
 2026-08-29 17:08：V4 首个提交 `0f4a6773cbf9258c0ffc2da021830950ebc4cbfe` 已推送并创建 Draft PR #24；下一次合并判断必须以随后文档状态提交后的 latest head 和对应 CI 为准。
 
 2026-08-29 17:14：PR #24 CI run `822` 在 Ubuntu 的 `test_wechat_workbench_api_end_to_end` 失败，其余迁移、静态门禁和 158 项测试均通过。根因不是生产排版降级，而是这个 V0.8 历史兼容流程未声明 legacy 模式，在无 CJK 字体的 runner 上触发 V4 production fail-closed 门禁。测试现显式设置 `X2RED_TYPOGRAPHY_RECIPE_MODE=legacy`；生产默认值与专门字体门禁测试保持不变，需以修复提交的新 head CI 再确认。
+
+2026-08-29 17:23：V4 修复提交 `0b87097865dc6d57b1bb082cb12b37e938a4e9bb` 的 PR CI run `823` 全部成功；PR #24 转 Ready 后按该 expected head squash merge，合并提交为 `012299e2c77a02b076eb15aed33e17ad6196ce38`。PR #19 随即复核为 open、draft、mergeable，head 已同步到该提交。W1 从这一准确远端 head 建立独立分支。
+
+### 2026-08-29 W1 证据编译与混合检索
+
+- 新增严格 `EvidenceDocument`、`EvidenceChunk`、`EvidenceSectionRequest`、`EvidenceScore`、`SectionEvidence` 与 `EvidenceBundle`。每个 chunk 冻结来源、材料引用、标题、作者、发布时间、抓取时间、权利、编辑备注、原文字符位置、内容 hash 和 `source_id:chunk_id`；持久化 trace 同时记录 compiler 版本、总 chunk/source 数、rank 与九项 score breakdown。
+- `EvidenceCompiler` 按 Markdown 标题、段落和中英文句子边界分块；只对无自然边界的超长单元执行受控强制拆分。`structured_content_json` 仅取标题等元数据，不再作为序列化正文被截断。
+- 本地 `BM25Index` 对全量 chunk 召回；可选 OpenAI-compatible embedding 只重排 BM25 候选和各来源最佳候选，并在同一编译中缓存 chunk vector。未配置或 provider 失败时明确使用 BM25，不调用外部服务或伪称 embedding 生效。
+- 重排覆盖 semantic relevance、source authority、primary bonus、freshness、editor note、section role、rights、source diversity 和 redundancy penalty；MMR 拦截完全相同或高度相似文本占满预算。
+- 深度写作根据任务阶段或已批准大纲逐节检索，并把 bundle 写入 immutable artifact 与终稿 provenance；公众号长文优先按已有 H2 检索，否则使用开头、机制、证据、比较和限制五类问题，bundle 冻结到版本 metadata。小红书编辑链、输入材料、语料池摘要和池子记忆主题匹配同步接入。
+- 所有受影响 Prompt 的限长 JSON 改由 `bounded_json()` 生成仍可解析、带显式压缩标记的 JSON；直接截断已序列化 JSON 的扫描为零。语料池不再把预算除以来源数后从每份正文开头切片，而是保留全来源索引并追加语义摘要与 evidence refs。
+- `X2RED_EVIDENCE_RETRIEVAL_MODE=hybrid|legacy` 默认 hybrid。legacy 冻结 `DEGRADED_LEGACY_CHARACTER_SLICE`，不删除来源、artifact 或历史版本。W1 无数据库迁移。详细合同见 `docs/ai-context/EVIDENCE_COMPILER_HYBRID_RETRIEVAL_W1.md`。
+- 新增 W1 定向 `13 passed`；写作/公众号/语料池/池子记忆联合回归 `38 passed, 1 warning`；最终完整 API 套件 `172 passed, 8 warnings`。全 API Ruff、compileall、导出脚本、shell、18 个活动 JavaScript、发布助手、全仓 JSON、敏感信息、diff、全新 0001→0012 迁移和 wheel 内容门禁均通过。测试未配置 embedding，未调用真实文本、图片或向量模型，也未写用户数据库。
 
 ### 2026-08-29 V4 本地中文排版 Recipe v2
 

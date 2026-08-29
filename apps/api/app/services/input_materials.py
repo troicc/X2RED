@@ -195,6 +195,17 @@ def resolve_input_materials(
                     "id": source.id,
                     "source_id": source.id,
                     "title": _source_title(source),
+                    "author": source.author_name or source.author_handle,
+                    "canonical_url": source.canonical_url,
+                    "published_at": (
+                        source.created_at.isoformat()
+                        if isinstance(source.created_at, datetime)
+                        else ""
+                    ),
+                    "rights_status": source.rights_status,
+                    "rights_note": source.rights_note,
+                    "editor_note": source.editor_note,
+                    "evidence_contract": "semantic_chunks_from_text_original",
                     "body_sha256": hashlib.sha256(source.text_original.encode()).hexdigest(),
                 }
             )
@@ -215,6 +226,7 @@ def resolve_input_materials(
                     "body": draft.body,
                     "body_sha256": hashlib.sha256(draft.body.encode()).hexdigest(),
                     "tags": draft.tags,
+                    "evidence_contract": "written_version_structure_only",
                     "provenance": _object(draft.provenance_json),
                     "created_at": draft.created_at.isoformat() if isinstance(draft.created_at, datetime) else "",
                 }
@@ -248,6 +260,7 @@ def resolve_input_materials(
                 "tags": variant.tags,
                 "status": variant.status,
                 "evidence_source_ids": variant_evidence_ids,
+                "evidence_contract": "written_version_structure_only",
                 "created_at": variant.created_at.isoformat() if isinstance(variant.created_at, datetime) else "",
             }
         )

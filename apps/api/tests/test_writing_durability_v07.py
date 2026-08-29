@@ -226,6 +226,23 @@ def test_completed_agent_stages_survive_later_model_failures(
         artifact_types = {item["artifact_type"] for item in project["artifacts"]}
         assert {"editorial_brief", "evidence_pack", "outline"} <= artifact_types
         assert "draft" not in artifact_types
+        traced = [
+            json.loads(item["content_json"])["evidence_retrieval"]
+            for item in project["artifacts"]
+            if item["artifact_type"] in {"editorial_brief", "evidence_pack"}
+        ]
+        assert traced and all(item["mode"] == "hybrid" for item in traced)
+        assert all(
+            section["evidence_chunks"]
+            for item in traced
+            for section in item["sections"]
+        )
+        assert all(
+            ":" in chunk["evidence_ref"]
+            for item in traced
+            for section in item["sections"]
+            for chunk in section["evidence_chunks"]
+        )
 
         runs = project["runs"]
         succeeded_roles = {item["role"] for item in runs if item["status"] == "succeeded"}

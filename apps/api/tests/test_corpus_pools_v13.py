@@ -130,6 +130,8 @@ def test_corpus_pool_compiles_members_and_auto_names(tmp_path: Path) -> None:
         assert validated.topic_keywords
         assert "全池语义记忆" in validated.profile_text
         assert "来源数：6" in validated.profile_text
+        assert "章节检索候选" in validated.profile_text
+        assert ":c" in validated.profile_text
         assert len(validated.members) == 6
         assert all(member.summary for member in validated.members)
         assert any(member.keywords for member in validated.members)

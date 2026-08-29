@@ -24,6 +24,8 @@ from app.domain.models import (
     new_id,
     utcnow,
 )
+from app.services.evidence_compiler import EvidenceCompiler
+from app.services.retrieval import keyword_digest
 
 
 class CorpusPoolError(RuntimeError):
@@ -254,7 +256,7 @@ class CorpusPoolService:
         total_chars = 0
 
         for member, source in rows:
-            normalized, title, summary, keywords = self._convert_source(source)
+            normalized, title, summary, keywords, evidence_refs = self._convert_source(source)
             member.normalized_text = normalized
             member.summary = summary
             member.keywords_json = json.dumps(keywords, ensure_ascii=False)
@@ -270,6 +272,7 @@ class CorpusPoolService:
                     "platform": source.platform or source.provider,
                     "author": source.author_name or source.author_handle,
                     "keywords": "、".join(keywords[:5]),
+                    "evidence_refs": "、".join(evidence_refs[:3]),
                 }
             )
 
@@ -578,29 +581,55 @@ class CorpusPoolService:
         )
 
         memory_budget = 12000
-        overhead = sum(len(line) + 1 for line in lines)
-        available = max(2000, memory_budget - overhead)
-        per_source = max(14, available // max(1, len(memory_rows)) - 10)
         for index, row in enumerate(memory_rows, start=1):
-            prefix = f"{index}. [{row['platform']}] "
-            title_budget = max(5, min(56, per_source // 3))
-            title = row["title"][:title_budget]
-            remainder = max(4, per_source - len(title))
-            summary = (row["summary"] or row["keywords"] or row["author"])[
-                :remainder
-            ]
-            lines.append(f"{prefix}{title}｜{summary}")
+            # Keep one stable index entry per source. Do not divide the budget
+            # evenly and cut every source from its first characters.
+            title = row["title"][:72]
+            keywords_value = row["keywords"][:80]
+            lines.append(
+                f"{index}. [{row['platform']}] {title}｜"
+                f"{keywords_value or row['author'][:40]}"
+            )
+        lines.extend(["", "【章节检索候选】"])
+        for index, row in enumerate(memory_rows, start=1):
+            summary = row["summary"].strip()
+            if not summary:
+                continue
+            ref_suffix = f"｜{row['evidence_refs']}" if row["evidence_refs"] else ""
+            block = f"{index}. {summary}{ref_suffix}"
+            if len("\n".join([*lines, block])) > memory_budget:
+                break
+            lines.append(block)
         return "\n".join(lines)
 
     def _convert_source(
         self,
         source: SourceItem,
-    ) -> tuple[str, str, str, list[str]]:
+    ) -> tuple[str, str, str, list[str], list[str]]:
         title = self._source_title(source)
         body = self._normalize_text(source.text_original)
         metadata = self._json_object(source.structured_content_json)
         discovery_keyword = self._metadata_value(metadata, "discovery_keyword")
-        summary = self._summary(body or title)
+        editor_note = source.editor_note or ""
+        evidence_refs: list[str] = []
+        if self.settings.evidence_retrieval_mode == "hybrid" and body:
+            retrieval_settings = self.settings.model_copy(
+                update={
+                    "evidence_embedding_base_url": "",
+                    "evidence_embedding_api_key": "",
+                    "evidence_embedding_model": "",
+                }
+            )
+            summary, evidence_refs = EvidenceCompiler(retrieval_settings).semantic_summary(
+                source,
+                query=" ".join(
+                    value
+                    for value in (title, discovery_keyword, editor_note)
+                    if str(value or "").strip()
+                ),
+            )
+        else:
+            summary = self._summary(body or title)
         parts = [
             f"标题：{title}",
             f"平台：{source.platform or source.provider}",
@@ -608,9 +637,9 @@ class CorpusPoolService:
         ]
         if discovery_keyword:
             parts.append(f"发现关键词：{discovery_keyword}")
-        if source.editor_note.strip():
+        if editor_note.strip():
             parts.append(
-                f"编辑备注：{self._normalize_text(source.editor_note)[:1200]}"
+                f"编辑备注：{self._normalize_text(editor_note)[:1200]}"
             )
         parts.append(f"正文：{body}")
         normalized = "\n".join(parts)[:80000]
@@ -618,13 +647,13 @@ class CorpusPoolService:
             [
                 (title, 7),
                 (discovery_keyword, 8),
-                (source.editor_note, 3),
+                (editor_note, 3),
                 (summary, 4),
-                (body[:12000], 1),
+                (keyword_digest(body, max_terms=512), 1),
             ],
             limit=16,
         )
-        return normalized, title, summary, keywords
+        return normalized, title, summary, keywords, evidence_refs
 
     def _source_title(self, source: SourceItem) -> str:
         metadata = self._json_object(source.structured_content_json)

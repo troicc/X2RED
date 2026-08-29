@@ -17,6 +17,7 @@ from app.domain.pool_memory import PoolMemorySnapshot, PoolMemoryUsage
 from app.domain.pool_memory_schemas import PoolMemoryContent
 from app.domain.review_artifacts import ReviewArtifact, ReviewArtifactState
 from app.domain.studio import PatternCard, WritingArtifact, WritingFeedback, WritingProject
+from app.services.retrieval import bounded_json, keyword_digest, lexical_terms, term_similarity
 
 if TYPE_CHECKING:
     from app.services.editorial import EditorialService
@@ -363,7 +364,7 @@ class PoolMemoryService:
                     f"受影响规则：{'；'.join(str(item) for item in affected)}" if affected else "",
                     f"修改前：{before.body[:4000]}" if before else "",
                     f"修改后：{after.body[:4000]}" if after else "",
-                    f"差异：{json.dumps(diff, ensure_ascii=False)[:5000]}" if diff else "",
+                    f"差异：{bounded_json(diff, 5000)}" if diff else "",
                 )
                 if item
             )
@@ -1227,25 +1228,11 @@ class PoolMemoryService:
 
     @staticmethod
     def _terms(value: str) -> set[str]:
-        lowered = value.lower()
-        english = set(re.findall(r"[a-z0-9][a-z0-9_+.-]{1,}", lowered))
-        han_runs = re.findall(r"[\u3400-\u9fff]+", lowered)
-        han: set[str] = set()
-        for run in han_runs:
-            if len(run) <= 2:
-                han.add(run)
-            else:
-                han.update(run[index : index + 2] for index in range(len(run) - 1))
-        return english | han
+        return lexical_terms(value)
 
     @classmethod
     def _text_similarity(cls, left: str, right: str) -> float:
-        left_terms = cls._terms(left)
-        right_terms = cls._terms(right)
-        if not left_terms or not right_terms:
-            return 0.0
-        overlap = len(left_terms & right_terms)
-        return overlap / math.sqrt(len(left_terms) * len(right_terms))
+        return term_similarity(left, right)
 
     @staticmethod
     def _scope_matches(values: Any, requested: str) -> bool:
@@ -1270,7 +1257,7 @@ class PoolMemoryService:
         visual_route = str(query.get("visual_route") or "")
         audience = str(query.get("audience") or "")
         topic_text = " ".join(str(item) for item in self._list(query.get("topics")))
-        source_text = self._compact(query.get("source_text"), 30000)
+        source_text = keyword_digest(str(query.get("source_text") or ""), max_terms=512)
         relevance_text = f"{topic_text} {source_text}"
         scored: list[dict[str, Any]] = []
 
