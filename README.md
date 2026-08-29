@@ -97,6 +97,10 @@ X2RED_VISUAL_BRIEF_MODE=production
 X2RED_IMAGE_CANDIDATE_MODE=production
 X2RED_IMAGE_CANDIDATE_COUNT=3
 X2RED_TYPOGRAPHY_RECIPE_MODE=production
+X2RED_EVIDENCE_RETRIEVAL_MODE=hybrid
+X2RED_EVIDENCE_EMBEDDING_BASE_URL=
+X2RED_EVIDENCE_EMBEDDING_API_KEY=
+X2RED_EVIDENCE_EMBEDDING_MODEL=
 ```
 
 When `IMAGE_BASE_URL` or `IMAGE_API_KEY` is empty, X2RED reuses the corresponding text-provider setting. Without `X2RED_IMAGE_MODEL`, the application keeps the reviewed prompt but does not falsely label a local placeholder as an original Skill render.
@@ -108,6 +112,8 @@ When `IMAGE_BASE_URL` or `IMAGE_API_KEY` is empty, X2RED reuses the correspondin
 `X2RED_IMAGE_CANDIDATE_MODE=production` enables the V3 image-candidate lifecycle after Prompt compilation: API rendering requests three raw anchors by default, manual web handoff accepts 1–4 uploads, and both paths share Contact Sheets, ten-dimension visual review, explicit selection/rejection and one bounded directed repair. Set it to `legacy` to restore single-anchor rendering without deleting existing candidate records. `X2RED_IMAGE_CANDIDATE_COUNT` accepts 1–4 and defaults to 3.
 
 `X2RED_TYPOGRAPHY_RECIPE_MODE=production` enables V4 local Chinese composition recipes. Eight deterministic modes can lead, press, fragment, ghost, archive, block or scatter exact local text around protected subjects; `safe_zone_caption` is a last fallback rather than the universal default. Set it to `legacy` to restore the previous feathered safe-zone compositor without rewriting historical artifacts.
+
+`X2RED_EVIDENCE_RETRIEVAL_MODE=hybrid` enables W1 semantic chunks, local BM25 full-text recall, factor-based reranking, source diversity and MMR deduplication for each article section. Embeddings are optional: leave all three `X2RED_EVIDENCE_EMBEDDING_*` values empty to use local BM25, or provide a separate OpenAI-compatible `/embeddings` endpoint and model for candidate reranking. `legacy` remains available as an explicitly degraded character-slice rollback and does not rewrite historical artifacts.
 
 ## Simplified-Chinese material research
 
@@ -195,6 +201,8 @@ The native chain:
 `X2RED_IMAGE_CANDIDATE_MODE=production|legacy` controls the V3 image-review layer independently. Production preserves all competing candidates and blocks unreviewed or failed candidates from packaging; legacy keeps the pre-V3 single-anchor route available without rewriting historical artifacts.
 
 `X2RED_TYPOGRAPHY_RECIPE_MODE=production|legacy` controls the V4 local-type layer independently. Production freezes one strict recipe and per-region diagnostics for 3:5, 3:4, 21:9 and 1:1 outputs; legacy preserves the pre-V4 single safe-zone treatment. Both modes keep raw anchors outside the release ZIP.
+
+`X2RED_EVIDENCE_RETRIEVAL_MODE=hybrid|legacy` controls W1 independently. Hybrid freezes section-specific `source_id:chunk_id` references and uses local BM25 when no embedding provider is configured. Legacy artifacts are marked `DEGRADED_LEGACY_CHARACTER_SLICE`; switching modes never backfills or overwrites old drafts and platform versions.
 
 The release ZIP uses an explicit allowlist and excludes raw anchors. Negative prompts, constrained high-risk edge cleanup and local recomposition reduce watermark/badge risk but cannot prove that an image model will never emit one; final visual, copyright and factual review remains mandatory.
 

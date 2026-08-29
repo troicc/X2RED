@@ -15,6 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
+from app.domain.evidence_schemas import EvidenceBundle, EvidenceSectionRequest
 from app.domain.models import (
     Asset,
     AssetState,
@@ -26,12 +27,14 @@ from app.domain.models import (
 )
 from app.domain.platforms import PlatformVariant, PlatformVariantState
 from app.services.editorial import EditorialService
+from app.services.evidence_compiler import EvidenceCompiler
 from app.services.input_materials import (
     InputMaterialError,
     compact_material_provenance,
     resolve_input_materials,
 )
 from app.services.pool_memory import PoolMemoryService
+from app.services.retrieval import bounded_json, keyword_digest
 from app.services.skills import binding_for
 from app.services.source_graph import connected_sources
 from app.services.visual_brief import VisualBriefService
@@ -79,6 +82,12 @@ class PlatformStudioService:
             for item in selected_sources
         ]
         context = self._evidence_context(db, selected_sources)
+        evidence_bundle = self._platform_evidence_bundle(
+            context,
+            selected_sources=selected_sources,
+            input_materials=input_materials,
+            draft=draft,
+        )
         selected_theme = theme if theme != "auto" else auto_theme(
             draft.title if draft else "",
             draft.body if draft else source.text_original,
@@ -119,15 +128,18 @@ class PlatformStudioService:
                 }.get(draft.style if draft else "", "technical_explainer"),
                 "style_profile_id": str(draft_provenance.get("style_profile_id") or ""),
                 "topics": [draft.title] if draft and draft.title else [],
-                "source_text": "\n\n".join(
-                    ([draft.body] if draft and draft.body.strip() else [])
-                    + [item.text_original for item in selected_sources]
-                    + [
-                        str(item.get("body") or "")
-                        for item in input_materials
-                        if str(item.get("kind") or "") != "source"
-                    ]
-                )[:30000],
+                "source_text": keyword_digest(
+                    "\n\n".join(
+                        ([draft.body] if draft and draft.body.strip() else [])
+                        + [item.text_original for item in selected_sources]
+                        + [
+                            str(item.get("body") or "")
+                            for item in input_materials
+                            if str(item.get("kind") or "") != "source"
+                        ]
+                    ),
+                    max_terms=512,
+                ),
                 "limit": 6,
                 "max_chars": 6500,
             },
@@ -153,6 +165,7 @@ class PlatformStudioService:
             context=context,
             selected_source_ids=[item.id for item in selected_sources],
             input_materials=input_materials,
+            evidence_bundle=evidence_bundle,
         )
         if model_output is None:
             model_output = self._fallback_copy(
@@ -227,6 +240,7 @@ class PlatformStudioService:
                 "issues": [],
             },
             "evidence_source_ids": [item.id for item in selected_sources],
+            "evidence_retrieval": evidence_bundle.prompt_payload(),
             "evidence_sources": [
                 {
                     "id": item.id,
@@ -405,35 +419,27 @@ class PlatformStudioService:
         except InputMaterialError as exc:
             raise PlatformStudioError(str(exc)) from exc
         context = self._evidence_context(db, resolved.sources)
-        source_blocks = self.editorial._source_blocks(context)
-        selected_ids = {item.id for item in resolved.sources}
-        for index, block in enumerate(source_blocks):
-            source_id = str(block.get("source_id") or "")
-            block["selection_role"] = (
-                "primary"
-                if source_id == resolved.primary_source.id
-                else "supporting"
-                if source_id in selected_ids
-                else "connected"
-            )
-            block["index"] = index + 1
-        materials_json = json.dumps(
-            self._merge_material_blocks(source_blocks, resolved.materials),
-            ensure_ascii=False,
-        )[:48000]
+        repair_evidence = self._platform_evidence_bundle(
+            context,
+            selected_sources=resolved.sources,
+            input_materials=resolved.materials,
+            draft=None,
+            focus=f"{current.title} {current.summary} 截断修复",
+        )
+        materials_json = json.dumps(repair_evidence.prompt_payload(), ensure_ascii=False)
         prompt = f"""
 修复下面这篇被截断的公众号文章。必须返回从开头到结尾完整的一篇文章，不是单独的续写片段。
 
 检测到的问题：{json.dumps(issues, ensure_ascii=False)}
 原始来源与已选版本：{materials_json}
-当前残缺版本：{json.dumps({
+当前残缺版本：{bounded_json({
     'title': current.title,
     'subtitle': current.subtitle,
     'summary': current.summary,
     'body_markdown': current.body_markdown,
     'tags': current.tags,
     'illustration_plan': metadata.get('illustration_plan') or [],
-}, ensure_ascii=False)[:50000]}
+}, 50000)}
 
 要求：
 1. 保留已有、有证据支持的内容，完成残缺代码和所有尚未写出的论述；
@@ -476,14 +482,14 @@ class PlatformStudioService:
 
 未通过原因：{json.dumps(remaining, ensure_ascii=False)}
 原始来源与已选版本：{materials_json}
-原始残缺版本：{json.dumps({
+原始残缺版本：{bounded_json({
     'title': current.title,
     'subtitle': current.subtitle,
     'summary': current.summary,
     'body_markdown': current.body_markdown,
     'tags': current.tags,
-}, ensure_ascii=False)[:50000]}
-未通过的修复候选：{json.dumps(result, ensure_ascii=False)[:50000]}
+}, 50000)}
+未通过的修复候选：{bounded_json(result, 50000)}
 
 硬性要求：
 1. 返回完整文章，3—6 个 H2，正文 1800—4500 个中文字符；
@@ -548,6 +554,7 @@ class PlatformStudioService:
                 "illustration_plan": result.get("illustration_plan") or [],
                 "input_materials": compact_material_provenance(resolved.materials),
                 "input_material_refs": resolved.refs,
+                "evidence_retrieval": repair_evidence.prompt_payload(),
                 "generation_completion": {
                     "status": "complete_after_repair",
                     "issues_repaired": list(dict.fromkeys([*issues, *first_attempt_issues])),
@@ -863,6 +870,82 @@ class PlatformStudioService:
         db.flush()
         return variant, validation, files
 
+    @staticmethod
+    def _platform_section_role(value: str) -> str:
+        lowered = str(value or "").lower()
+        if any(term in lowered for term in ("限制", "边界", "风险", "局限", "不能")):
+            return "limitations"
+        if any(term in lowered for term in ("比较", "对比", "差异", "取舍")):
+            return "comparison"
+        if any(term in lowered for term in ("数据", "证据", "测试", "数字", "结果")):
+            return "evidence"
+        if any(term in lowered for term in ("方法", "机制", "过程", "原理", "实现")):
+            return "mechanism"
+        if any(term in lowered for term in ("结论", "判断", "下一步", "意味着")):
+            return "conclusion"
+        return "overview"
+
+    def _platform_evidence_bundle(
+        self,
+        context: list[SourceItem],
+        *,
+        selected_sources: list[SourceItem],
+        input_materials: list[dict[str, Any]],
+        draft: DraftRevision | None,
+        focus: str = "",
+    ) -> EvidenceBundle:
+        primary = selected_sources[0] if selected_sources else context[0]
+        selected_ids = [item.id for item in selected_sources] or [primary.id]
+        title = draft.title if draft and draft.title.strip() else self._source_title(primary)
+        query_root = " ".join(
+            value.strip()
+            for value in (
+                title,
+                draft.tags if draft else "",
+                focus,
+            )
+            if str(value or "").strip()
+        )
+        markdown_sections = self._markdown_sections(draft.body) if draft and draft.body.strip() else []
+        sections: list[EvidenceSectionRequest] = []
+        for index, (heading, excerpt) in enumerate(markdown_sections[:10], start=1):
+            sections.append(
+                EvidenceSectionRequest(
+                    section_id=f"article-{index:02d}",
+                    heading=heading,
+                    query=f"{query_root} {heading} {excerpt}".strip(),
+                    role=self._platform_section_role(f"{heading} {excerpt}"),
+                    max_chunks=4,
+                    max_chars=3200,
+                )
+            )
+        if not sections:
+            specs = (
+                ("opening", "开头与阅读价值", "做成了什么 为什么重要", "opening"),
+                ("mechanism", "核心方法与机制", "方法 机制 过程 原理", "mechanism"),
+                ("evidence", "关键证据与数字", "数据 数字 测试 结果 来源", "evidence"),
+                ("comparison", "比较与取舍", "比较 对比 差异 另一种方案", "comparison"),
+                ("limitations", "限制与结论", "限制 条件 风险 未知 结论", "limitations"),
+            )
+            sections = [
+                EvidenceSectionRequest(
+                    section_id=section_id,
+                    heading=heading,
+                    query=f"{query_root} {query}".strip(),
+                    role=role,
+                    max_chunks=4,
+                    max_chars=3200,
+                )
+                for section_id, heading, query, role in specs
+            ]
+        return EvidenceCompiler(self.settings).compile_sources(
+            context,
+            sections,
+            primary_source_id=primary.id,
+            selected_source_ids=selected_ids,
+            materials=input_materials,
+        )
+
     async def _generate_platform_copy(
         self,
         db: Session,
@@ -877,6 +960,7 @@ class PlatformStudioService:
         context: list[SourceItem] | None = None,
         selected_source_ids: list[str] | None = None,
         input_materials: list[dict[str, Any]] | None = None,
+        evidence_bundle: EvidenceBundle | None = None,
     ) -> dict[str, Any] | None:
         adapt = bindings["wechat.adapt_longform"]
         if not (
@@ -886,20 +970,19 @@ class PlatformStudioService:
         ):
             return None
         context = context or self._context(db, source)
-        source_blocks = self.editorial._source_blocks(context)
         selected_source_ids = selected_source_ids or [source.id]
-        selected_roles = {
-            source_id: "primary" if index == 0 else "supporting"
-            for index, source_id in enumerate(selected_source_ids)
-        }
-        for block in source_blocks:
-            block["evidence_contract"] = "selected-or-connected-source"
-            block["selection_role"] = selected_roles.get(block["source_id"], "connected")
-        material_blocks = self._merge_material_blocks(
-            source_blocks,
-            input_materials or [],
+        selected_sources = [
+            item for source_id in selected_source_ids
+            for item in context
+            if item.id == source_id
+        ]
+        evidence_bundle = evidence_bundle or self._platform_evidence_bundle(
+            context,
+            selected_sources=selected_sources or [source],
+            input_materials=input_materials or [],
+            draft=draft,
         )
-        source_json = json.dumps(material_blocks, ensure_ascii=False)[:48000]
+        source_json = json.dumps(evidence_bundle.prompt_payload(), ensure_ascii=False)
         base_copy = {
             "title": draft.title if draft else "",
             "body": draft.body if draft else source.text_original,
@@ -941,7 +1024,7 @@ class PlatformStudioService:
 是否整理文末来源：{include_citations}
 是否给出配图规划：{include_illustration_plan}
 来源材料：{source_json}
-现有终稿：{json.dumps(base_copy, ensure_ascii=False)[:12000]}
+现有终稿：{bounded_json(base_copy, 12000)}
 
 只输出 JSON：
 {{
@@ -985,7 +1068,7 @@ class PlatformStudioService:
 
 检测到的问题：{json.dumps(issues, ensure_ascii=False)}
 全部输入材料：{source_json}
-上一轮输出：{json.dumps(result, ensure_ascii=False)[:50000]}
+上一轮输出：{bounded_json(result, 50000)}
 
 必须保留有证据支持的内容并完成所有尚未写出的章节。所有代码使用带语言名的 Markdown 围栏，
 代码块和括号完整闭合，代码之后继续完成分析、能力边界、安全风险和结尾判断。
@@ -1040,57 +1123,6 @@ written_version 只作为待整合稿件，事实仍须由 primary/supporting �
         }
         result["_model_used"] = True
         return result
-
-    @staticmethod
-    def _merge_material_blocks(
-        source_blocks: list[dict[str, Any]],
-        materials: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        if not materials:
-            return source_blocks
-        by_source = {str(item.get("source_id") or ""): item for item in source_blocks}
-        selected_budget = max(1600, min(10000, 38000 // max(1, len(materials))))
-        output: list[dict[str, Any]] = []
-        used_sources: set[str] = set()
-        for material in materials:
-            kind = str(material.get("kind") or "source")
-            source_id = str(material.get("source_id") or material.get("id") or "")
-            if kind == "source":
-                block = by_source.get(source_id)
-                if block is None or source_id in used_sources:
-                    continue
-                item = dict(block)
-                item["material_ref"] = str(material.get("ref") or f"source:{source_id}")
-                item["material_kind"] = "source"
-                item["text"] = str(item.get("text") or "")[:selected_budget]
-                output.append(item)
-                used_sources.add(source_id)
-                continue
-            output.append(
-                {
-                    "material_ref": str(material.get("ref") or ""),
-                    "material_id": str(material.get("id") or ""),
-                    "material_kind": kind,
-                    "source_id": source_id,
-                    "selection_role": "written_version",
-                    "fact_contract": "可复用结构与表达，但具体事实必须由关联原始来源支持",
-                    "title": str(material.get("title") or "已写版本"),
-                    "version": material.get("version"),
-                    "platform": str(material.get("platform") or "draft"),
-                    "text": str(material.get("body") or "")[:selected_budget],
-                    "body_sha256": str(material.get("body_sha256") or ""),
-                }
-            )
-        for block in source_blocks:
-            source_id = str(block.get("source_id") or "")
-            if source_id in used_sources:
-                continue
-            item = dict(block)
-            item["text"] = str(item.get("text") or "")[:1600 if item.get("selection_role") == "connected" else selected_budget]
-            output.append(item)
-        for index, item in enumerate(output, start=1):
-            item["index"] = index
-        return output
 
     @staticmethod
     def _has_bare_code_marker(body: str) -> bool:

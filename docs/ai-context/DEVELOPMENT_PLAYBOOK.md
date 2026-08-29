@@ -172,6 +172,10 @@ X2RED_VISUAL_BRIEF_MODE=production
 X2RED_IMAGE_CANDIDATE_MODE=production
 X2RED_IMAGE_CANDIDATE_COUNT=3
 X2RED_TYPOGRAPHY_RECIPE_MODE=production
+X2RED_EVIDENCE_RETRIEVAL_MODE=hybrid
+X2RED_EVIDENCE_EMBEDDING_BASE_URL=
+X2RED_EVIDENCE_EMBEDDING_API_KEY=
+X2RED_EVIDENCE_EMBEDDING_MODEL=
 ```
 
 图片 endpoint 未单独配置时可以继承文本模型 provider；`X2RED_IMAGE_MODEL` 为空时不得把本地占位图伪装成原版 Minimal Zine 生成结果。
@@ -181,6 +185,8 @@ Minimal Zine Prompt 模式支持 `production`（默认 v0.3 + text-safe）、`sk
 V2 `X2RED_VISUAL_BRIEF_MODE=production|legacy` 和 V3 `X2RED_IMAGE_CANDIDATE_MODE=production|legacy` 各自独立回滚。V3 production 默认请求 3 张 API 候选；`X2RED_IMAGE_CANDIDATE_COUNT` 只允许 1—4。网页人工回传允许每页 1—4 张，并与 API 使用同一候选、审稿和发布门禁模型。切换 legacy 不删除既有候选、Contact Sheet 或审计记录。
 
 V4 `X2RED_TYPOGRAPHY_RECIPE_MODE=production|legacy` 独立控制本地中文构图层。production 冻结八模式 recipe 与逐区域诊断；legacy 恢复单一安全区 compositor。切换不会删除 raw/final、候选或审计记录，也不会把旧成品静默重排。
+
+W1 `X2RED_EVIDENCE_RETRIEVAL_MODE=hybrid|legacy` 独立控制写作证据输入。hybrid 默认使用本地 BM25、重排和 MMR；三个 embedding 配置全部留空时不会调用外部向量模型。配置单独的 OpenAI-compatible `/embeddings` endpoint 后只对召回候选重排。legacy 会在 artifact 中写入 `DEGRADED_LEGACY_CHARACTER_SLICE`，不改写历史版本。详细合同见 `EVIDENCE_COMPILER_HYBRID_RETRIEVAL_W1.md`。
 
 ### 调度器
 

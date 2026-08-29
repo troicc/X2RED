@@ -152,6 +152,12 @@ def test_wechat_workbench_api_end_to_end(
         assert variant["theme"] == "graphite"
         assert "来源与延伸阅读" in variant["body_markdown"]
         metadata = json.loads(variant["metadata_json"])
+        assert metadata["evidence_retrieval"]["mode"] == "hybrid"
+        assert metadata["evidence_retrieval"]["retrieval_backend"] == "bm25"
+        assert all(
+            section["evidence_chunks"]
+            for section in metadata["evidence_retrieval"]["sections"]
+        )
         assert metadata["evidence_source_ids"] == [
             source_id,
             supporting_id,

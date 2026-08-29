@@ -165,6 +165,8 @@ X2RED 可以打开发布准备页面，但不点击最终发布。
 
 原始来源决定“能写什么”。已写版本标记为 `written_version`，可以提供结构、段落组织、代码草稿和表达方式，但其中的具体事实仍须由关联的 `SourceItem` 支持。常规公众号版本冻结 `input_material_refs`、材料 provenance 和 `evidence_source_ids`；深度写作的不可变 `source_selection` artifact 冻结同一组材料引用、正文 hash 和来源快照。六张重复的风格说明卡片不再占据来源栏；排版主题只在主题选择器中配置一次。
 
+W1 hybrid 模式不会再按材料数平均分配字符开头。每个来源和已写版本先按段落、标题与句子边界编译为带作者、时间、权利和原文位置的语义 chunk，再为任务单、事实研究或大纲中的每个章节单独执行 BM25 召回、可选 embedding 重排、来源/新鲜度/编辑备注/章节职责/权利重排和 MMR。写作 artifact 与公众号 metadata 冻结逐节 `source_id:chunk_id`；无 embedding 时本地 BM25 正常工作。legacy 仅用于回滚并明确标记 `DEGRADED_LEGACY_CHARACTER_SLICE`。池子记忆仍只决定怎么写，不能作为这些 evidence chunks 的替代。
+
 ### 5.2 生产阶段与深度写作
 
 公众号长文只有一条主生产线，界面必须持续显示五个阶段：

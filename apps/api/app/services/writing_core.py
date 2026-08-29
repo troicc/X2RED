@@ -9,6 +9,7 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
+from app.domain.evidence_schemas import EvidenceBundle, EvidenceSectionRequest
 from app.domain.models import DraftRevision, SourceItem
 from app.domain.studio import (
     AgentRun,
@@ -19,6 +20,7 @@ from app.domain.studio import (
     WritingState,
 )
 from app.services.editorial import EditorialService
+from app.services.evidence_compiler import EvidenceCompiler
 from app.services.pool_memory import PoolMemoryService
 
 ROLE_SKILLS = {
@@ -285,9 +287,102 @@ class WritingCore:
             return title[:160]
         return re.sub(r"\s+", " ", source.text_original or "").strip()[:80]
 
-    def _source_payload(self, db: Session, project: WritingProject) -> list[dict[str, Any]]:
+    @staticmethod
+    def _evidence_section_role(value: str, *, fallback: str = "overview") -> str:
+        lowered = str(value or "").lower()
+        if any(term in lowered for term in ("限制", "边界", "风险", "未知", "不能", "局限")):
+            return "limitations"
+        if any(term in lowered for term in ("对比", "比较", "差异", "取舍", "另一")):
+            return "comparison"
+        if any(term in lowered for term in ("证据", "数据", "数字", "测试", "结果")):
+            return "evidence"
+        if any(term in lowered for term in ("机制", "方法", "过程", "步骤", "原理", "实现")):
+            return "mechanism"
+        if any(term in lowered for term in ("案例", "例子", "场景")):
+            return "example"
+        if any(term in lowered for term in ("结论", "判断", "下一步", "意味着")):
+            return "conclusion"
+        return fallback
+
+    def _evidence_sections(
+        self,
+        project: WritingProject,
+        *,
+        purpose: str,
+        outline: dict[str, Any] | None = None,
+    ) -> list[EvidenceSectionRequest]:
+        thesis = " ".join(
+            value.strip()
+            for value in (project.main_thesis, project.promise, project.reader)
+            if str(value or "").strip()
+        ) or "来源中的核心事实、方法、证据和限制"
+        outline_sections = outline.get("sections") if isinstance(outline, dict) else None
+        if isinstance(outline_sections, list) and outline_sections:
+            requests: list[EvidenceSectionRequest] = []
+            for index, raw in enumerate(outline_sections[:12], start=1):
+                if not isinstance(raw, dict):
+                    continue
+                heading = str(raw.get("heading") or raw.get("title") or f"第 {index} 节")
+                details = " ".join(
+                    str(raw.get(key) or "")
+                    for key in ("purpose", "reader_question", "key_point")
+                ).strip()
+                requests.append(
+                    EvidenceSectionRequest(
+                        section_id=f"outline-{index:02d}",
+                        heading=heading,
+                        query=f"{thesis} {heading} {details}".strip(),
+                        role=self._evidence_section_role(f"{heading} {details}"),
+                        max_chunks=5,
+                        max_chars=4200,
+                    )
+                )
+            if requests:
+                return requests
+
+        if purpose == "evidence_pack":
+            specs = (
+                ("facts", "已确认事实", "事实 来源 发生了什么", "overview"),
+                ("mechanism", "方法与机制", "方法 机制 过程 如何实现", "mechanism"),
+                ("numbers", "数字与测试", "数字 数据 测试 样本 局部结果", "evidence"),
+                ("examples", "案例与可用细节", "案例 例子 具体 场景", "example"),
+                ("limits", "限制与未知", "限制 条件 反例 风险 未知 不能扩大", "limitations"),
+            )
+        elif purpose in {"draft", "final_revision"}:
+            specs = (
+                ("opening", "开头与阅读价值", "做成了什么 为什么重要", "opening"),
+                ("mechanism", "核心机制", "方法 过程 原理 实现", "mechanism"),
+                ("evidence", "关键证据", "数据 测试 结果 来源归属", "evidence"),
+                ("limits", "限制与取舍", "限制 边界 反例 条件 风险", "limitations"),
+                ("ending", "结论与下一步", "意味着什么 判断 下一步", "conclusion"),
+            )
+        else:
+            specs = (
+                ("overview", "主线与事实", "核心事实 主线 发生了什么", "overview"),
+                ("evidence", "证据与细节", "数字 测试 例子 来源", "evidence"),
+                ("limits", "边界与缺口", "限制 未知 风险 不能写什么", "limitations"),
+            )
+        return [
+            EvidenceSectionRequest(
+                section_id=section_id,
+                heading=heading,
+                query=f"{thesis} {query}",
+                role=role,
+                max_chunks=5,
+                max_chars=4200,
+            )
+            for section_id, heading, query, role in specs
+        ]
+
+    def _compile_evidence(
+        self,
+        db: Session,
+        project: WritingProject,
+        *,
+        purpose: str,
+        outline: dict[str, Any] | None = None,
+    ) -> EvidenceBundle:
         roots = self.selected_sources(db, project)
-        root_ids = {item.id for item in roots}
         context: list[SourceItem] = []
         seen: set[str] = set()
         for root in roots:
@@ -296,70 +391,45 @@ class WritingCore:
                     continue
                 seen.add(item.id)
                 context.append(item)
-        blocks = self.editorial._source_blocks(context)
-        block_by_id: dict[str, dict[str, Any]] = {}
-        for block, item in zip(blocks, context, strict=True):
-            if item.id == roots[0].id:
-                block["selection_role"] = "primary"
-            elif item.id in root_ids:
-                block["selection_role"] = "supporting"
-            else:
-                block["selection_role"] = "connected"
-            block["material_kind"] = "source"
-            block_by_id[item.id] = block
+        return EvidenceCompiler(self.settings).compile_sources(
+            context,
+            self._evidence_sections(project, purpose=purpose, outline=outline),
+            primary_source_id=roots[0].id,
+            selected_source_ids=[item.id for item in roots],
+            materials=self._selected_materials(db, project),
+        )
 
-        materials = self._selected_materials(db, project)
-        selected_budget = max(1400, min(9000, 26000 // max(1, len(materials))))
-        output: list[dict[str, Any]] = []
-        used_source_ids: set[str] = set()
-        for material in materials:
-            kind = str(material.get("kind") or "source")
-            source_id = str(material.get("source_id") or material.get("id") or "")
-            if kind == "source":
-                block = block_by_id.get(source_id)
-                if block is None or source_id in used_source_ids:
-                    continue
-                item = dict(block)
-                item["material_ref"] = str(material.get("ref") or f"source:{source_id}")
-                item["text"] = str(item.get("text") or "")[:selected_budget]
-                output.append(item)
-                used_source_ids.add(source_id)
-                continue
-            body = str(material.get("body") or "")
-            output.append(
-                {
-                    "source_id": source_id,
-                    "material_ref": str(material.get("ref") or ""),
-                    "material_id": str(material.get("id") or ""),
-                    "material_kind": kind,
-                    "selection_role": "written_version",
-                    "fact_contract": (
-                        "这是已写版本，可用于结构、表达和待整合内容；其中事实仍须由所关联的原始来源支持"
-                    ),
-                    "title": str(material.get("title") or "已写版本"),
-                    "version": material.get("version"),
-                    "platform": str(material.get("platform") or "draft"),
-                    "text": body[:selected_budget],
-                    "body_sha256": str(material.get("body_sha256") or ""),
-                }
-            )
-        for root in roots:
-            if root.id in used_source_ids:
-                continue
-            item = dict(block_by_id[root.id])
-            item["text"] = str(item.get("text") or "")[:selected_budget]
-            output.append(item)
-            used_source_ids.add(root.id)
-        for block in blocks:
-            source_id = str(block.get("source_id") or "")
-            if source_id in used_source_ids:
-                continue
-            item = dict(block)
-            item["text"] = str(item.get("text") or "")[:1200]
-            output.append(item)
-        for index, item in enumerate(output, start=1):
-            item["index"] = index
-        return output
+    def _source_payload(
+        self,
+        db: Session,
+        project: WritingProject,
+        *,
+        purpose: str = "overview",
+        outline: dict[str, Any] | None = None,
+    ) -> dict[str, object]:
+        return self._compile_evidence(
+            db,
+            project,
+            purpose=purpose,
+            outline=outline,
+        ).prompt_payload()
+
+    @staticmethod
+    def _attach_evidence_trace(
+        artifact: WritingArtifact,
+        bundle: EvidenceBundle,
+    ) -> WritingArtifact:
+        try:
+            payload = json.loads(artifact.content_json or "{}")
+        except json.JSONDecodeError:
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        payload["evidence_retrieval"] = bundle.prompt_payload()
+        serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        artifact.content_json = serialized
+        artifact.content_hash = hashlib.sha256(serialized.encode()).hexdigest()
+        return artifact
 
     def _style_payload(self, db: Session, project: WritingProject) -> dict[str, Any]:
         if not project.style_profile_id:
@@ -519,6 +589,7 @@ class WritingCore:
                     "input_material_refs": [
                         str(item.get("ref") or "") for item in self._selected_materials(db, project)
                     ],
+                    "evidence_retrieval": content.get("evidence_retrieval") or {},
                     **self._memory_provenance(db, project),
                 },
                 ensure_ascii=False,

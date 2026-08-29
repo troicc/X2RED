@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     image_candidate_mode: Literal["legacy", "production"] = "production"
     image_candidate_count: int = Field(default=3, ge=1, le=4)
     typography_recipe_mode: Literal["legacy", "production"] = "production"
+    evidence_retrieval_mode: Literal["legacy", "hybrid"] = "hybrid"
+    evidence_embedding_base_url: str = ""
+    evidence_embedding_api_key: str = ""
+    evidence_embedding_model: str = ""
     request_timeout_seconds: float = 20.0
 
     material_user_agent: str = "X2RED-MaterialResearch/0.13 (+local research)"

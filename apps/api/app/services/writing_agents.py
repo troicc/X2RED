@@ -15,6 +15,7 @@ from app.domain.studio import (
     WritingState,
 )
 from app.services.platform_studio import PlatformStudioService
+from app.services.retrieval import bounded_json
 from app.services.skills import binding_for
 from app.services.writing_core import ROLE_SKILLS
 
@@ -87,7 +88,7 @@ class WritingAgentsMixin:
 
 检测到的问题：{json.dumps(issues, ensure_ascii=False)}
 原任务：{user_prompt}
-上一轮输出：{json.dumps(first, ensure_ascii=False)[:50000]}
+上一轮输出：{bounded_json(first, 50000)}
 
 保持所有有证据支持的事实和已批准结构，正文使用 Markdown，包含 3—6 个完整 H2，
 所有代码围栏和句子必须闭合，结尾落在清晰判断。只输出 JSON：title、body、tags、claims；
@@ -115,13 +116,14 @@ class WritingAgentsMixin:
         return repaired
 
     async def _run_editor_brief(self, db: Session, project: WritingProject) -> WritingArtifact:
-        source = self._source_payload(db, project)
+        evidence_bundle = self._compile_evidence(db, project, purpose="editorial_brief")
+        source = evidence_bundle.prompt_payload()
         prompt = f"""
 你是写作总编辑。围绕来源建立一份可审批的写作任务单，不写正文。
 作者预设读者：{project.reader or '未指定'}
 作者预设承诺：{project.promise or '未指定'}
 作者预设主张：{project.main_thesis or '未指定'}
-来源：{json.dumps(source, ensure_ascii=False)[:30000]}
+来源（按任务章节检索的 evidence chunks）：{json.dumps(source, ensure_ascii=False)}
 
 输出 JSON：reader、article_promise、main_thesis、reader_hook、must_use、must_not_claim、
 article_type、tone、open_questions、success_criteria。
@@ -145,24 +147,26 @@ selection_role=written_version 是作者明确选入的已写版本：必须读�
         project.reader = str(data.get("reader") or project.reader)
         project.promise = str(data.get("article_promise") or project.promise)
         project.main_thesis = str(data.get("main_thesis") or project.main_thesis)
-        return artifact
+        return self._attach_evidence_trace(artifact, evidence_bundle)
 
     async def _run_research(self, db: Session, project: WritingProject) -> WritingArtifact:
-        source = self._source_payload(db, project)
+        evidence_bundle = self._compile_evidence(db, project, purpose="evidence_pack")
+        source = evidence_bundle.prompt_payload()
         brief = self._artifact_content(db, project, "editorial_brief")
         prompt = f"""
 你是证据研究员。根据任务单整理证据包，不写正文，不补充来源之外的事实。
-任务单：{json.dumps(brief, ensure_ascii=False)[:10000]}
-来源：{json.dumps(source, ensure_ascii=False)[:30000]}
+任务单：{bounded_json(brief, 10000)}
+来源（按事实、机制、数字、案例和限制分别召回）：{json.dumps(source, ensure_ascii=False)}
 
 输出 JSON：facts、author_claims、unknowns、numbers、terms、source_map、material_gaps、
 usable_examples、claims_for_draft。
-每条 facts/numbers/claims_for_draft 必须包含 source_index 和 evidence_quote；
+每条 facts/numbers/claims_for_draft 必须包含 source_index、evidence_ref 和 evidence_quote；
+evidence_ref 必须逐字使用输入中的 source_id:chunk_id，不得自造或只写来源级 ID；
 把局部测试、作者判断和客观事实明确区分。术语给出不超过40字的人话解释。
 必须逐一检查 selection_role=primary/supporting 的来源；connected 仅作关联上下文。
 written_version 是需要整合的已写材料，请列出可复用结构、已有论述和未完成部分；其事实只有在原始来源支持时才能进入 claims_for_draft。
 """.strip()
-        return await self._run_agent(
+        artifact = await self._run_agent(
             db,
             project=project,
             role="evidence_researcher",
@@ -172,6 +176,7 @@ written_version 是需要整合的已写材料，请列出可复用结构、已�
             user_prompt=prompt,
             temperature=0.1,
         )
+        return self._attach_evidence_trace(artifact, evidence_bundle)
 
     async def _run_outline(self, db: Session, project: WritingProject) -> WritingArtifact:
         brief = self._artifact_content(db, project, "editorial_brief")
@@ -179,9 +184,9 @@ written_version 是需要整合的已写材料，请列出可复用结构、已�
         style = self._style_payload(db, project)
         prompt = f"""
 你是技术解释与文章结构设计师。制作一份作者可审批的大纲，不写完整正文。
-任务单：{json.dumps(brief, ensure_ascii=False)[:10000]}
-证据包：{json.dumps(evidence, ensure_ascii=False)[:18000]}
-风格规则：{json.dumps(style, ensure_ascii=False)[:8000]}
+任务单：{bounded_json(brief, 10000)}
+证据包：{bounded_json(evidence, 18000)}
+风格规则：{bounded_json(style, 8000)}
 
 输出 JSON：opening、sections、ending、cognitive_load_plan、terms_first_use、evidence_allocation、
 transitions、forbidden_moves。
@@ -200,18 +205,24 @@ transitions、forbidden_moves。
         )
 
     async def _run_writer(self, db: Session, project: WritingProject) -> WritingArtifact:
-        source = self._source_payload(db, project)
         brief = self._artifact_content(db, project, "editorial_brief")
         evidence = self._artifact_content(db, project, "evidence_pack")
         outline = self._artifact_content(db, project, "outline")
+        evidence_bundle = self._compile_evidence(
+            db,
+            project,
+            purpose="draft",
+            outline=outline,
+        )
+        source = evidence_bundle.prompt_payload()
         style = self._style_payload(db, project)
         prompt = f"""
 你是微信公众号中文长文写手。严格根据已确认任务单、证据包、大纲、原始材料和风格规则写完整初稿。
-任务单：{json.dumps(brief, ensure_ascii=False)[:9000]}
-证据包：{json.dumps(evidence, ensure_ascii=False)[:18000]}
-大纲：{json.dumps(outline, ensure_ascii=False)[:16000]}
-原始材料：{json.dumps(source, ensure_ascii=False)[:30000]}
-风格：{json.dumps(style, ensure_ascii=False)[:9000]}
+任务单：{bounded_json(brief, 9000)}
+证据包：{bounded_json(evidence, 18000)}
+大纲：{bounded_json(outline, 16000)}
+逐节证据材料：{json.dumps(source, ensure_ascii=False)}
+风格：{bounded_json(style, 9000)}
 
 输出 JSON：title、body、tags、claims。
 要求：
@@ -225,7 +236,7 @@ transitions、forbidden_moves。
 - 所有代码使用带语言名的 Markdown 围栏，正文不能停在半句话或半行代码；
 - 段落有快慢变化，结尾给出明确判断。
 """.strip()
-        return await self._run_complete_longform(
+        artifact = await self._run_complete_longform(
             db,
             project=project,
             role="writer",
@@ -235,6 +246,7 @@ transitions、forbidden_moves。
             user_prompt=prompt,
             temperature=0.55,
         )
+        return self._attach_evidence_trace(artifact, evidence_bundle)
 
     async def _run_reviews(self, db: Session, project: WritingProject) -> WritingArtifact:
         draft = self._artifact_content(db, project, "draft")
@@ -245,24 +257,24 @@ transitions、forbidden_moves。
 
         reader_prompt = f"""
 你是目标读者代表。只输出审稿报告，不直接改正文。
-目标与承诺：{json.dumps(brief, ensure_ascii=False)[:7000]}
-大纲：{json.dumps(outline, ensure_ascii=False)[:9000]}
-初稿：{json.dumps(draft, ensure_ascii=False)[:16000]}
+目标与承诺：{bounded_json(brief, 7000)}
+大纲：{bounded_json(outline, 9000)}
+初稿：{bounded_json(draft, 16000)}
 输出 JSON：verdict、exit_points、confusing_terms、unexplained_numbers、report_tone、
 strong_parts、minimal_fixes。逐项标明位置、原句、原因和最小修改建议。
 重点判断第一屏是否看懂，以及哪里会让聪明但不熟悉细节的读者退出。
 """.strip()
         fact_prompt = f"""
 你是事实核查编辑。只输出报告，不直接改正文。
-证据包：{json.dumps(evidence, ensure_ascii=False)[:18000]}
-初稿：{json.dumps(draft, ensure_ascii=False)[:16000]}
+证据包：{bounded_json(evidence, 18000)}
+初稿：{bounded_json(draft, 16000)}
 输出 JSON：verdict、unsupported_claims、scope_inflation、number_errors、missing_attribution、
 approved_claims、minimal_fixes。每项指出原句与证据 ID；不要把写作风格偏好当成事实错误。
 """.strip()
         style_prompt = f"""
 你是个人风格与去 AI 味审稿人。只输出报告，不直接改正文。
-风格规则：{json.dumps(style, ensure_ascii=False)[:10000]}
-初稿：{json.dumps(draft, ensure_ascii=False)[:16000]}
+风格规则：{bounded_json(style, 10000)}
+初稿：{bounded_json(draft, 16000)}
 输出 JSON：verdict、ai_phrases、rhythm_issues、template_transitions、identity_mismatch、
 strong_parts、minimal_fixes。查找空话、匀速排比、伪纠偏、过度总结、讲课味和虚构真人感。
 只改明确命中的问题，不把文章重写成你的风格。
@@ -307,8 +319,8 @@ strong_parts、minimal_fixes。查找空话、匀速排比、伪纠偏、过度�
         }
         chief_prompt = f"""
 你是资深主编。综合三份独立审稿报告，制作最小修改计划，不直接重写正文。
-初稿：{json.dumps(draft, ensure_ascii=False)[:15000]}
-审稿报告：{json.dumps(reports, ensure_ascii=False)[:24000]}
+初稿：{bounded_json(draft, 15000)}
+审稿报告：{bounded_json(reports, 24000)}
 输出 JSON：must_fix、should_fix、reject_suggestions、author_decisions、revision_instructions、
 release_readiness。事实错误优先；读者理解问题次之；风格只做最小修改；审稿人意见冲突时说明取舍。
 """.strip()
@@ -324,18 +336,25 @@ release_readiness。事实错误优先；读者理解问题次之；风格只做
         )
 
     async def _run_final_revision(self, db: Session, project: WritingProject) -> WritingArtifact:
-        source = self._source_payload(db, project)
         draft = self._artifact_content(db, project, "draft")
         plan = self._artifact_content(db, project, "revision_plan")
         evidence = self._artifact_content(db, project, "evidence_pack")
+        outline = self._artifact_content(db, project, "outline")
+        evidence_bundle = self._compile_evidence(
+            db,
+            project,
+            purpose="final_revision",
+            outline=outline,
+        )
+        source = evidence_bundle.prompt_payload()
         style = self._style_payload(db, project)
         prompt = f"""
 你是微信公众号终稿修订者。落实主编批准的修改，不擅自改变主线，也不能把完整初稿压缩成短稿。
-初稿：{json.dumps(draft, ensure_ascii=False)[:30000]}
-修改计划：{json.dumps(plan, ensure_ascii=False)[:14000]}
-证据包：{json.dumps(evidence, ensure_ascii=False)[:16000]}
-原始材料：{json.dumps(source, ensure_ascii=False)[:30000]}
-风格规则：{json.dumps(style, ensure_ascii=False)[:9000]}
+初稿：{bounded_json(draft, 30000)}
+修改计划：{bounded_json(plan, 14000)}
+证据包：{bounded_json(evidence, 16000)}
+逐节原始证据：{json.dumps(source, ensure_ascii=False)}
+风格规则：{bounded_json(style, 9000)}
 输出 JSON：title、body、tags、claims、applied_changes。
 不得新增证据包没有支持的事实；不要恢复被审稿删除的免责声明和模板标题；
 保持 1800—4500 个中文字符、3—6 个完整 H2、闭合代码围栏和完整结尾。
@@ -351,6 +370,7 @@ release_readiness。事实错误优先；读者理解问题次之；风格只做
             temperature=0.25,
             reference_body=str(draft.get("body") or ""),
         )
+        self._attach_evidence_trace(artifact, evidence_bundle)
         self._create_draft_revision(db, project, artifact)
         return artifact
 
