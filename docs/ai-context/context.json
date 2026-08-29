@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-29T18:50:10+08:00",
+  "updated_at": "2026-08-29T18:54:32+08:00",
   "repository": "troicc/X2RED",
   "application_version": "0.12.0",
   "snapshot": {
@@ -41,13 +41,16 @@
     "w1_state_at_snapshot": "merged_after_ci_run_826",
     "w2_branch": "codex/x2red-w2-writing-schemas-claims",
     "w2_base_commit": "88b995bfc75f25673e78777ee6f575fc2a5eb666",
-    "w2_state_at_snapshot": "implementation_and_local_validation_in_progress_before_pr",
+    "w2_pull_request": 26,
+    "w2_pull_request_url": "https://github.com/troicc/X2RED/pull/26",
+    "w2_initial_commit": "ba68082c46d3597fb1f92843a559bf9a048c24e8",
+    "w2_state_at_snapshot": "draft_pr_created_status_document_latest_head_ci_pending",
     "state_at_snapshot": "pr19_open_draft_mergeable_unmerged_inspected_2026-08-29",
-    "code_head_at_inspection": "88b995bfc75f25673e78777ee6f575fc2a5eb666",
+    "code_head_at_inspection": "ba68082c46d3597fb1f92843a559bf9a048c24e8",
     "implementation_commit": "f48fff4",
     "ci_portability_fix_commit": "3063a9e",
     "verified_remote_ci_head": "9085faf29b8b86d47cfcd4a1a2cd93c3cc9a7158",
-    "github_checks_at_inspection": "W1 PR 25 latest-head CI run 826 passed and was squash-merged as 88b995b; PR 19 was rechecked open, draft and mergeable at that exact feature head; W2 has not yet created a PR",
+    "github_checks_at_inspection": "W1 PR 25 latest-head CI run 826 passed and was squash-merged as 88b995b; PR 19 was rechecked open, draft and mergeable at that exact feature head; W2 Draft PR 26 is mergeable and its initial ba68082 CI is in progress, but the status-document push will supersede that head",
     "last_verified_test_result": "W2 targeted schema, claim-matrix, durability, UI and fallback selection: 24 passed, 1 warning; full API suite: 184 passed, 8 warnings",
     "v2_browser_smoke": "temporary database copy at 1280x800 and 375x812: four unique subjects, four unique layouts, cover/scene/evidence/conclusion roles, frozen brief/candidate/evidence/Bible UI visible, no horizontal overflow and zero console errors; no model calls or writes to the user database",
     "v3_browser_smoke": "isolated temporary database at 1280x800 and 375x812: three image candidates, numbered Contact Sheet, ten review dimensions, cost/call counts, candidate selection and reasoned rejection all visible and operable; no horizontal overflow, zero console errors, no real model calls or writes to the user database",
@@ -254,7 +257,10 @@
     "full_verification": "184 passed, 8 warnings; CI-scoped Ruff, compileall, Python/shell/all active JavaScript syntax, publisher selector, repository JSON and diff gates passed",
     "package_verification": "fresh 0001-to-0012 SQLite migration and x2red 0.12.0 wheel build passed; wheel contains W2 schemas, claim checker and active UI integrations",
     "runtime_safety": "synthetic responses and temporary databases only; no real model call and no user database write",
-    "remaining_before_merge": ["implementation and status commits", "independent draft PR", "latest-head CI", "PR ready and squash merge"]
+    "pull_request": 26,
+    "pull_request_url": "https://github.com/troicc/X2RED/pull/26",
+    "initial_implementation_commit": "ba68082c46d3597fb1f92843a559bf9a048c24e8",
+    "remaining_before_merge": ["status-document commit and push", "latest-head CI", "PR ready and squash merge"]
   },
   "ci_policy": {
     "reason": "private-repository Actions quota conservation",

@@ -24,7 +24,7 @@ V4 PR：`#24 V4：本地中文排版 Recipe v2`，修复 head `0b87097865dc6d57b
 
 W1 PR：`#25 W1：证据编译与混合检索`，latest head `9085faf29b8b86d47cfcd4a1a2cd93c3cc9a7158` 的 CI run `826` 全部成功后已 squash merge；功能基线前进到 `88b995bfc75f25673e78777ee6f575fc2a5eb666`。
 
-W2：当前在独立分支实现 Agent Schema、一次结构修复、review issue 权限链、final claims 和 claim-evidence matrix；尚未创建 PR，远端状态必须在推送后重新查询。
+W2 PR：`#26 W2：结构化 Agent 输出与最终主张矩阵`，当前为 Draft，指向 `agent/replace-crawlers-with-api-adapters`；首个实现提交为 `ba68082c46d3597fb1f92843a559bf9a048c24e8`，状态文档提交后须以新的 latest head CI 为准。
 
 C0 首个提交：`08c0920f154d51a7cdfa5d35a604d48b3d393672`
 
@@ -55,6 +55,8 @@ PR #19 属于 C0 的基线功能分支，不是 C0 分支本身。
 2026-08-29 17:57：W1 实现提交 `0cfe4dd275d63c5b80d282c08b29a565bcc49489` 已推送并创建 Draft PR #25，base 为准确 V4 合并 head `012299e2c77a02b076eb15aed33e17ad6196ce38`。PR 创建前再次确认 PR #19 仍为 open、draft、mergeable，功能分支 head 未漂移。下一次合并必须使用状态文档提交后的 latest head 与对应 CI。
 
 2026-08-29：W1 状态文档 head `9085faf29b8b86d47cfcd4a1a2cd93c3cc9a7158` 的 CI run `826`（GitHub run `33246837926`）全部成功；PR #25 转 Ready 后按该 expected head squash merge，功能基线 commit 为 `88b995bfc75f25673e78777ee6f575fc2a5eb666`。PR #19 随即复核为 open、draft、mergeable，head 已同步到该提交；W2 从这一准确 head 创建独立分支。
+
+2026-08-29 18:54：W2 实现提交 `ba68082c46d3597fb1f92843a559bf9a048c24e8` 已推送并创建 Draft PR #26，base 为准确 W1 合并 head `88b995bfc75f25673e78777ee6f575fc2a5eb666`。PR 创建前再次确认 PR #19 仍为 open、draft、mergeable且功能分支 head 未漂移。初始 CI 已启动，但状态文档提交会产生新 head；下一次合并只认状态提交后的 latest-head CI。
 
 ### 2026-08-29 W2 结构化写作 Agent 与 Claim-Evidence Matrix
 
