@@ -22,6 +22,8 @@ V3 PR：`#23 V3：图片多候选、Contact Sheet 与视觉审稿`，head `5ceee
 
 V4 PR：`#24 V4：本地中文排版 Recipe v2`，修复 head `0b87097865dc6d57b1bb082cb12b37e938a4e9bb` 的 CI run `823` 成功后已 squash merge；功能基线前进到 `012299e2c77a02b076eb15aed33e17ad6196ce38`。
 
+W1 PR：`#25 W1：证据编译与混合检索`，当前为 Draft，指向 `agent/replace-crawlers-with-api-adapters`；首个实现提交为 `0cfe4dd275d63c5b80d282c08b29a565bcc49489`，状态文档提交后须以新的 latest head CI 为准。
+
 C0 首个提交：`08c0920f154d51a7cdfa5d35a604d48b3d393672`
 
 PR #19 属于 C0 的基线功能分支，不是 C0 分支本身。
@@ -47,6 +49,8 @@ PR #19 属于 C0 的基线功能分支，不是 C0 分支本身。
 2026-08-29 17:14：PR #24 CI run `822` 在 Ubuntu 的 `test_wechat_workbench_api_end_to_end` 失败，其余迁移、静态门禁和 158 项测试均通过。根因不是生产排版降级，而是这个 V0.8 历史兼容流程未声明 legacy 模式，在无 CJK 字体的 runner 上触发 V4 production fail-closed 门禁。测试现显式设置 `X2RED_TYPOGRAPHY_RECIPE_MODE=legacy`；生产默认值与专门字体门禁测试保持不变，需以修复提交的新 head CI 再确认。
 
 2026-08-29 17:23：V4 修复提交 `0b87097865dc6d57b1bb082cb12b37e938a4e9bb` 的 PR CI run `823` 全部成功；PR #24 转 Ready 后按该 expected head squash merge，合并提交为 `012299e2c77a02b076eb15aed33e17ad6196ce38`。PR #19 随即复核为 open、draft、mergeable，head 已同步到该提交。W1 从这一准确远端 head 建立独立分支。
+
+2026-08-29 17:57：W1 实现提交 `0cfe4dd275d63c5b80d282c08b29a565bcc49489` 已推送并创建 Draft PR #25，base 为准确 V4 合并 head `012299e2c77a02b076eb15aed33e17ad6196ce38`。PR 创建前再次确认 PR #19 仍为 open、draft、mergeable，功能分支 head 未漂移。下一次合并必须使用状态文档提交后的 latest head 与对应 CI。
 
 ### 2026-08-29 W1 证据编译与混合检索
 
