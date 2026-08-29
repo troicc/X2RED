@@ -2,15 +2,15 @@
 
 ## 1. 当前分支和 PR
 
-2026-08-09 当前 V3 任务：
+2026-08-29 当前 V4 任务：
 
 - 基线分支：`agent/replace-crawlers-with-api-adapters`
-- 基线 SHA：`9086b6226b68e367e10327a577eb625e4d251b5b`（V2 PR #22 squash merge）
-- 当前本地任务分支：`codex/x2red-v3-contact-sheet-visual-review`
-- PR #19 仍是基线功能 PR；V3 使用独立分支和独立 PR
-- V3 当前完整验证：`128 passed, 8 warnings`；候选生命周期定向 `9 passed`，候选与 Minimal Zine 联合 `21 passed, 1 warning`
-- V3 浏览器验证：1280×800 / 375×812，无横向溢出、console 0 error；候选切换、保留和带理由驳回通过
-- V3 尚需最终静态门禁、latest-head CI、PR 与合并；完成前不得创建 V4 分支
+- 基线 SHA：`bd77743808a3eb1ccb0bfa29efa959c0aee2b33a`（V3 PR #23 squash merge）
+- 当前本地任务分支：`codex/x2red-v4-local-chinese-typography-recipe-v2`
+- PR #19 仍是基线功能 PR；V4 使用独立分支和独立 PR
+- V3 PR #23 已在 head `5ceeefcbe894cbc8e367f6fcdb314ae738e56d40` 的 CI run `819` 成功后 squash merge
+- V4 已实现严格 recipe schema、八种模式、冻结指纹、主体避让、四比例门禁、封面复用、UI 诊断和 legacy flag；安全区最后兜底回归补齐后定向 `30 passed`、完整套件 `159 passed, 8 warnings`，本地静态/迁移/wheel 门禁已通过，剩余 latest-head CI、PR 与合并
+- V4 合并前不得创建 W1 分支
 
 任务书后续阶段必须从最新已合并的前一阶段创建独立分支；C0 后依次为 V1、V2、V3、V4、W1、W2、W3、UI1、OPS1。
 
@@ -171,6 +171,7 @@ X2RED_MINIMAL_ZINE_PROMPT_MODE=production
 X2RED_VISUAL_BRIEF_MODE=production
 X2RED_IMAGE_CANDIDATE_MODE=production
 X2RED_IMAGE_CANDIDATE_COUNT=3
+X2RED_TYPOGRAPHY_RECIPE_MODE=production
 ```
 
 图片 endpoint 未单独配置时可以继承文本模型 provider；`X2RED_IMAGE_MODEL` 为空时不得把本地占位图伪装成原版 Minimal Zine 生成结果。
@@ -178,6 +179,8 @@ X2RED_IMAGE_CANDIDATE_COUNT=3
 Minimal Zine Prompt 模式支持 `production`（默认 v0.3 + text-safe）、`skill_v03`（忠实 v0.3）和 `legacy`（v0.1 回滚）。修改后需要重启服务。历史 raw anchor 没有 `visual_prompt_spec` 时自动按 legacy 读取，不能通过切换模式批量重写旧版本。
 
 V2 `X2RED_VISUAL_BRIEF_MODE=production|legacy` 和 V3 `X2RED_IMAGE_CANDIDATE_MODE=production|legacy` 各自独立回滚。V3 production 默认请求 3 张 API 候选；`X2RED_IMAGE_CANDIDATE_COUNT` 只允许 1—4。网页人工回传允许每页 1—4 张，并与 API 使用同一候选、审稿和发布门禁模型。切换 legacy 不删除既有候选、Contact Sheet 或审计记录。
+
+V4 `X2RED_TYPOGRAPHY_RECIPE_MODE=production|legacy` 独立控制本地中文构图层。production 冻结八模式 recipe 与逐区域诊断；legacy 恢复单一安全区 compositor。切换不会删除 raw/final、候选或审计记录，也不会把旧成品静默重排。
 
 ### 调度器
 
@@ -243,6 +246,7 @@ ruff check apps/api --select E,F,I,B,UP --ignore E501,E701,E702,UP035,UP042,B008
 - exports 路径、preview 和 ZIP；
 - 直接加载的 v15 产品壳和轻内容控制器语法；旧 v10/v12/v14 控制器只留在磁盘，不是 runtime/CI 入口。
 - Minimal Zine v15 分镜不可变修订、raw/final 分离、render mode 校验和发布包 allowlist。
+- V4 八种本地中文 recipe、3:5/3:4/21:9/1:1 无溢出、主体避让、缩略图差异、公众号双比例封面和 legacy 回滚。
 
 ## 8. 手工 smoke test
 

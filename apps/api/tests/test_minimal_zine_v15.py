@@ -313,6 +313,14 @@ def test_recompose_selected_page_preserves_complete_set_and_excludes_raw_zip(
     manifest = json.loads(Path(outputs["manifest"]).read_text(encoding="utf-8"))
     assert manifest["raw_anchors"] == ["anchor-01.png", "anchor-02.png", "anchor-03.png"]
     assert manifest["pages"][1]["anchor_key"] == "anchor_02"
+    typography = manifest["pages"][1]["diagnostics"]["typography"]
+    assert typography["no_overflow"] is True
+    assert typography["subject_clear"] is True
+    series_modes = {
+        item["diagnostics"]["typography"]["mode"]
+        for item in manifest["pages"]
+    }
+    assert any(mode != "safe_zone_caption" for mode in series_modes)
 
 
 def test_chatgpt_web_handoff_uses_no_api_and_accepts_fresh_pages_incrementally(
@@ -615,8 +623,31 @@ def test_compositor_preserves_full_plate_and_feathers_only_outer_edges(
     assert diagnostics["source_aspect_preserved"] is True
     assert diagnostics["source_plate_size"] == {"width": 1200, "height": 1800}
     assert diagnostics["source_plate_offset"] == {"x": 0, "y": 100}
-    assert diagnostics["text_safe_zone_treatment"] == "feathered-paper-veil"
+    assert diagnostics["text_safe_zone_treatment"] == "typography-recipe-regions"
+    assert diagnostics["typography_recipe_mode"] == "production"
+    assert diagnostics["typography"]["no_overflow"] is True
+    assert diagnostics["typography"]["subject_clear"] is True
+    assert diagnostics["typography_recipe"]["schema_version"] == "typography-recipe-v2"
     assert diagnostics["model_text_mitigation"] == "feather-high-risk-outer-edge-and-local-type"
+
+
+def test_legacy_typography_flag_retains_feathered_safe_zone(tmp_path: Path) -> None:
+    configured = settings(tmp_path).model_copy(update={"typography_recipe_mode": "legacy"})
+    service = MinimalZineNativeService(configured)
+    spec = storyboard_specs()[0]
+    diagnostics = service._compose_poster(
+        image_bytes(),
+        tmp_path / "legacy-typography.png",
+        spec=spec,
+        recipe=service._recipe_for(spec),
+        page=1,
+        total=3,
+    )
+
+    assert diagnostics["text_safe_zone_treatment"] == "feathered-paper-veil"
+    assert diagnostics["typography_recipe_mode"] == "legacy"
+    assert diagnostics["typography_recipe"] == {}
+    assert diagnostics["typography"] == {}
 
 
 def test_cjk_resolver_reports_actual_coverage_and_honors_configured_font(

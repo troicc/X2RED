@@ -29,6 +29,7 @@
 - `VISUAL_PROMPT_COMPILER_V1.md`：任务书 V1 的统一 Minimal Zine compiler、v0.3 pin、指纹、降级、升级与回滚合同。
 - `VISUAL_BIBLE_PAGE_BRIEF_V2.md`：任务书 V2 的 Visual Bible、逐页三候选、distinctness、冻结编辑、Prompt 失效与回滚合同。
 - `IMAGE_CANDIDATE_VISUAL_REVIEW_V3.md`：任务书 V3 的图片多候选、Contact Sheet、十维视觉审稿、单次定向修复、发布门禁与回滚合同。
+- `LOCAL_CHINESE_TYPOGRAPHY_RECIPE_V4.md`：任务书 V4 的八种本地中文构图模式、严格 schema、主体避让、比例验收、诊断与回滚合同。
 - `context.json`：供模型或脚本快速解析的结构化摘要。
 - 根目录 `AGENTS.md`：Agent 入口和不可违反的约束。
 

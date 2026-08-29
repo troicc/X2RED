@@ -6,9 +6,12 @@ import importlib.util
 import mimetypes
 import re
 from pathlib import Path
+from typing import ClassVar
 
 from PIL import Image, ImageDraw, ImageFont
 
+from app.core.config import Settings
+from app.services.light_visual_renderer import LightVisualRenderer
 from app.services.publication_safety import strip_internal_markers
 from app.services.wechat_themes import get_theme
 
@@ -18,7 +21,14 @@ class WeChatCoverRenderer:
 
     wide_size = (2100, 900)
     square_size = (1080, 1080)
-    styles = {"auto", "image_cinema", "tech_blueprint", "data_poster", "editorial_split"}
+    styles: ClassVar[frozenset[str]] = frozenset(
+        {"auto", "image_cinema", "tech_blueprint", "data_poster", "editorial_split"}
+    )
+
+    def __init__(self, settings: Settings | None = None) -> None:
+        self.settings = settings or Settings()
+        self.local_renderer = LightVisualRenderer(self.settings)
+        self.typography_recipes = self.local_renderer.typography_recipes
 
     def render_pair(
         self,
@@ -38,6 +48,9 @@ class WeChatCoverRenderer:
         square = output_dir / "cover-square.png"
         safe_label = strip_internal_markers(series_label)
         style = self._resolve_style(cover_style, title, hero_image)
+        use_typography_recipes = self.settings.typography_recipe_mode == "production"
+        if use_typography_recipes:
+            self.local_renderer.require_cjk_font()
         values = (
             (wide, self.wide_size, "wide", title, subtitle),
             (
@@ -63,9 +76,10 @@ class WeChatCoverRenderer:
                         series_label=safe_label,
                         cover_style=style,
                         emphasis=emphasis,
+                        render_copy=not use_typography_recipes,
                     )
                     rendered = True
-                except Exception:
+                except Exception:  # noqa: BLE001 - optional browser failures use Pillow fallback
                     rendered = False
             if not rendered:
                 self._render_pillow(
@@ -76,6 +90,19 @@ class WeChatCoverRenderer:
                     subtitle=resolved_subtitle,
                     theme_id=theme_id,
                     hero_image=hero_image,
+                    series_label=safe_label,
+                    cover_style=style,
+                    emphasis=emphasis,
+                    render_copy=not use_typography_recipes,
+                )
+            if use_typography_recipes:
+                self._apply_typography_recipe(
+                    path,
+                    size=size,
+                    mode=mode,
+                    title=resolved_title,
+                    subtitle=resolved_subtitle,
+                    theme_id=theme_id,
                     series_label=safe_label,
                     cover_style=style,
                     emphasis=emphasis,
@@ -118,6 +145,7 @@ class WeChatCoverRenderer:
         series_label: str,
         cover_style: str,
         emphasis: str,
+        render_copy: bool = True,
     ) -> None:
         from playwright.sync_api import sync_playwright
 
@@ -140,6 +168,7 @@ class WeChatCoverRenderer:
                     series_label=series_label,
                     cover_style=cover_style,
                     emphasis=emphasis,
+                    render_copy=render_copy,
                 ),
                 wait_until="load",
             )
@@ -160,6 +189,7 @@ class WeChatCoverRenderer:
         series_label: str,
         cover_style: str,
         emphasis: str,
+        render_copy: bool = True,
     ) -> str:
         theme = get_theme(theme_id)
         safe_title = html.escape(strip_internal_markers(title.strip()))
@@ -168,25 +198,27 @@ class WeChatCoverRenderer:
         safe_emphasis = html.escape(emphasis.strip())
         image = self._image_src(hero_image)
         wide = mode == "wide"
-        label_html = f'<span class="series">{safe_label}</span>' if safe_label else ""
-        subtitle_html = f'<p class="subtitle">{safe_subtitle}</p>' if safe_subtitle and wide else ""
-        emphasis_html = f'<strong class="emphasis">{safe_emphasis}</strong>' if safe_emphasis else ""
+        label_html = f'<span class="series">{safe_label}</span>' if safe_label and render_copy else ""
+        subtitle_html = f'<p class="subtitle">{safe_subtitle}</p>' if safe_subtitle and wide and render_copy else ""
+        emphasis_html = f'<strong class="emphasis">{safe_emphasis}</strong>' if safe_emphasis and render_copy else ""
+        title_html = f"<h1>{safe_title}</h1>" if render_copy else ""
         hero_html = f'<img class="hero-image" src="{image}" alt="">' if image else ""
 
         if cover_style == "image_cinema" and image:
             composition = f"""
-<article class="cover cinema">{hero_html}<div class="shade"></div><section class="copy">{label_html}{emphasis_html}<h1>{safe_title}</h1>{subtitle_html}</section></article>"""
+<article class="cover cinema">{hero_html}<div class="shade"></div><section class="copy">{label_html}{emphasis_html}{title_html}{subtitle_html}</section></article>"""
         elif cover_style == "data_poster":
-            primary = safe_emphasis or html.escape(self._extract_emphasis(title) or "NEW")
+            primary = (safe_emphasis or html.escape(self._extract_emphasis(title) or "NEW")) if render_copy else ""
             composition = f"""
-<article class="cover data"><span class="data-mark">{primary}</span><section class="copy">{label_html}<h1>{safe_title}</h1>{subtitle_html}</section><div class="data-grid"></div></article>"""
+<article class="cover data"><span class="data-mark">{primary}</span><section class="copy">{label_html}{title_html}{subtitle_html}</section><div class="data-grid"></div></article>"""
         elif cover_style == "editorial_split":
             visual = hero_html if image else '<div class="editorial-shape"><i></i><b></b></div>'
             composition = f"""
-<article class="cover split {mode}"><section class="copy">{label_html}<h1>{safe_title}</h1>{subtitle_html}<span class="rule"></span></section><figure class="visual">{visual}</figure></article>"""
+<article class="cover split {mode}"><section class="copy">{label_html}{title_html}{subtitle_html}<span class="rule"></span></section><figure class="visual">{visual}</figure></article>"""
         else:
+            coordinate = "01 / SIGNAL<br>02 / SYSTEM<br>03 / CHANGE" if render_copy else ""
             composition = f"""
-<article class="cover blueprint"><div class="grid"></div><div class="orbit o1"></div><div class="orbit o2"></div><section class="copy">{label_html}{emphasis_html}<h1>{safe_title}</h1>{subtitle_html}<span class="rule"></span></section><div class="coordinate">01 / SIGNAL<br>02 / SYSTEM<br>03 / CHANGE</div></article>"""
+<article class="cover blueprint"><div class="grid"></div><div class="orbit o1"></div><div class="orbit o2"></div><section class="copy">{label_html}{emphasis_html}{title_html}{subtitle_html}<span class="rule"></span></section><div class="coordinate">{coordinate}</div></article>"""
 
         title_size = 80 if wide else 92
         return f"""<!doctype html><html><head><meta charset="utf-8"><style>
@@ -231,6 +263,7 @@ h1{{margin:0;max-width:{1120 if wide else 900}px;font-size:{title_size}px;line-h
         series_label: str,
         cover_style: str,
         emphasis: str,
+        render_copy: bool = True,
     ) -> None:
         theme = get_theme(theme_id)
         width, height = size
@@ -279,7 +312,7 @@ h1{{margin:0;max-width:{1120 if wide else 900}px;font-size:{title_size}px;line-h
                 outline=theme.paper,
                 width=4,
             )
-        elif cover_style == "data_poster":
+        elif cover_style == "data_poster" and render_copy:
             signal = emphasis or self._extract_emphasis(title)
             if signal:
                 signal_font = self._font(260 if mode == "wide" else 210, bold=True)
@@ -305,29 +338,104 @@ h1{{margin:0;max-width:{1120 if wide else 900}px;font-size:{title_size}px;line-h
             canvas = Image.alpha_composite(canvas.convert("RGBA"), overlay).convert("RGB")
             draw = ImageDraw.Draw(canvas)
             fg = "#ffffff"
-        x = margin + 68
-        y = margin + 92
-        max_width = int(width * (0.58 if mode == "wide" else 0.82))
-        label = strip_internal_markers(series_label)
-        if label:
-            font = self._font(20, bold=True)
-            draw.text((x, y), label, font=font, fill=theme.accent)
-            y += 58
-        if emphasis:
-            font = self._font(92 if mode == "wide" else 104, bold=True)
-            draw.text((x, y), emphasis, font=font, fill=theme.accent)
-            y += 118
-        title_font = self._font(76 if mode == "wide" else 84, bold=True)
-        for line in self._wrap(draw, strip_internal_markers(title), title_font, max_width)[:5]:
-            draw.text((x, y), line, font=title_font, fill=fg)
-            y += int(getattr(title_font, "size", 76) * 1.18)
-        if subtitle and mode == "wide":
-            y += 18
-            subtitle_font = self._font(28, bold=False)
-            for line in self._wrap(draw, strip_internal_markers(subtitle), subtitle_font, max_width)[:3]:
-                draw.text((x, y), line, font=subtitle_font, fill=fg)
-                y += 44
-        draw.rounded_rectangle((x, min(y + 24, height - 90), x + 136, min(y + 34, height - 80)), radius=5, fill=theme.accent)
+        if render_copy:
+            x = margin + 68
+            y = margin + 92
+            max_width = int(width * (0.58 if mode == "wide" else 0.82))
+            label = strip_internal_markers(series_label)
+            if label:
+                font = self._font(20, bold=True)
+                draw.text((x, y), label, font=font, fill=theme.accent)
+                y += 58
+            if emphasis:
+                font = self._font(92 if mode == "wide" else 104, bold=True)
+                draw.text((x, y), emphasis, font=font, fill=theme.accent)
+                y += 118
+            title_font = self._font(76 if mode == "wide" else 84, bold=True)
+            for line in self._wrap(draw, strip_internal_markers(title), title_font, max_width)[:5]:
+                draw.text((x, y), line, font=title_font, fill=fg)
+                y += int(getattr(title_font, "size", 76) * 1.18)
+            if subtitle and mode == "wide":
+                y += 18
+                subtitle_font = self._font(28, bold=False)
+                for line in self._wrap(draw, strip_internal_markers(subtitle), subtitle_font, max_width)[:3]:
+                    draw.text((x, y), line, font=subtitle_font, fill=fg)
+                    y += 44
+            draw.rounded_rectangle((x, min(y + 24, height - 90), x + 136, min(y + 34, height - 80)), radius=5, fill=theme.accent)
+        canvas.save(path, format="PNG", optimize=True)
+
+    def _apply_typography_recipe(
+        self,
+        path: Path,
+        *,
+        size: tuple[int, int],
+        mode: str,
+        title: str,
+        subtitle: str,
+        theme_id: str,
+        series_label: str,
+        cover_style: str,
+        emphasis: str,
+    ) -> None:
+        theme = get_theme(theme_id)
+        width, height = size
+        margin = 42 if mode == "wide" else 38
+        requested = {
+            "image_cinema": "edge_pressed_phrase",
+            "data_poster": "type_in_color_block",
+            "editorial_split": "edge_pressed_phrase",
+            "tech_blueprint": "archive_microtype",
+        }.get(cover_style, "type_led_large")
+        if cover_style == "editorial_split":
+            protected = (
+                (
+                    int(width * (0.64 if mode == "wide" else 0.52)),
+                    int(height * (0.18 if mode == "wide" else 0.56)),
+                    width - margin,
+                    int(height * (0.72 if mode == "wide" else 0.92)),
+                ),
+            )
+        elif cover_style == "image_cinema":
+            protected = (
+                (
+                    int(width * 0.68),
+                    int(height * 0.25),
+                    width - margin,
+                    int(height * 0.75),
+                ),
+            )
+        elif cover_style == "data_poster":
+            protected = ((int(width * 0.70), int(height * 0.55), width - margin, height - margin),)
+        else:
+            protected = ((int(width * 0.68), margin, width - margin, int(height * 0.72)),)
+        selection = self.typography_recipes.select(
+            size=size,
+            phrase=strip_internal_markers(title),
+            note=strip_internal_markers(subtitle),
+            page=1,
+            total=1,
+            layout=cover_style,
+            visual_role="cover",
+            requested_mode=requested,
+            protected_regions=protected,
+        )
+        with Image.open(path) as source:
+            canvas = source.convert("RGB")
+        ink = "#ffffff" if cover_style in {"image_cinema", "tech_blueprint"} else theme.text
+        muted = "#d8d7d2" if cover_style in {"image_cinema", "tech_blueprint"} else theme.muted
+        paper = "#11151c" if cover_style in {"image_cinema", "tech_blueprint"} else theme.paper
+        canvas, _ = self.local_renderer.render_typography(
+            canvas,
+            selection=selection,
+            phrase=strip_internal_markers(title),
+            note=strip_internal_markers(subtitle),
+            folio="21:9" if mode == "wide" else "1:1",
+            label=" · ".join(value for value in (strip_internal_markers(series_label), emphasis) if value),
+            ink=ink,
+            muted=muted,
+            paper=paper,
+            accent=theme.accent,
+        )
         canvas.save(path, format="PNG", optimize=True)
 
     @staticmethod
@@ -336,15 +444,22 @@ h1{{margin:0;max-width:{1120 if wide else 900}px;font-size:{title_size}px;line-h
         return match.group(0).replace(" ", "") if match else ""
 
     @staticmethod
-    def _font(size: int, *, bold: bool) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    def _font(
+        size: int,
+        *,
+        bold: bool,
+        serif: bool = False,
+    ) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
         candidates = [
+            "/System/Library/Fonts/Songti.ttc" if serif else "",
             "/System/Library/Fonts/PingFang.ttc",
             "/System/Library/Fonts/STHeiti Medium.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc" if serif else "",
             "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc" if bold else "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         ]
         for candidate in candidates:
-            if Path(candidate).is_file():
+            if candidate and Path(candidate).is_file():
                 return ImageFont.truetype(candidate, size=size)
         return ImageFont.load_default()
 

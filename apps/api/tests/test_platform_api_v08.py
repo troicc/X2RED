@@ -21,6 +21,9 @@ def test_wechat_workbench_api_end_to_end(
     monkeypatch.setenv("X2RED_EXPORT_DIR", str(tmp_path / "exports"))
     monkeypatch.setenv("X2RED_BROWSER_PROFILE_DIR", str(tmp_path / "profiles"))
     monkeypatch.setenv("X2RED_SCHEDULER_ENABLED", "false")
+    # This V0.8 compatibility flow predates the production CJK typography gate.
+    # Dedicated renderer tests cover fail-closed production mode separately.
+    monkeypatch.setenv("X2RED_TYPOGRAPHY_RECIPE_MODE", "legacy")
     monkeypatch.delenv("X2RED_MODEL_BASE_URL", raising=False)
     monkeypatch.delenv("X2RED_MODEL_NAME", raising=False)
     monkeypatch.delenv("X2RED_MODEL_API_KEY", raising=False)

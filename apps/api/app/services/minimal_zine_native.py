@@ -19,8 +19,8 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
-from app.domain.platforms import PlatformVariant, PlatformVariantState
 from app.domain.image_candidate_schemas import ImageCandidateLifecycle
+from app.domain.platforms import PlatformVariant, PlatformVariantState
 from app.domain.visual_brief_schemas import PageVisualBrief
 from app.domain.visual_prompt_schemas import (
     VisualPromptContext,
@@ -28,12 +28,12 @@ from app.domain.visual_prompt_schemas import (
     VisualPromptRecipe,
     VisualPromptSpec,
 )
-from app.services.light_visual_renderer import CJKFontError, LightVisualRenderer
 from app.services.image_candidate_service import (
     CandidateBatchResult,
     ImageCandidateError,
     ImageCandidateService,
 )
+from app.services.light_visual_renderer import CJKFontError, LightVisualRenderer
 from app.services.model_client import ModelClient, ModelClientError
 from app.services.native_skill_manager import NativeSkillError, NativeSkillManager
 from app.services.visual_prompt_compiler import (
@@ -257,7 +257,7 @@ def storyboard_model_input_changed(
 
 class MinimalZineNativeService:
     skill_name = "gc-minimal-zine-poster-v0-1"
-    compositor_version = "minimal-zine-local-type-v6"
+    compositor_version = "minimal-zine-local-type-v7-typography-recipes"
     high_chroma_threshold = 0.004
     # A sparse plate can have a deliberately faded, but still meaningful, color
     # cluster.  Keep this separate from the stronger prompt-compliance signal so
@@ -2363,14 +2363,6 @@ class MinimalZineNativeService:
         )
         edge_mask = ImageChops.lighter(edge_mask, badge_mask)
         canvas = Image.composite(paper_layer, visual, edge_mask)
-        veil_mask = self._soft_panel_mask(
-            canvas.size,
-            tuple(safe_zone["panel"]),
-            opacity=92,
-            feather=52,
-        )
-        canvas = Image.composite(paper_layer, canvas, veil_mask)
-        draw = ImageDraw.Draw(canvas)
 
         if high_chroma_ratio >= self.high_chroma_threshold:
             accent_reason = "upstream-high-chroma"
@@ -2381,69 +2373,137 @@ class MinimalZineNativeService:
 
         phrase = _clean(spec.get("phrase"), 80)
         note = _clean(spec.get("note"), 180)
-        text_x, text_y, text_width = safe_zone["text"]
-        note_font = self.local_renderer._font(30, serif=True)
-        note_lines = self._balanced_wrap(
-            draw,
-            note,
-            note_font,
-            text_width,
-            max_lines=3,
-            min_last_chars=3,
-        )
-        title_size = int(safe_zone["title_size"])
-        title_font = self.local_renderer._font(title_size, bold=True, serif=False)
-        title_lines: list[str] = []
-        max_title_lines = 4 if text_width >= 520 else 5
-        available_height = max(180, safe_zone["panel"][3] - text_y - 92)
-        for candidate_size in range(title_size, 39, -2):
-            candidate_font = self.local_renderer._font(candidate_size, bold=True, serif=False)
-            candidate_lines = self._balanced_wrap(
+        typography_diagnostics: dict[str, Any] = {}
+        typography_recipe: dict[str, Any] = {}
+        if self.settings.typography_recipe_mode == "legacy":
+            veil_mask = self._soft_panel_mask(
+                canvas.size,
+                tuple(safe_zone["panel"]),
+                opacity=92,
+                feather=52,
+            )
+            canvas = Image.composite(paper_layer, canvas, veil_mask)
+            draw = ImageDraw.Draw(canvas)
+            text_x, text_y, text_width = safe_zone["text"]
+            note_font = self.local_renderer._font(30, serif=True)
+            note_lines = self._balanced_wrap(
                 draw,
-                phrase,
-                candidate_font,
+                note,
+                note_font,
                 text_width,
-                max_lines=max_title_lines,
-                min_last_chars=4,
+                max_lines=3,
+                min_last_chars=3,
             )
-            candidate_height = len(candidate_lines) * int(candidate_size * 1.28)
-            if note_lines:
-                candidate_height += 30 + len(note_lines) * 44
-            if candidate_lines and candidate_height <= available_height:
-                title_size = candidate_size
-                title_font = candidate_font
-                title_lines = candidate_lines
-                break
-        if phrase and not title_lines:
-            title_lines = self.local_renderer._wrap(
-                draw, phrase, title_font, text_width
-            )[:max_title_lines]
-        line_height = int(title_size * 1.32)
-        for line_index, line in enumerate(title_lines):
+            title_size = int(safe_zone["title_size"])
+            title_font = self.local_renderer._font(title_size, bold=True, serif=False)
+            title_lines: list[str] = []
+            max_title_lines = 4 if text_width >= 520 else 5
+            available_height = max(180, safe_zone["panel"][3] - text_y - 92)
+            for candidate_size in range(title_size, 39, -2):
+                candidate_font = self.local_renderer._font(
+                    candidate_size,
+                    bold=True,
+                    serif=False,
+                )
+                candidate_lines = self._balanced_wrap(
+                    draw,
+                    phrase,
+                    candidate_font,
+                    text_width,
+                    max_lines=max_title_lines,
+                    min_last_chars=4,
+                )
+                candidate_height = len(candidate_lines) * int(candidate_size * 1.28)
+                if note_lines:
+                    candidate_height += 30 + len(note_lines) * 44
+                if candidate_lines and candidate_height <= available_height:
+                    title_size = candidate_size
+                    title_font = candidate_font
+                    title_lines = candidate_lines
+                    break
+            if phrase and not title_lines:
+                title_lines = self.local_renderer._wrap(
+                    draw,
+                    phrase,
+                    title_font,
+                    text_width,
+                )[:max_title_lines]
+            line_height = int(title_size * 1.32)
+            for line_index, line in enumerate(title_lines):
+                draw.text(
+                    (text_x, text_y + line_index * line_height),
+                    line,
+                    font=title_font,
+                    fill="#171614",
+                )
+            note_y = text_y + len(title_lines) * line_height + 30
+            for line_index, line in enumerate(note_lines):
+                draw.text(
+                    (text_x, note_y + line_index * 44),
+                    line,
+                    font=note_font,
+                    fill="#514c45",
+                )
+            footer_font = self.local_renderer._font(20, serif=True)
+            footer_y = self.local_renderer.height - 76
+            page_text = f"{page:02d} / {total:02d}"
+            page_width = draw.textlength(page_text, font=footer_font)
             draw.text(
-                (text_x, text_y + line_index * line_height),
-                line,
-                font=title_font,
-                fill="#171614",
+                (self.local_renderer.width - 84 - page_width, footer_y),
+                page_text,
+                font=footer_font,
+                fill="#625d54",
             )
-        note_y = text_y + len(title_lines) * line_height + 30
-        for line_index, line in enumerate(note_lines):
-            draw.text(
-                (text_x, note_y + line_index * 44),
-                line,
-                font=note_font,
-                fill="#514c45",
+            text_safe_treatment = "feathered-paper-veil"
+        else:
+            brief = spec.get("page_visual_brief")
+            brief = brief if isinstance(brief, dict) else {}
+            requested_typography = str(
+                brief.get("typography_mode")
+                or recipe.get("typography")
+                or "local-cjk-editorial"
             )
-        footer_font = self.local_renderer._font(20, serif=True)
-        footer_y = self.local_renderer.height - 76
-        page_text = f"{page:02d} / {total:02d}"
-        page_width = draw.textlength(page_text, font=footer_font)
-        draw.text(
-            (self.local_renderer.width - 84 - page_width, footer_y),
-            page_text,
-            font=footer_font,
-            fill="#625d54",
-        )
+            protected_regions = [self._principal_subject_region(layout)]
+            selection = self.local_renderer.typography_recipes.select(
+                size=canvas.size,
+                phrase=phrase,
+                note=note,
+                page=page,
+                total=total,
+                layout=layout,
+                visual_role=str(brief.get("visual_role") or spec.get("visual_role") or ""),
+                requested_mode=requested_typography,
+                protected_regions=protected_regions,
+                stored_recipe=(
+                    spec.get("typography_recipe_v2")
+                    if isinstance(spec.get("typography_recipe_v2"), dict)
+                    else None
+                ),
+            )
+            try:
+                canvas, rendered_typography = self.local_renderer.render_typography(
+                    canvas,
+                    selection=selection,
+                    phrase=phrase,
+                    note=note,
+                    folio=f"{page:02d} / {total:02d}",
+                    label=f"PAGE {page:02d} · LOCAL CJK",
+                    paper=paper_hex,
+                    accent=self._accent(str(recipe.get("accent") or "cobalt")),
+                )
+            except ValueError as exc:
+                raise NativeSkillError(f"本地中文排版失败：{exc}") from exc
+            typography_recipe = selection.recipe.model_dump(mode="json")
+            typography_diagnostics = rendered_typography.model_dump(mode="json")
+            spec["typography_recipe_v2"] = typography_recipe
+            title_regions = [
+                item
+                for item in rendered_typography.regions
+                if item.role in {"title", "fragment"} and item.lines
+            ]
+            title_lines = [line for item in title_regions for line in item.lines]
+            title_size = max((item.font_size for item in title_regions), default=0)
+            text_safe_treatment = "typography-recipe-regions"
         canvas.save(path, "PNG", optimize=True)
         return {
             "edge_crop": {"left": 0.0, "top": 0.0, "right": 0.0, "bottom": 0.0},
@@ -2460,10 +2520,13 @@ class MinimalZineNativeService:
             "source_plate_offset": {"x": offset[0], "y": offset[1]},
             "source_aspect_preserved": True,
             "sampled_paper_color": paper_hex,
-            "text_safe_zone_treatment": "feathered-paper-veil",
+            "text_safe_zone_treatment": text_safe_treatment,
             "title_lines": title_lines,
             "title_size": title_size,
             "title_last_line_chars": len(re.sub(r"\W", "", title_lines[-1])) if title_lines else 0,
+            "typography_recipe_mode": self.settings.typography_recipe_mode,
+            "typography_recipe": typography_recipe,
+            "typography": typography_diagnostics,
             "preserved_model_color": True,
             "model_text_mitigation": "feather-high-risk-outer-edge-and-local-type",
             "high_chroma_ratio": round(high_chroma_ratio, 5),
@@ -2684,6 +2747,24 @@ class MinimalZineNativeService:
             if result is not None:
                 return list(result[1])
         return self.local_renderer._wrap(draw, content, font, max_width)[:max_lines]
+
+    def _principal_subject_region(self, layout: str) -> tuple[int, int, int, int]:
+        """Conservative key-subject estimate used only by local type collision checks."""
+
+        regions = {
+            "center-fragment": (220, 250, 980, 1050),
+            "lower-fragment": (200, 1050, 1000, 1750),
+            "lower-left-float": (90, 720, 650, 1580),
+            "upper-right-block": (610, 120, 1130, 1050),
+            "dual-panel": (800, 300, 1130, 1350),
+            "irregular-cutout": (100, 260, 690, 1160),
+            "type-led": (180, 100, 1040, 560),
+            "dot-orbit": (250, 300, 950, 1180),
+            "single-specimen": (120, 250, 650, 1100),
+            "diagonal-notes": (420, 800, 780, 1000),
+            "edge-counterweight": (100, 350, 560, 1300),
+        }
+        return regions.get(layout, regions["center-fragment"])
 
     def _safe_zone(self, layout: str) -> dict[str, Any]:
         layouts: dict[str, dict[str, Any]] = {
@@ -2959,6 +3040,11 @@ class MinimalZineNativeService:
             "focus_y": self._focus_value(spec.get("focus_y"), 0.5),
             "zoom": self._zoom_value(spec.get("zoom")),
             "recipe": recipe,
+            "typography_recipe_v2": (
+                spec.get("typography_recipe_v2")
+                if isinstance(spec.get("typography_recipe_v2"), dict)
+                else {}
+            ),
             "compositor_version": self.compositor_version,
         }
         encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True)
