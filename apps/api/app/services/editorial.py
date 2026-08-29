@@ -199,6 +199,7 @@ class EditorialService:
     def revise(
         self, db: Session, current: DraftRevision, *, title: str, body: str, tags: str
     ) -> DraftRevision:
+        provenance = self._parse_object(current.provenance_json)
         revised = DraftRevision(
             source_id=current.source_id,
             version=self._next_version(db, current.source_id, current.version),
@@ -207,7 +208,14 @@ class EditorialService:
             body=body.strip(),
             tags=tags.strip(),
             claims_json=current.claims_json,
-            provenance_json=current.provenance_json,
+            provenance_json=json.dumps(
+                {
+                    **provenance,
+                    "parent_draft_id": current.id,
+                    "human_revision_of": current.id,
+                },
+                ensure_ascii=False,
+            ),
             created_by="human",
         )
         db.add(revised)

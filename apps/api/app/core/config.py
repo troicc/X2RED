@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     evidence_embedding_api_key: str = ""
     evidence_embedding_model: str = ""
     writing_schema_mode: Literal["legacy", "production"] = "production"
+    writing_quality_mode: Literal["legacy", "production"] = "production"
     request_timeout_seconds: float = 20.0
 
     material_user_agent: str = "X2RED-MaterialResearch/0.13 (+local research)"

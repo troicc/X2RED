@@ -20,10 +20,13 @@ class StyleTrainingMixin:
         original_samples: list[str],
         held_out_samples: list[str],
         author_feedback: list[str],
+        confirm_original_or_authorized: bool,
     ) -> StyleProfile:
         originals = [sample.strip() for sample in original_samples if sample.strip()]
         held_out = [sample.strip() for sample in held_out_samples if sample.strip()]
         feedback = [item.strip() for item in author_feedback if item.strip()]
+        if not confirm_original_or_authorized:
+            raise ValueError("必须明确确认样本为作者原创或已获授权")
         if len(originals) < 3:
             raise ValueError("至少需要 3 篇明确授权的原创样本")
         if not (self.settings.model_base_url and self.settings.model_name):
@@ -98,6 +101,22 @@ final_rules 必须保留初稿字段结构，并只做有证据的修改。
             if isinstance(candidate, dict) and candidate:
                 final_rules = candidate
 
+        author_overrides = [
+            {
+                "rule": item,
+                "priority": "explicit_author_override",
+                "source": "style_training_author_feedback",
+                "order": index,
+            }
+            for index, item in enumerate(feedback, start=1)
+        ]
+        final_rules["author_overrides"] = author_overrides
+        final_rules["rule_priority"] = [
+            "explicit_author_override",
+            "approved_feedback",
+            "model_inference",
+        ]
+
         forbidden = final_rules.get("forbidden_expressions")
         forbidden_list = forbidden if isinstance(forbidden, list) else []
         stored_samples = {
@@ -105,6 +124,11 @@ final_rules 必须保留初稿字段结构，并只做有证据的修改。
             "held_out_samples": held_out,
             "author_feedback": feedback,
             "validation": validation,
+            "rights": {
+                "confirmed_original_or_authorized": True,
+                "confirmation_scope": "all_original_and_held_out_samples",
+                "use": "style_training_only",
+            },
         }
         profile = db.scalar(select(StyleProfile).where(StyleProfile.name == name.strip()))
         if profile is None:

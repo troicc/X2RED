@@ -80,6 +80,16 @@ class PoolMemoryExample(BaseModel):
 
     text: str = Field(min_length=1, max_length=120)
     lesson: str = Field(default="", max_length=240)
+    rhetorical_duty: Literal[
+        "opening",
+        "title",
+        "transition",
+        "judgment",
+        "ending",
+        "sentence_rhythm",
+        "paragraph_rhythm",
+        "positive_phrase",
+    ] = "positive_phrase"
 
 
 class PoolMemoryContent(BaseModel):

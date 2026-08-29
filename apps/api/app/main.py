@@ -220,6 +220,9 @@ async def lifespan(app: FastAPI):
             original_samples=[str(item) for item in payload.get("original_samples") or []],
             held_out_samples=[str(item) for item in payload.get("held_out_samples") or []],
             author_feedback=[str(item) for item in payload.get("author_feedback") or []],
+            confirm_original_or_authorized=bool(
+                payload.get("confirm_original_or_authorized", False)
+            ),
         )
         return {
             "style_profile_id": profile.id,
@@ -313,11 +316,13 @@ def health() -> dict:
         else "multi-agent-structured-fallback",
         "intelligence_pipeline": "monitor-score-l1-l2",
         "writing_pipeline": (
-            "editor-research-outline-writer-three-reviews-chief-final-claims-evidence-gate"
+            "editor-research-outline-title-tournament-writer-three-reviews-chief-final-claims-evidence-gate"
         ),
         "writing_schema_mode": settings.writing_schema_mode,
+        "writing_quality_mode": settings.writing_quality_mode,
         "writing_claim_gate": settings.writing_schema_mode == "production",
-        "style_pipeline": "original-samples-held-out-feedback",
+        "title_tournament": settings.writing_quality_mode == "production",
+        "style_pipeline": "authorized-originals-held-out-author-overrides-short-exemplars-real-feedback",
         "platform_pipeline": "reviewable-artifacts-shared-evidence-platform-variants",
         "review_pipeline": "storyboard-module-tree-cover-brief-versioned-approval",
         "light_content_pipeline": "corpus-grounded-multi-agent-candidates-independent-reviews-human-gate",

@@ -67,6 +67,26 @@ def _representative_payloads() -> dict[str, dict]:
             "open_questions": [],
             "success_criteria": [],
         },
+        "title_candidates": {
+            "candidates": [
+                {
+                    "candidate_id": f"title-{index:02d}",
+                    "title": f"证据支持的标题候选第{index}种角度",
+                    "mechanism": (
+                        "result",
+                        "conflict",
+                        "counterintuitive",
+                        "scene",
+                        "question",
+                        "number",
+                        "judgment",
+                    )[(index - 1) % 7],
+                    "reader_promise": "讲清证据如何约束文章主张",
+                    "evidence_refs": ["source-1:chunk-1"],
+                }
+                for index in range(1, 13)
+            ]
+        },
         "evidence_pack": {
             "facts": [],
             "author_claims": [],
@@ -135,6 +155,7 @@ def test_every_writing_agent_schema_is_strict_and_replayable() -> None:
     payloads = _representative_payloads()
     assert set(payloads) == set(ARTIFACT_SCHEMAS)
     contexts = {
+        "title_candidates": {"allowed_evidence_refs": ["source-1:chunk-1"]},
         "reader_review": {"issue_id_prefix": "reader-"},
         "fact_review": {"issue_id_prefix": "fact-"},
         "style_review": {"issue_id_prefix": "style-"},
@@ -142,6 +163,7 @@ def test_every_writing_agent_schema_is_strict_and_replayable() -> None:
         "final_draft": {
             "approved_issue_ids": ["fact-001"],
             "required_issue_ids": ["fact-001"],
+            "required_title": "标题",
         },
         "final_claims": {
             "initial_claim_ids": ["claim-001"],

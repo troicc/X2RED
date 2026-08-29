@@ -8,11 +8,13 @@ from sqlalchemy.orm import Session
 from app.domain.studio import WritingArtifact, WritingProject
 from app.domain.writing_agent_schemas import (
     FinalClaimsOutput,
+    TitleCandidatesOutput,
     WritingAgentContractError,
 )
 from app.services.claim_checker import ClaimChecker
 from app.services.platform_studio import PlatformStudioService
 from app.services.retrieval import bounded_json
+from app.services.title_tournament import TitleTournamentResult, TitleTournamentService
 
 
 class WritingAgentsMixin:
@@ -211,7 +213,7 @@ transitions、forbidden_moves。
 terms_allowed、target_length；evidence_refs 只能逐字引用证据包中的 source_id:chunk_id。
 顺序必须是：先让读者知道发生了什么和为什么值得看，再引入复杂术语；一节只承担一个认知任务。
 """.strip()
-        return await self._run_agent(
+        artifact = await self._run_agent(
             db,
             project=project,
             role="outline_architect",
@@ -226,6 +228,145 @@ terms_allowed、target_length；evidence_refs 只能逐字引用证据包中的 
                 )
             },
         )
+        if self.settings.writing_quality_mode == "production":
+            await self._run_title_tournament(db, project, artifact)
+        return artifact
+
+    async def _run_title_tournament(
+        self,
+        db: Session,
+        project: WritingProject,
+        outline_artifact: WritingArtifact,
+    ) -> WritingArtifact:
+        brief = self._artifact_content(db, project, "editorial_brief")
+        evidence = self._artifact_content(db, project, "evidence_pack")
+        outline = self._json(outline_artifact.content_json, {})
+        evidence_retrieval = evidence.get("evidence_retrieval") or {}
+        prompt = f"""
+你是公众号标题策略师。基于已经确认的任务单、证据包和大纲，生成一组用于竞赛的标题候选，不写正文。
+任务单：{bounded_json(brief, 10000)}
+证据包：{bounded_json(evidence, 20000)}
+文章大纲：{bounded_json(outline, 14000)}
+可引用证据块：{bounded_json(evidence_retrieval, 20000)}
+
+输出 JSON：candidates，共 12—20 个。每项必须包含 candidate_id、title、mechanism、
+reader_promise、evidence_refs。mechanism 只能是 result、conflict、counterintuitive、scene、
+question、number、judgment；至少覆盖五种机制，并尽量覆盖全部七种。
+要求：
+- 每个标题必须说明读者会看到什么，不能写“一文读懂”“值得关注”等空泛承诺；
+- 数字、结果、比较和强判断必须由 evidence_refs 支持，引用只能逐字使用输入中的 source_id:chunk_id；
+- 禁止震惊体、过度悬念、套路词和同义改写式凑数；
+- 标题之间要有真实角度差异，不得复制历史短范例中的事实。
+""".strip()
+        candidates_artifact = await self._run_agent(
+            db,
+            project=project,
+            role="title_strategist",
+            stage="title_candidates",
+            artifact_type="title_candidates",
+            system_prompt="你只提出有当前证据支持、读者第一眼能理解的中文标题候选。",
+            user_prompt=prompt,
+            temperature=0.6,
+            schema_context={
+                "allowed_evidence_refs": self._evidence_refs(evidence_retrieval),
+            },
+        )
+        raw = self._json(candidates_artifact.content_json, {})
+        candidates = TitleCandidatesOutput.model_validate(
+            {"candidates": raw.get("candidates") or []}
+        )
+        tournament = TitleTournamentService().evaluate(
+            candidates,
+            evidence_payload=evidence_retrieval,
+            audience=str(brief.get("reader") or project.reader or "目标读者"),
+            promise=str(brief.get("article_promise") or project.promise),
+            thesis=str(brief.get("main_thesis") or project.main_thesis),
+            source_artifact_id=candidates_artifact.id,
+        )
+        return self._store_artifact(
+            db,
+            project=project,
+            artifact_type="title_tournament",
+            content=tournament.model_dump(mode="json"),
+            role="reader_simulator",
+            approved=False,
+        )
+
+    def select_title_preference(
+        self,
+        db: Session,
+        *,
+        project: WritingProject,
+        tournament_artifact_id: str,
+        candidate_id: str,
+        note: str,
+    ) -> WritingArtifact:
+        tournament_artifact = db.get(WritingArtifact, tournament_artifact_id)
+        if (
+            tournament_artifact is None
+            or tournament_artifact.project_id != project.id
+            or tournament_artifact.artifact_type != "title_tournament"
+        ):
+            raise ValueError("标题竞赛产物不存在或不属于当前项目")
+        latest = self.latest_artifact(db, project.id, "title_tournament")
+        if latest is None or latest.id != tournament_artifact.id:
+            raise ValueError("标题竞赛已经更新，请从最新 top 5 重新选择")
+        tournament = TitleTournamentResult.model_validate(
+            self._json(tournament_artifact.content_json, {})
+        )
+        selected = TitleTournamentService.selected_candidate(tournament, candidate_id)
+        candidate = selected.candidate
+        preference = self._store_artifact(
+            db,
+            project=project,
+            artifact_type="title_preference",
+            content={
+                "schema_version": 1,
+                "tournament_artifact_id": tournament_artifact.id,
+                "candidate_id": candidate.candidate_id,
+                "title": candidate.title,
+                "mechanism": candidate.mechanism,
+                "reader_promise": candidate.reader_promise,
+                "selection_source": "human",
+                "note": note.strip(),
+            },
+            role="author",
+            approved=True,
+        )
+        tournament_artifact.approved = True
+        return preference
+
+    def _selected_title_payload(
+        self,
+        db: Session,
+        project: WritingProject,
+    ) -> dict[str, Any]:
+        if self.settings.writing_quality_mode != "production":
+            return {}
+        tournament_artifact = self.latest_artifact(db, project.id, "title_tournament")
+        if tournament_artifact is None:
+            return {}
+        preference = self.latest_artifact(db, project.id, "title_preference")
+        if preference is not None:
+            payload = self._json(preference.content_json, {})
+            if payload.get("tournament_artifact_id") == tournament_artifact.id:
+                return payload
+        tournament = TitleTournamentResult.model_validate(
+            self._json(tournament_artifact.content_json, {})
+        )
+        if not tournament.quality_gate_passed:
+            return {}
+        candidate = tournament.top_five[0].candidate
+        return {
+            "schema_version": 1,
+            "tournament_artifact_id": tournament_artifact.id,
+            "candidate_id": candidate.candidate_id,
+            "title": candidate.title,
+            "mechanism": candidate.mechanism,
+            "reader_promise": candidate.reader_promise,
+            "selection_source": "deterministic_top_one_fallback",
+            "note": "作者尚未选择；使用当前锦标赛第一名作为可回滚默认值",
+        }
 
     async def _run_writer(self, db: Session, project: WritingProject) -> WritingArtifact:
         brief = self._artifact_content(db, project, "editorial_brief")
@@ -239,6 +380,7 @@ terms_allowed、target_length；evidence_refs 只能逐字引用证据包中的 
         )
         source = evidence_bundle.prompt_payload()
         style = self._style_payload(db, project)
+        selected_title = self._selected_title_payload(db, project)
         prompt = f"""
 你是微信公众号中文长文写手。严格根据已确认任务单、证据包、大纲、原始材料和风格规则写完整初稿。
 任务单：{bounded_json(brief, 9000)}
@@ -246,6 +388,7 @@ terms_allowed、target_length；evidence_refs 只能逐字引用证据包中的 
 大纲：{bounded_json(outline, 16000)}
 逐节证据材料：{json.dumps(source, ensure_ascii=False)}
 风格：{bounded_json(style, 9000)}
+已冻结标题选择：{bounded_json(selected_title, 3000)}
 
 输出 JSON：title、body、tags、claims。
 要求：
@@ -258,7 +401,16 @@ terms_allowed、target_length；evidence_refs 只能逐字引用证据包中的 
 - 正文优先 1800—4500 个中文字符，使用 Markdown，以 3—6 个 H2 组织完整文章；
 - 所有代码使用带语言名的 Markdown 围栏，正文不能停在半句话或半行代码；
 - 段落有快慢变化，结尾给出明确判断。
+- 若“已冻结标题选择”包含 title，必须逐字使用，不能擅自改写。
 """.strip()
+        schema_context = {
+            "allowed_evidence_refs": self._evidence_refs(
+                source,
+                evidence.get("evidence_retrieval") or {},
+            )
+        }
+        if str(selected_title.get("title") or "").strip():
+            schema_context["required_title"] = str(selected_title["title"])
         artifact = await self._run_complete_longform(
             db,
             project=project,
@@ -268,12 +420,7 @@ terms_allowed、target_length；evidence_refs 只能逐字引用证据包中的 
             system_prompt="你是中文母语写作者。只写已经被任务单与证据包允许的内容。",
             user_prompt=prompt,
             temperature=0.55,
-            schema_context={
-                "allowed_evidence_refs": self._evidence_refs(
-                    source,
-                    evidence.get("evidence_retrieval") or {},
-                )
-            },
+            schema_context=schema_context,
         )
         return self._attach_evidence_trace(artifact, evidence_bundle)
 
@@ -398,6 +545,7 @@ severity、message、evidence_refs、evidence_quote、minimal_fix；issue_id 使
         )
         source = evidence_bundle.prompt_payload()
         style = self._style_payload(db, project)
+        selected_title = self._selected_title_payload(db, project)
         decisions = plan.get("decisions") if isinstance(plan, dict) else None
         initial_claim_ids = [
             str(item.get("claim_id") or "")
@@ -417,12 +565,24 @@ severity、message、evidence_refs、evidence_quote、minimal_fix；issue_id 使
 证据包：{bounded_json(evidence, 16000)}
 逐节原始证据：{json.dumps(source, ensure_ascii=False)}
 风格规则：{bounded_json(style, 9000)}
+已冻结标题选择：{bounded_json(selected_title, 3000)}
 输出 JSON：title、body、tags、claims、applied_changes。
 applied_changes 只能引用主编批准的 issue_id，并必须逐项执行：
 {json.dumps(approved_issue_ids, ensure_ascii=False)}
 不得新增证据包没有支持的事实；不要恢复被审稿删除的免责声明和模板标题；
 保持 1800—4500 个中文字符、3—6 个完整 H2、闭合代码围栏和完整结尾。
+若“已冻结标题选择”包含 title，终稿必须逐字保留，不能在修订时另起标题。
 """.strip()
+        schema_context = {
+            "approved_issue_ids": approved_issue_ids,
+            "required_issue_ids": approved_issue_ids,
+            "allowed_evidence_refs": self._evidence_refs(
+                source,
+                evidence.get("evidence_retrieval") or {},
+            ),
+        }
+        if str(selected_title.get("title") or "").strip():
+            schema_context["required_title"] = str(selected_title["title"])
         artifact = await self._run_complete_longform(
             db,
             project=project,
@@ -433,14 +593,7 @@ applied_changes 只能引用主编批准的 issue_id，并必须逐项执行：
             user_prompt=prompt,
             temperature=0.25,
             reference_body=str(draft.get("body") or ""),
-            schema_context={
-                "approved_issue_ids": approved_issue_ids,
-                "required_issue_ids": approved_issue_ids,
-                "allowed_evidence_refs": self._evidence_refs(
-                    source,
-                    evidence.get("evidence_retrieval") or {},
-                ),
-            },
+            schema_context=schema_context,
         )
         self._attach_evidence_trace(artifact, evidence_bundle)
         if self.settings.writing_schema_mode == "legacy":

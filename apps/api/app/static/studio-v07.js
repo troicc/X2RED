@@ -416,11 +416,197 @@
   function artifactLabel(type) {
     return {
       source_selection: "冻结的输入材料与事实来源", editorial_brief: "总编辑任务单", evidence_pack: "证据包", outline: "文章大纲",
+      style_exemplar_bundle: "冻结的授权风格短范例", title_candidates: "标题候选", title_tournament: "标题锦标赛",
+      title_preference: "作者标题选择",
       draft: "初稿", reader_review: "读者审稿", fact_review: "事实审稿",
       style_review: "风格审稿", revision_plan: "主编修改计划", final_draft: "终稿",
       final_claims: "终稿 Claims", claim_evidence_matrix: "Claim-Evidence Matrix",
       author_decision: "作者决定",
     }[type] || type;
+  }
+
+  function artifactPayload(artifact) {
+    try { return JSON.parse(artifact?.content_json || "{}"); }
+    catch { return {}; }
+  }
+
+  function latestProjectArtifact(project, type) {
+    return [...(project.artifacts || [])].reverse().find((item) => item.artifact_type === type) || null;
+  }
+
+  function renderTitleTournament(project, artifact, payload) {
+    const panel = createElement("section", "title-tournament-panel");
+    const head = createElement("div", "title-tournament-head");
+    head.innerHTML = `<strong>读者第一眼 Top ${payload.top_five?.length || 0}</strong><span>${payload.quality_gate_passed ? "质量门通过" : "候选不足，当前为降级结果"}</span>`;
+    panel.append(head);
+    const preferenceArtifact = latestProjectArtifact(project, "title_preference");
+    const preference = artifactPayload(preferenceArtifact);
+    const list = createElement("ol", "title-tournament-list");
+    (payload.top_five || []).forEach((item) => {
+      const candidate = item.candidate || {};
+      const row = createElement("li", "title-tournament-option");
+      const copy = createElement("div");
+      copy.append(
+        createElement("strong", "", candidate.title || "未命名候选"),
+        createElement("small", "", `${candidate.mechanism || "unknown"} · 第一眼 ${Number(item.reader_first_glance?.total_score || 0).toFixed(1)} · ${candidate.reader_promise || ""}`),
+      );
+      const selected = preference.tournament_artifact_id === artifact.id && preference.candidate_id === candidate.candidate_id;
+      const qualityReady = Boolean(payload.quality_gate_passed);
+      const button = createElement("button", selected ? "primary-action" : "secondary-action", selected ? "已选择" : qualityReady ? "选择这个标题" : "质量门未通过");
+      button.type = "button";
+      button.disabled = selected || !qualityReady;
+      button.addEventListener("click", async () => {
+        button.disabled = true;
+        try {
+          await api(`/api/writing/projects/${encodeURIComponent(project.id)}/titles/select`, {
+            method: "POST",
+            body: JSON.stringify({
+              tournament_artifact_id: artifact.id,
+              candidate_id: candidate.candidate_id,
+              note: "作者在标题锦标赛 top 5 中明确选择",
+            }),
+          });
+          await loadWriting(project.id);
+        } catch (error) {
+          window.alert(error.message);
+          button.disabled = false;
+        }
+      });
+      row.append(copy, button);
+      list.append(row);
+    });
+    if (!list.children.length) {
+      list.append(createElement("li", "card-empty", "当前没有通过证据与标题质量过滤的候选；写作仍可降级继续，但不会伪称标题锦标赛已通过。"));
+    }
+    panel.append(list);
+    return panel;
+  }
+
+  function feedbackArticleType(project) {
+    const brief = artifactPayload(latestProjectArtifact(project, "editorial_brief"));
+    return brief.article_type || "technical_explainer";
+  }
+
+  async function hydrateWritingFeedback(project, panel) {
+    if (!project.output_draft_id) return;
+    try {
+      const [drafts, feedbacks] = await Promise.all([
+        api(`/api/sources/${encodeURIComponent(project.source_id)}/drafts`),
+        api(`/api/writing/projects/${encodeURIComponent(project.id)}/feedback`),
+      ]);
+      const modelDraft = drafts.find((item) => item.id === project.output_draft_id);
+      if (!modelDraft) throw new Error("没有找到当前项目冻结的模型终稿");
+      panel.replaceChildren();
+      const heading = createElement("div", "panel-heading");
+      heading.innerHTML = '<div><span class="section-kicker">REAL REVISION FEEDBACK</span><h4>人工终稿与真实改稿反馈</h4><p>先保存人工版本，再由服务端计算不可伪造的 diff；之后可单独批准进入池子记忆。</p></div>';
+      panel.append(heading);
+
+      const form = createElement("form", "writing-feedback-form");
+      const titleLabel = createElement("label", "", "人工终稿标题");
+      const titleInput = document.createElement("input");
+      titleInput.maxLength = 80;
+      titleInput.required = true;
+      titleInput.value = modelDraft.title || "";
+      titleLabel.append(titleInput);
+      const bodyLabel = createElement("label", "", "人工终稿正文");
+      const bodyInput = document.createElement("textarea");
+      bodyInput.rows = 16;
+      bodyInput.maxLength = 50000;
+      bodyInput.required = true;
+      bodyInput.value = modelDraft.body || "";
+      bodyLabel.append(bodyInput);
+      const tagsLabel = createElement("label", "", "标签");
+      const tagsInput = document.createElement("input");
+      tagsInput.maxLength = 500;
+      tagsInput.value = modelDraft.tags || "";
+      tagsLabel.append(tagsInput);
+      const reasonLabel = createElement("label", "", "为什么这样改");
+      const reasonInput = document.createElement("textarea");
+      reasonInput.rows = 4;
+      reasonInput.maxLength = 4000;
+      reasonInput.required = true;
+      reasonInput.placeholder = "指出标题、开头、节奏、判断或禁用表达中哪些变化代表你的真实偏好。";
+      reasonLabel.append(reasonInput);
+      const articleTypeLabel = createElement("label", "", "文章类型");
+      const articleTypeInput = document.createElement("input");
+      articleTypeInput.maxLength = 80;
+      articleTypeInput.required = true;
+      articleTypeInput.value = feedbackArticleType(project);
+      articleTypeLabel.append(articleTypeInput);
+      const dimensions = [
+        ["title", "标题"], ["opening", "开头"], ["tone", "语气"],
+        ["sentence_rhythm", "句子节奏"], ["paragraph_rhythm", "段落节奏"],
+        ["structure", "结构"], ["transition", "转场"], ["judgment", "判断方式"],
+        ["ending", "结尾"], ["forbidden_expression", "禁用表达"],
+        ["reader_relationship", "读者关系"], ["identity", "作者身份"],
+        ["positive_phrase", "正向表达"],
+      ];
+      const dimensionField = createElement("fieldset", "writing-feedback-dimensions");
+      dimensionField.append(createElement("legend", "", "受影响维度（至少一项）"));
+      dimensions.forEach(([value, label], index) => {
+        const option = createElement("label", "", label);
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.value = value;
+        input.checked = index < 3;
+        option.prepend(input);
+        dimensionField.append(option);
+      });
+      const submit = createElement("button", "primary-action", "保存人工版本并记录反馈");
+      submit.type = "submit";
+      form.append(titleLabel, bodyLabel, tagsLabel, articleTypeLabel, reasonLabel, dimensionField, submit);
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const selected = [...dimensionField.querySelectorAll('input[type="checkbox"]:checked')].map((item) => item.value);
+        if (!selected.length) {
+          window.alert("请至少选择一个受影响维度");
+          return;
+        }
+        submit.disabled = true;
+        try {
+          const humanDraft = await api(`/api/drafts/${encodeURIComponent(modelDraft.id)}`, {
+            method: "PUT",
+            body: JSON.stringify({ title: titleInput.value, body: bodyInput.value, tags: tagsInput.value }),
+          });
+          await api(`/api/writing/projects/${encodeURIComponent(project.id)}/feedback`, {
+            method: "POST",
+            body: JSON.stringify({
+              draft_before_id: modelDraft.id,
+              draft_after_id: humanDraft.id,
+              article_type: articleTypeInput.value,
+              feedback_reason: reasonInput.value,
+              affected_dimensions: selected,
+            }),
+          });
+          await loadWriting(project.id);
+        } catch (error) {
+          window.alert(error.message);
+          submit.disabled = false;
+        }
+      });
+      panel.append(form);
+
+      const history = createElement("div", "writing-feedback-history");
+      if (!feedbacks.length) history.append(createElement("div", "card-empty", "尚未记录真实改稿反馈。"));
+      feedbacks.forEach((feedback) => {
+        const card = createElement("article", "writing-feedback-card");
+        const delta = Number(feedback.diff?.changes?.body_character_delta || 0);
+        card.append(
+          createElement("strong", "", feedback.feedback_reason || "真实改稿反馈"),
+          createElement("small", "", `${feedback.article_type || "未分类"} · ${feedback.affected_dimensions.join(" / ")} · 正文 ${delta >= 0 ? "+" : ""}${delta} 字符`),
+        );
+        const memory = createElement("button", feedback.approved_to_memory ? "primary-action" : "secondary-action", feedback.approved_to_memory ? "已批准进入记忆" : "预览并决定是否进入记忆");
+        memory.type = "button";
+        memory.disabled = feedback.approved_to_memory;
+        memory.dataset.memorySourceKind = "writing_feedback";
+        memory.dataset.memorySourceId = feedback.id;
+        card.append(memory);
+        history.append(card);
+      });
+      panel.append(history);
+    } catch (error) {
+      panel.replaceChildren(createElement("div", "card-empty", `真实反馈面板加载失败：${error.message}`));
+    }
   }
 
   function renderProjectDetail(project) {
@@ -459,9 +645,11 @@
       const item = createElement("article", "artifact-card");
       const itemHeader = createElement("div", "artifact-header");
       itemHeader.innerHTML = `<div><span>${artifactLabel(artifact.artifact_type)}</span><small>${artifact.created_by_role} · v${artifact.version}</small></div><strong>${artifact.approved ? "已确认" : "待确认"}</strong>`;
-      const content = createElement("pre", "artifact-content");
-      try { content.textContent = JSON.stringify(JSON.parse(artifact.content_json), null, 2); }
-      catch { content.textContent = artifact.content_json; }
+      const parsed = artifactPayload(artifact);
+      const content = artifact.artifact_type === "title_tournament"
+        ? renderTitleTournament(project, artifact, parsed)
+        : createElement("pre", "artifact-content");
+      if (artifact.artifact_type !== "title_tournament") content.textContent = JSON.stringify(parsed, null, 2);
       item.append(itemHeader, content);
       if (["editorial_brief", "outline", "revision_plan"].includes(artifact.artifact_type) && !artifact.approved) {
         const approval = createElement("div", "artifact-approval");
@@ -484,6 +672,12 @@
       timeline.append(item);
     });
     box.append(timeline);
+    if (project.output_draft_id) {
+      const feedbackPanel = createElement("section", "surface studio-panel writing-feedback-panel");
+      feedbackPanel.append(createElement("div", "card-empty", "正在加载人工终稿与真实反馈…"));
+      box.append(feedbackPanel);
+      void hydrateWritingFeedback(project, feedbackPanel);
+    }
   }
 
   async function approveArtifact(projectId, artifactId, approved) {

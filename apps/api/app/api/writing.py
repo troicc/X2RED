@@ -18,6 +18,7 @@ from app.domain.studio_schemas import (
     ArtifactApprovalRequest,
     StyleProfileCreate,
     StyleProfileOut,
+    TitlePreferenceRequest,
     WritingFeedbackCreate,
     WritingMaterialOption,
     WritingProjectCreate,
@@ -282,6 +283,37 @@ def approve_artifact(
     return project_payload(db, service, project)
 
 
+@router.post(
+    "/projects/{project_id}/titles/select",
+    status_code=status.HTTP_201_CREATED,
+)
+def select_title(
+    project_id: str,
+    body: TitlePreferenceRequest,
+    db: Session = Depends(get_db),
+    service: MultiAgentWritingService = Depends(get_writing_service),
+) -> dict:
+    project = db.get(WritingProject, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="写作项目不存在")
+    try:
+        preference = service.select_title_preference(
+            db,
+            project=project,
+            tournament_artifact_id=body.tournament_artifact_id,
+            candidate_id=body.candidate_id,
+            note=body.note,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    db.commit()
+    return {
+        "id": preference.id,
+        "preference": json.loads(preference.content_json or "{}"),
+        "created_at": preference.created_at,
+    }
+
+
 @router.post("/projects/{project_id}/feedback", status_code=status.HTTP_201_CREATED)
 def add_feedback(
     project_id: str,
@@ -292,15 +324,18 @@ def add_feedback(
     project = db.get(WritingProject, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="写作项目不存在")
-    feedback = service.add_feedback(
-        db,
-        project=project,
-        draft_before_id=body.draft_before_id,
-        draft_after_id=body.draft_after_id,
-        diff=body.diff,
-        feedback_reason=body.feedback_reason,
-        affected_rules=body.affected_rules,
-    )
+    try:
+        feedback = service.add_feedback(
+            db,
+            project=project,
+            draft_before_id=body.draft_before_id,
+            draft_after_id=body.draft_after_id,
+            article_type=body.article_type,
+            feedback_reason=body.feedback_reason,
+            affected_dimensions=[str(item) for item in body.affected_dimensions],
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     db.commit()
     return {"id": feedback.id, "created_at": feedback.created_at}
 
@@ -320,23 +355,29 @@ def list_feedback(
             .order_by(desc(WritingFeedback.created_at))
         ).all()
     )
-    return [
-        {
+    output: list[dict] = []
+    for item in values:
+        diff = json.loads(item.diff_json or "{}")
+        memory = memory_service.source_memory_status(
+            db,
+            source_kind="writing_feedback",
+            source_id=item.id,
+        )
+        dimensions = json.loads(item.affected_rules_json or "[]")
+        output.append({
             "id": item.id,
             "draft_before_id": item.draft_before_id,
             "draft_after_id": item.draft_after_id,
-            "diff": json.loads(item.diff_json or "{}"),
+            "article_type": str(diff.get("article_type") or ""),
+            "diff": diff,
             "feedback_reason": item.feedback_reason,
-            "affected_rules": json.loads(item.affected_rules_json or "[]"),
-            "pool_memory": memory_service.source_memory_status(
-                db,
-                source_kind="writing_feedback",
-                source_id=item.id,
-            ),
+            "affected_dimensions": dimensions,
+            "affected_rules": dimensions,
+            "approved_to_memory": memory.get("status") == "approved",
+            "pool_memory": memory,
             "created_at": item.created_at,
-        }
-        for item in values
-    ]
+        })
+    return output
 
 
 @router.post(

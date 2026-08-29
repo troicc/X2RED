@@ -36,6 +36,7 @@ def test_completed_agent_stages_survive_later_model_failures(
     monkeypatch.setenv("X2RED_MODEL_BASE_URL", "https://model.example/v1")
     monkeypatch.setenv("X2RED_MODEL_NAME", "glm-5.2")
     monkeypatch.setenv("X2RED_MODEL_API_KEY", "test-key")
+    monkeypatch.setenv("X2RED_WRITING_QUALITY_MODE", "legacy")
 
     from app.core.config import get_settings
 
@@ -267,6 +268,7 @@ def test_deep_writing_preserves_complete_longform_and_links_wechat_output(
     monkeypatch.setenv("X2RED_MODEL_BASE_URL", "https://model.example/v1")
     monkeypatch.setenv("X2RED_MODEL_NAME", "glm-5.2")
     monkeypatch.setenv("X2RED_MODEL_API_KEY", "test-key")
+    monkeypatch.setenv("X2RED_WRITING_QUALITY_MODE", "legacy")
 
     from app.core.config import get_settings
 

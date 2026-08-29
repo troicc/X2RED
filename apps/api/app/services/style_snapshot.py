@@ -11,6 +11,7 @@ from app.domain.models import DraftRevision, SourceItem
 from app.domain.studio import StyleProfile, WritingArtifact, WritingProject
 from app.domain.style_snapshot import WritingStyleSnapshot
 from app.services.pool_memory import PoolMemoryService
+from app.services.style_exemplar_retrieval import StyleExemplarRetrievalService
 
 _DEFAULT_STYLE = {
     "identity": "专业但不端着的中文内容创作者",
@@ -64,11 +65,16 @@ class StyleSnapshotMixin:
             profile_version = 0
         else:
             samples = self._json(profile.samples_json, {})
+            rules = self._json(profile.rules_json, {})
             samples_serialized = json.dumps(samples, ensure_ascii=False, sort_keys=True)
             payload = {
                 "name": profile.name,
                 "description": profile.description,
-                "rules": self._json(profile.rules_json, {}),
+                "rules": rules,
+                "author_overrides": (
+                    rules.get("author_overrides", []) if isinstance(rules, dict) else []
+                ),
+                "rule_priority": "explicit author overrides > approved feedback > model inference",
                 "forbidden": self._json(profile.forbidden_json, []),
                 "sample_bundle": {
                     "stored_in_style_profile": True,
@@ -92,12 +98,12 @@ class StyleSnapshotMixin:
         db.add(snapshot)
         db.flush()
         memory_service = PoolMemoryService(self.settings, self.editorial)
-        memory_service.create_snapshot(
+        memory_snapshot = memory_service.create_snapshot(
             db,
             target_type="writing_project",
             target_id=project.id,
             query={
-                "platform": "xhs",
+                "platform": "wechat",
                 "format": "article",
                 "article_type": "technical_explainer",
                 "style_profile_id": profile.id if profile else "",
@@ -117,6 +123,15 @@ class StyleSnapshotMixin:
             model_configured=bool(self.settings.model_base_url and self.settings.model_name),
             model_name=self.settings.model_name,
         )
+        exemplar_bundle = StyleExemplarRetrievalService().build(db, memory_snapshot)
+        self._store_artifact(
+            db,
+            project=project,
+            artifact_type="style_exemplar_bundle",
+            content=exemplar_bundle.model_dump(mode="json"),
+            role="style_exemplar_retriever",
+            approved=True,
+        )
         return project
 
     def _style_payload(self, db: Session, project: WritingProject) -> dict[str, Any]:
@@ -125,6 +140,25 @@ class StyleSnapshotMixin:
             return self._json(snapshot.snapshot_json, dict(_DEFAULT_STYLE))
         # Compatibility for projects created before migration 0007.
         return super()._style_payload(db, project)
+
+    def _style_exemplar_payload(
+        self,
+        db: Session,
+        project: WritingProject,
+    ) -> dict[str, Any]:
+        artifact = self.latest_artifact(db, project.id, "style_exemplar_bundle")
+        if artifact is not None:
+            return self._json(artifact.content_json, {})
+        bundle = StyleExemplarRetrievalService().build(db, self._memory_snapshot(db, project))
+        artifact = self._store_artifact(
+            db,
+            project=project,
+            artifact_type="style_exemplar_bundle",
+            content=bundle.model_dump(mode="json"),
+            role="style_exemplar_retriever",
+            approved=True,
+        )
+        return self._json(artifact.content_json, {})
 
     def _create_draft_revision(
         self,

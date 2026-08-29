@@ -158,7 +158,7 @@ class DraftGenerateRequest(BaseModel):
 
 class DraftUpdateRequest(BaseModel):
     title: str = Field(max_length=80)
-    body: str = Field(max_length=4000)
+    body: str = Field(max_length=50000)
     tags: str = Field(default="", max_length=500)
 
 
