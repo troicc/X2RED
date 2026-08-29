@@ -93,6 +93,8 @@ Prompt compilation is a separate boundary before image generation. The pinned v0
 
 Before that compiler boundary, V2 freezes one article-level `VisualBible` and one selected `PageVisualBrief` per page from exactly three candidates. The Bible contains only project rendering invariants; current evidence determines page subjects. A series-level editor blocks repeated subjects/anchors, insufficient layout diversity, visual clichés, compound abstractions and missing evidence. The compiler treats the selected brief as the sole page-level visual authority, and any storyboard-semantic change invalidates prior Prompt/raw/composition traces. `X2RED_VISUAL_BRIEF_MODE=legacy` rolls back this layer without mutating historical variants.
 
+After compilation, V3 introduces a separate image-candidate boundary. API providers request three raw candidates by default; manual web handoff accepts 1–4. Both paths persist the same Prompt-run and candidate schema, including provider/model, hash, dimensions, cost, latency, review and audit state. Contact Sheets contain only original thumbnails and candidate numbers. A candidate must pass the ten-dimension visual gate or receive explicit human approval before selection, and each page permits at most one directed repair with frozen invariants repeated. Selecting or rejecting a candidate never deletes its competitors. Only a complete set of approved selected candidates can rebuild the release package; candidates, Contact Sheets and raw anchors remain outside the ZIP. `X2RED_IMAGE_CANDIDATE_MODE=legacy` rolls back this boundary without deleting audit history.
+
 ## Isolation and review invariants
 
 - Corpus-batch context flows one way and one layer deep; shared sources cannot pull an older batch's full memory into a newer one.

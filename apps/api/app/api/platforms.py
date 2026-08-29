@@ -13,6 +13,7 @@ from app.api.deps import get_platform_service, get_pool_memory_service
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.domain.models import DraftRevision, SourceItem
+from app.domain.image_candidate_schemas import utc_timestamp
 from app.domain.platform_schemas import (
     LightContentApproval,
     LightContentCandidateSelect,
@@ -155,6 +156,8 @@ def _carry_storyboard_trace(
         "model_input_fingerprint",
         "raw_anchor_fingerprint",
         "raw_anchor_source_variant_id",
+        "selected_image_candidate_id",
+        "image_candidate_review",
         "text_rendering",
         "model_text_forbidden",
     ):
@@ -171,6 +174,8 @@ def _drop_storyboard_trace(current: dict) -> None:
         "model_input_fingerprint",
         "raw_anchor_fingerprint",
         "raw_anchor_source_variant_id",
+        "selected_image_candidate_id",
+        "image_candidate_review",
         "text_rendering",
         "model_text_forbidden",
     ):
@@ -581,6 +586,25 @@ def revise_wechat_light_storyboard(
             "validation": {},
         }
     )
+    lifecycle = metadata.get("image_candidate_lifecycle")
+    if model_changed_pages and isinstance(lifecycle, dict):
+        lifecycle_pages = lifecycle.get("pages")
+        if isinstance(lifecycle_pages, dict):
+            for changed_page in model_changed_pages:
+                lifecycle_pages.pop(str(changed_page), None)
+        audit_events = lifecycle.get("audit_events")
+        if isinstance(audit_events, list):
+            audit_events.extend(
+                {
+                    "event": "candidate_invalidated",
+                    "page": changed_page,
+                    "candidate_id": "",
+                    "detail": "冻结 PageVisualBrief 变化，旧图片候选不再有效",
+                    "at": utc_timestamp(),
+                }
+                for changed_page in model_changed_pages
+            )
+        metadata["image_candidate_lifecycle"] = lifecycle
     revised.metadata_json = json.dumps(metadata, ensure_ascii=False)
     revised.output_paths_json = "{}"
     revised.status = "draft"

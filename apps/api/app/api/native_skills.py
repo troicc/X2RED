@@ -71,16 +71,43 @@ class MinimalZineWebHandoffRequest(BaseModel):
         return values
 
 
+class ImageCandidateReviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    candidate_id: str = Field(pattern=r"^imgcand_[a-f0-9]{24}$")
+    action: Literal["keep", "reject", "approve"]
+    reason: str = Field(default="", max_length=600)
+
+
+class ImageCandidateSelectionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    candidate_id: str = Field(pattern=r"^imgcand_[a-f0-9]{24}$")
+
+
+class ImageCandidateRepairRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    candidate_id: str = Field(pattern=r"^imgcand_[a-f0-9]{24}$")
+
+
 @router.get("")
 def list_native_skills() -> dict:
     settings = get_settings()
     manager = NativeSkillManager(settings)
+    native_service = MinimalZineNativeService(settings)
     return {
         "skills": manager.statuses(),
         "image_generation": {
-            "configured": MinimalZineNativeService(settings).image_configured,
+            "configured": native_service.image_configured,
             "model": settings.image_model,
             "size": settings.image_size,
+            "candidate_mode": settings.image_candidate_mode,
+            "candidate_count": settings.image_candidate_count,
+            "capabilities": native_service.model.image_capabilities().model_dump(
+                mode="json"
+            ),
+            "auto_repair_limit": 1,
         },
         "policy": {
             "upstream_checkouts_are_separate": True,
@@ -159,7 +186,7 @@ def prepare_minimal_zine_web_handoff(
 async def import_minimal_zine_external_anchor(
     variant_id: str,
     page: int = Query(..., ge=1, le=6),
-    file: UploadFile = File(...),
+    files: list[UploadFile] = File(..., alias="file"),
     db: Session = Depends(get_db),
 ) -> dict:
     variant = db.get(PlatformVariant, variant_id)
@@ -167,12 +194,14 @@ async def import_minimal_zine_external_anchor(
         raise HTTPException(status_code=404, detail="平台版本不存在")
     service = MinimalZineNativeService(get_settings())
     try:
-        payload = await file.read(12 * 1024 * 1024 + 1)
+        if not 1 <= len(files) <= 4:
+            raise NativeSkillError("手工网页路径每页必须上传 1 到 4 张图片")
+        payloads = [await file.read(12 * 1024 * 1024 + 1) for file in files]
         variant, result, complete = service.import_external_anchor(
             db,
             variant,
             page=page,
-            image_bytes=payload,
+            image_candidates=payloads,
             provider="chatgpt-web",
         )
         db.commit()
@@ -191,4 +220,87 @@ async def import_minimal_zine_external_anchor(
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     finally:
-        await file.close()
+        for file in files:
+            await file.close()
+
+
+@router.post("/minimal-zine/variants/{variant_id}/candidates/{page}/review")
+def review_minimal_zine_image_candidate(
+    variant_id: str,
+    page: int,
+    body: ImageCandidateReviewRequest,
+    db: Session = Depends(get_db),
+) -> dict:
+    variant = db.get(PlatformVariant, variant_id)
+    if variant is None:
+        raise HTTPException(status_code=404, detail="平台版本不存在")
+    service = MinimalZineNativeService(get_settings())
+    try:
+        result = service.review_image_candidate(
+            db,
+            variant,
+            page=page,
+            candidate_id=body.candidate_id,
+            action=body.action,
+            reason=body.reason,
+        )
+        db.commit()
+        db.refresh(variant)
+        return result
+    except NativeSkillError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/minimal-zine/variants/{variant_id}/candidates/{page}/select")
+def select_minimal_zine_image_candidate(
+    variant_id: str,
+    page: int,
+    body: ImageCandidateSelectionRequest,
+    db: Session = Depends(get_db),
+) -> dict:
+    variant = db.get(PlatformVariant, variant_id)
+    if variant is None:
+        raise HTTPException(status_code=404, detail="平台版本不存在")
+    try:
+        variant, result = MinimalZineNativeService(
+            get_settings()
+        ).select_image_candidate(
+            db,
+            variant,
+            page=page,
+            candidate_id=body.candidate_id,
+        )
+        db.commit()
+        db.refresh(variant)
+        return result
+    except NativeSkillError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/minimal-zine/variants/{variant_id}/candidates/{page}/repair")
+def repair_minimal_zine_image_candidate(
+    variant_id: str,
+    page: int,
+    body: ImageCandidateRepairRequest,
+    db: Session = Depends(get_db),
+) -> dict:
+    variant = db.get(PlatformVariant, variant_id)
+    if variant is None:
+        raise HTTPException(status_code=404, detail="平台版本不存在")
+    try:
+        variant, result = MinimalZineNativeService(
+            get_settings()
+        ).repair_image_candidate(
+            db,
+            variant,
+            page=page,
+            candidate_id=body.candidate_id,
+        )
+        db.commit()
+        db.refresh(variant)
+        return result
+    except NativeSkillError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

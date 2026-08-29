@@ -1,20 +1,22 @@
 # X2RED 项目记忆
 
-更新时间：2026-08-09 23:06 +08:00
+更新时间：2026-08-09 +08:00
 
 ## 一、当前快照
 
 仓库：`troicc/X2RED`
 
-当前本地任务分支：`codex/x2red-v2-visual-bible-page-brief`
+当前本地任务分支：`codex/x2red-v3-contact-sheet-visual-review`
 
-V2 分支来源：已合并 V1 的 `agent/replace-crawlers-with-api-adapters`，准确基线 SHA `a7b00d0005d024ab16a770dd7513031f5e21d548`
+V3 分支来源：已合并 V2 的 `agent/replace-crawlers-with-api-adapters`，准确基线 SHA `9086b6226b68e367e10327a577eb625e4d251b5b`
 
 基线 PR：`#19 重构简中素材采集、语料池与三层创作工作区`
 
 C0 PR：`#20 C0：冻结创作质量基线与可重放评测夹具`，已于 2026-08-09 squash merge 到功能基线分支。
 
 V1 PR：`#21 V1：对齐 Minimal Zine v0.3 视觉 Prompt compiler`，head `291d6a13ca8606628d1c2c781f7f15e298e57bc2` 的 `test (3.12)` 成功后已于 2026-08-09 squash merge，功能基线前进到 `a7b00d0005d024ab16a770dd7513031f5e21d548`。
+
+V2 PR：`#22 V2：Visual Bible 与逐页视觉简报`，head `833c0d422ab9a8e942e79f0340408e199b40c210` 的 CI run `817` 成功后已于 2026-08-09 squash merge，功能基线前进到 `9086b6226b68e367e10327a577eb625e4d251b5b`。
 
 C0 首个提交：`08c0920f154d51a7cdfa5d35a604d48b3d393672`
 
@@ -31,6 +33,18 @@ PR #19 属于 C0 的基线功能分支，不是 C0 分支本身。
 2026-08-09 21:34：C0 首个提交 `08c0920f154d51a7cdfa5d35a604d48b3d393672` 已推送到远端 `codex/x2red-c0-quality-baseline`，并创建 Draft PR #20，目标为 `agent/replace-crawlers-with-api-adapters`。PR #20 的 CI、mergeability 和 head 属于易变化事实，合并前必须重新查询。
 
 2026-08-09 随后重新查询并完成 C0：PR #20 head `dd10c9f959c2b518be6f9ef1b910e3e9b7a9b261` 的 CI run `813` 成功，PR 标记 ready 后 squash merge；功能基线分支的新 head 为 `02aa1db7f5eef45e438c8776bad0703c3e3ef441`。V1 从这个已合并 head 创建独立分支。
+
+### 2026-08-09 V3 图片多候选、Contact Sheet 与视觉审稿
+
+- 新增统一 `ImageCandidateLifecycle`：API 生图和 ChatGPT Images 网页回传都按页保存 Prompt run、候选序号、provider/model、图片 hash、尺寸、成本、延迟、状态、审稿和 append-only audit event。手工 1—4 张与 API 默认 3 张只在调用来源上不同，不再维护两套状态模型。
+- `ModelClient` 显式检测 candidate count、image reference、image edit、multi-turn 和 usage 能力；即使静态能力判断支持 `n`，运行时多图请求失败也会记录失败尝试并顺序回退为单张调用。候选成本、延迟、调用次数和 provider usage 保持可追溯。
+- 每页生成只含原始缩略图与编号的 Contact Sheet，不叠加长文字。候选原图、Contact Sheet、raw anchor 和 final poster 分开记录；选择、驳回或修复不删除其他候选。
+- 视觉预检结构化保存 semantic match、subject clarity、composition、thumbnail hook、series consistency、texture、color anchor、artifacts、text safety 和 cliché score。当前 deterministic critic 不伪称具备完整事实/语义视觉理解；最终人工视觉、版权、水印、异常文字和事实复核不变。
+- 每页自动定向修复硬上限为 1，provider 支持时优先 image edit；修复完整重复 Visual Bible、PageVisualBrief、Prompt invariants 和参考图要求，只处理一个主要缺陷。仍不合格即停止自动重试并交给人工。
+- 未通过审稿或未经人工明确批准的候选不得自动选中或进入发布包。全部页存在有效的选中候选后才可重建 ZIP；ZIP allowlist 排除候选、Contact Sheet 和 raw anchor。
+- 轻内容 UI 已显示 Contact Sheet、候选图、十项评分、总分、provider/model、尺寸、成本/延迟/调用次数，以及选择、保留、人工批准、带理由驳回、单次修复、三候选再生、仅重排版和替换概念。真实浏览器在 1280×800 / 375×812 验证候选切换和驳回闭环，无横向溢出，console 0 error；使用隔离临时数据库与合成候选，未调用真实模型或写用户数据库。
+- Feature flag `X2RED_IMAGE_CANDIDATE_MODE=production|legacy` 默认 production；`X2RED_IMAGE_CANDIDATE_COUNT=1..4` 默认 3。回滚不删除现有候选记录或文件。详细合同见 `docs/ai-context/IMAGE_CANDIDATE_VISUAL_REVIEW_V3.md`。
+- 自动化最终为图片候选定向 `9 passed`、候选与 Minimal Zine 联合 `21 passed, 1 warning`、完整 API 套件 `128 passed, 8 warnings`；Ruff、compileall、全部 JavaScript、wheel 内容、JSON、敏感信息和 diff 门禁通过。
 
 ### 2026-08-09 V2 Visual Bible 与逐页视觉简报
 

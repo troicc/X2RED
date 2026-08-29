@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import difflib
 import hashlib
 import html
@@ -15,13 +14,13 @@ from functools import cache
 from pathlib import Path
 from typing import Any, Literal
 
-import httpx
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageOps
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.domain.platforms import PlatformVariant, PlatformVariantState
+from app.domain.image_candidate_schemas import ImageCandidateLifecycle
 from app.domain.visual_brief_schemas import PageVisualBrief
 from app.domain.visual_prompt_schemas import (
     VisualPromptContext,
@@ -30,6 +29,11 @@ from app.domain.visual_prompt_schemas import (
     VisualPromptSpec,
 )
 from app.services.light_visual_renderer import CJKFontError, LightVisualRenderer
+from app.services.image_candidate_service import (
+    CandidateBatchResult,
+    ImageCandidateError,
+    ImageCandidateService,
+)
 from app.services.model_client import ModelClient, ModelClientError
 from app.services.native_skill_manager import NativeSkillError, NativeSkillManager
 from app.services.visual_prompt_compiler import (
@@ -269,6 +273,10 @@ class MinimalZineNativeService:
         self.settings = settings
         self.manager = NativeSkillManager(settings)
         self.model = ModelClient(settings)
+        self.image_candidates = ImageCandidateService(
+            settings,
+            model_client=self.model,
+        )
         self.prompt_compiler = VisualPromptCompiler(settings)
         self.local_renderer = LightVisualRenderer(settings)
 
@@ -367,7 +375,8 @@ class MinimalZineNativeService:
         variant: PlatformVariant,
         *,
         page: int,
-        image_bytes: bytes,
+        image_bytes: bytes | None = None,
+        image_candidates: list[bytes] | None = None,
         provider: str = "chatgpt-web",
     ) -> tuple[PlatformVariant, dict[str, Any], bool]:
         """Import one human-generated web image and rebuild every available final.
@@ -378,9 +387,12 @@ class MinimalZineNativeService:
         """
 
         self._require_light_variant(variant)
-        if not image_bytes:
+        uploaded_images = list(image_candidates or ([] if image_bytes is None else [image_bytes]))
+        if not 1 <= len(uploaded_images) <= 4:
+            raise NativeSkillError("手工网页路径每页必须上传 1 到 4 张图片")
+        if any(not value for value in uploaded_images):
             raise NativeSkillError("上传图片为空")
-        if len(image_bytes) > 12 * 1024 * 1024:
+        if any(len(value) > 12 * 1024 * 1024 for value in uploaded_images):
             raise NativeSkillError("单张图片不能超过 12 MB")
 
         metadata = self._object(variant.metadata_json)
@@ -404,6 +416,12 @@ class MinimalZineNativeService:
             handoff["visual_prompt_spec"]
         )
         feature_mode = self._compiler_feature_mode(metadata, specs)
+        candidate_mode = self._candidate_feature_mode(metadata)
+        candidate_lifecycle = (
+            self._candidate_lifecycle(metadata)
+            if candidate_mode == "production"
+            else ImageCandidateLifecycle()
+        )
 
         wechat_root = (self.settings.export_dir / "wechat").resolve()
         wechat_root.mkdir(parents=True, exist_ok=True)
@@ -412,6 +430,56 @@ class MinimalZineNativeService:
         staging_dir.mkdir(parents=False, exist_ok=False)
         new_specs = [dict(item) for item in specs]
         stage_paths: dict[str, str] = {}
+        selected_uploaded_candidate = None
+        if candidate_mode == "production":
+            self._copy_candidate_artifacts(current_paths, staging_dir, stage_paths)
+            self._copy_candidate_artifacts(parent_paths, staging_dir, stage_paths)
+            try:
+                batch = self.image_candidates.add_manual_candidates(
+                    lifecycle=candidate_lifecycle,
+                    page=page,
+                    prompt=str(handoff["prompt"]),
+                    images=uploaded_images,
+                    output_dir=staging_dir,
+                    artifact_paths=stage_paths,
+                    page_visual_brief=(
+                        new_specs[page - 1].get("page_visual_brief")
+                        if isinstance(new_specs[page - 1].get("page_visual_brief"), dict)
+                        else None
+                    ),
+                    invariants=self._candidate_invariants(metadata, new_specs[page - 1]),
+                    provider=provider,
+                    model="manual-web-image",
+                    series_reference_bytes=self._candidate_reference_bytes(
+                        candidate_lifecycle,
+                        page,
+                        stage_paths,
+                    ),
+                )
+                candidate_lifecycle = batch.lifecycle
+                stage_paths = batch.artifact_paths
+                selected_uploaded_candidate = (
+                    batch.selected_candidate
+                    if batch.selected_candidate is not None
+                    and batch.selected_candidate.candidate_id in batch.created_candidate_ids
+                    else None
+                )
+            except ImageCandidateError as exc:
+                raise NativeSkillError(str(exc)) from exc
+        selected_uploaded_bytes: bytes | None
+        if candidate_mode == "production" and selected_uploaded_candidate is not None:
+            try:
+                selected_uploaded_bytes = self.image_candidates.selected_bytes(
+                    candidate_lifecycle,
+                    page,
+                    stage_paths,
+                )
+            except ImageCandidateError as exc:
+                raise NativeSkillError(str(exc)) from exc
+        elif candidate_mode == "legacy":
+            selected_uploaded_bytes = uploaded_images[0]
+        else:
+            selected_uploaded_bytes = None
         page_diagnostics: list[dict[str, Any]] = []
         backup_dir: Path | None = None
         promoted = False
@@ -440,7 +508,7 @@ class MinimalZineNativeService:
                 action = ""
                 raw_source_variant_id = variant.id
 
-                if current_page == page:
+                if current_page == page and selected_uploaded_bytes is not None:
                     model_fingerprint = (
                         _model_input_fingerprint(spec)
                         if feature_mode == "legacy"
@@ -448,7 +516,7 @@ class MinimalZineNativeService:
                     )
                     stored_recipe = handoff_visual_spec.recipe.model_dump(mode="json")
                     recipe = self._composer_recipe(handoff_visual_spec.recipe)
-                    self._write_raw_anchor(image_bytes, anchor_path)
+                    self._write_raw_anchor(selected_uploaded_bytes, anchor_path)
                     spec.update(
                         {
                             "final_prompt": str(handoff["prompt"]),
@@ -462,6 +530,15 @@ class MinimalZineNativeService:
                             "raw_anchor_handoff": "manual-web-save-upload",
                         }
                     )
+                    if selected_uploaded_candidate is not None:
+                        spec.update(
+                            {
+                                "selected_image_candidate_id": selected_uploaded_candidate.candidate_id,
+                                "image_candidate_review": selected_uploaded_candidate.review.model_dump(
+                                    mode="json"
+                                ),
+                            }
+                        )
                     action = "external_import"
                 else:
                     final_source = self._final_candidate(
@@ -527,6 +604,34 @@ class MinimalZineNativeService:
                     composition = self._object_value(spec.get("composition_diagnostics"))
                     composition = {**composition, "cached_final": True}
 
+                if candidate_mode == "production":
+                    selected_candidate = self.image_candidates.selected_candidate(
+                        candidate_lifecycle,
+                        current_page,
+                    )
+                    if selected_candidate is None:
+                        adopted = self._adopt_existing_candidate(
+                            lifecycle=candidate_lifecycle,
+                            metadata=metadata,
+                            spec=spec,
+                            page=current_page,
+                            anchor_path=anchor_path,
+                            output_dir=staging_dir,
+                            artifact_paths=stage_paths,
+                        )
+                        candidate_lifecycle = adopted.lifecycle
+                        stage_paths = adopted.artifact_paths
+                        selected_candidate = adopted.selected_candidate
+                    if selected_candidate is not None:
+                        spec.update(
+                            {
+                                "selected_image_candidate_id": selected_candidate.candidate_id,
+                                "image_candidate_review": selected_candidate.review.model_dump(
+                                    mode="json"
+                                ),
+                            }
+                        )
+
                 spec.update(
                     {
                         "native_zine_recipe": stored_recipe or recipe,
@@ -573,6 +678,11 @@ class MinimalZineNativeService:
             new_metadata["poster_specs"] = new_specs
             new_metadata["render_engine"] = "gc-minimal-zine-local-compositor-v7"
             new_metadata["visual_prompt_mode"] = feature_mode
+            new_metadata["image_candidate_mode"] = candidate_mode
+            if candidate_mode == "production":
+                new_metadata["image_candidate_lifecycle"] = candidate_lifecycle.model_dump(
+                    mode="json"
+                )
             new_metadata["native_zine"] = {
                 **previous_native,
                 "repository": "https://github.com/LiamGvchi/gc-minimal-zine-poster",
@@ -595,11 +705,26 @@ class MinimalZineNativeService:
                     "complete": complete,
                 },
                 "artifact_contract": "anchors-and-finals-separate; zip-excludes-anchors",
+                "image_candidates": {
+                    "mode": candidate_mode,
+                    "manual_upload_count": len(uploaded_images),
+                    "auto_repair_limit": 1,
+                    "publish_requires_review_pass": candidate_mode == "production",
+                },
                 "watermark_policy": (
                     "negative prompt, feathered high-risk outer-edge masking, local Chinese type, "
                     "and required human visual review; no watermark-impossibility claim"
                 ),
             }
+            candidate_publish_allowed = (
+                candidate_mode != "production"
+                or self.image_candidates.publish_allowed(
+                    candidate_lifecycle,
+                    total_pages=total,
+                    artifact_paths=stage_paths,
+                )
+            )
+            allow_package = complete and candidate_publish_allowed
             stage_paths = self._rebuild_artifacts(
                 variant=variant,
                 metadata=new_metadata,
@@ -607,12 +732,19 @@ class MinimalZineNativeService:
                 output_dir=staging_dir,
                 output_paths=stage_paths,
                 page_diagnostics=page_diagnostics,
+                allow_package=allow_package,
             )
-            if not complete:
-                package_value = stage_paths.pop("package", "")
-                if package_value:
-                    Path(package_value).unlink(missing_ok=True)
-            self._assert_import_artifacts(stage_paths, staging_dir, page)
+            if f"poster_{page:02d}" in stage_paths:
+                self._assert_import_artifacts(stage_paths, staging_dir, page)
+            else:
+                required = {"markdown", "manifest", "preview", f"contact_sheet_{page:02d}"}
+                missing = sorted(key for key in required if key not in stage_paths)
+                if missing:
+                    raise NativeSkillError(
+                        f"候选审稿产物不完整：缺少 {', '.join(missing)}"
+                    )
+            if not allow_package and "package" in stage_paths:
+                raise NativeSkillError("未通过视觉审稿的候选不得进入发布包")
 
             final_paths = {
                 key: str((target_dir / Path(value).name).resolve())
@@ -624,7 +756,7 @@ class MinimalZineNativeService:
             variant.output_paths_json = json.dumps(final_paths, ensure_ascii=False)
             variant.status = (
                 PlatformVariantState.packaged.value
-                if complete
+                if "package" in final_paths
                 else PlatformVariantState.rendered.value
             )
             variant.error = ""
@@ -645,22 +777,293 @@ class MinimalZineNativeService:
         else:
             if backup_dir is not None and backup_dir.exists():
                 shutil.rmtree(backup_dir, ignore_errors=True)
+            poster_key = f"poster_{page:02d}"
+            anchor_key = f"anchor_{page:02d}"
             result = {
                 "page": page,
-                "path": final_paths[f"poster_{page:02d}"],
-                "anchor_path": final_paths[f"anchor_{page:02d}"],
-                "anchor_key": f"anchor_{page:02d}",
-                "poster_key": f"poster_{page:02d}",
-                "action": "external_import",
+                "path": final_paths.get(poster_key, ""),
+                "anchor_path": final_paths.get(anchor_key, ""),
+                "anchor_key": anchor_key if anchor_key in final_paths else "",
+                "poster_key": poster_key if poster_key in final_paths else "",
+                "action": (
+                    "external_import"
+                    if poster_key in final_paths
+                    else "candidate_review_required"
+                ),
                 "provider": provider,
                 "api_used": False,
                 "final_prompt": str(handoff["prompt"]),
                 "recipe": handoff["recipe"],
+                "candidate_page": (
+                    candidate_lifecycle.pages.get(str(page)).model_dump(mode="json")
+                    if candidate_mode == "production"
+                    and candidate_lifecycle.pages.get(str(page)) is not None
+                    else {}
+                ),
             }
-            return variant, result, complete
+            return variant, result, "package" in final_paths
         finally:
             if staging_dir.exists():
                 shutil.rmtree(staging_dir, ignore_errors=True)
+
+    def review_image_candidate(
+        self,
+        db: Session,
+        variant: PlatformVariant,
+        *,
+        page: int,
+        candidate_id: str,
+        action: Literal["keep", "reject", "approve"],
+        reason: str = "",
+    ) -> dict[str, Any]:
+        self._require_light_variant(variant)
+        metadata = self._object(variant.metadata_json)
+        specs = self._poster_specs(metadata)
+        self._selected_pages([page], len(specs))
+        if self._candidate_feature_mode(metadata) != "production":
+            raise NativeSkillError("当前版本处于 legacy 图片候选模式")
+        lifecycle = self._candidate_lifecycle(metadata)
+        page_state = lifecycle.pages.get(str(page))
+        was_selected = bool(
+            page_state and page_state.selected_candidate_id == candidate_id
+        )
+        try:
+            lifecycle = self.image_candidates.review_candidate(
+                lifecycle=lifecycle,
+                page=page,
+                candidate_id=candidate_id,
+                action=action,
+                reason=reason,
+            )
+        except ImageCandidateError as exc:
+            raise NativeSkillError(str(exc)) from exc
+        metadata["image_candidate_lifecycle"] = lifecycle.model_dump(mode="json")
+        metadata["image_candidate_mode"] = "production"
+        output_paths = self._object(variant.output_paths_json)
+        if action == "reject" and was_selected:
+            for key in (
+                f"anchor_{page:02d}",
+                f"poster_{page:02d}",
+                "package",
+            ):
+                output_paths.pop(key, None)
+            spec = specs[page - 1]
+            for key in (
+                "selected_image_candidate_id",
+                "image_candidate_review",
+                "raw_anchor_fingerprint",
+                "raw_anchor_source_variant_id",
+                "final_composition_fingerprint",
+                "composition_diagnostics",
+            ):
+                spec.pop(key, None)
+            metadata["poster_specs"] = specs
+            variant.status = PlatformVariantState.rendered.value
+        variant.metadata_json = json.dumps(metadata, ensure_ascii=False)
+        variant.output_paths_json = json.dumps(output_paths, ensure_ascii=False)
+        variant.error = ""
+        db.flush()
+        return self._candidate_response(
+            variant=variant,
+            lifecycle=lifecycle,
+            page=page,
+            output_paths=output_paths,
+            total_pages=len(specs),
+        )
+
+    def select_image_candidate(
+        self,
+        db: Session,
+        variant: PlatformVariant,
+        *,
+        page: int,
+        candidate_id: str,
+    ) -> tuple[PlatformVariant, dict[str, Any]]:
+        self._require_light_variant(variant)
+        metadata = self._object(variant.metadata_json)
+        specs = self._poster_specs(metadata)
+        total = len(specs)
+        self._selected_pages([page], total)
+        if self._candidate_feature_mode(metadata) != "production":
+            raise NativeSkillError("当前版本处于 legacy 图片候选模式")
+        lifecycle = self._candidate_lifecycle(metadata)
+        output_paths = self._object(variant.output_paths_json)
+        target_dir = self._variant_directory(
+            (self.settings.export_dir / "wechat").resolve(),
+            variant.id,
+        )
+        try:
+            lifecycle = self.image_candidates.select_candidate(
+                lifecycle=lifecycle,
+                page=page,
+                candidate_id=candidate_id,
+                output_dir=target_dir,
+                artifact_paths=output_paths,
+            )
+            selected = self.image_candidates.selected_candidate(lifecycle, page)
+            if selected is None:
+                raise ImageCandidateError("候选选择没有生效")
+            # This verifies both the file hash and the selected review state before
+            # exposing the candidate as a raw anchor to the compositor.
+            self.image_candidates.selected_bytes(lifecycle, page, output_paths)
+        except ImageCandidateError as exc:
+            raise NativeSkillError(str(exc)) from exc
+
+        feature_mode = self._compiler_feature_mode(metadata, specs)
+        spec = specs[page - 1]
+        model_fingerprint = self._expected_model_fingerprint(
+            variant=variant,
+            metadata=metadata,
+            specs=specs,
+            page=page,
+            feature_mode=feature_mode,
+        )
+        spec.update(
+            {
+                "selected_image_candidate_id": selected.candidate_id,
+                "image_candidate_review": selected.review.model_dump(mode="json"),
+                "raw_anchor_fingerprint": model_fingerprint,
+                "raw_anchor_source_variant_id": variant.id,
+                "raw_anchor_provider": selected.provider,
+            }
+        )
+        spec.pop("final_composition_fingerprint", None)
+        spec.pop("composition_diagnostics", None)
+        metadata["poster_specs"] = specs
+        metadata["image_candidate_mode"] = "production"
+        metadata["image_candidate_lifecycle"] = lifecycle.model_dump(mode="json")
+        output_paths[f"anchor_{page:02d}"] = output_paths[selected.artifact_key]
+        output_paths.pop(f"poster_{page:02d}", None)
+        output_paths.pop("package", None)
+        variant.metadata_json = json.dumps(metadata, ensure_ascii=False)
+        variant.output_paths_json = json.dumps(output_paths, ensure_ascii=False)
+        variant.status = PlatformVariantState.rendered.value
+        variant.error = ""
+        db.flush()
+
+        pages: list[dict[str, Any]] = []
+        deferred = False
+        try:
+            variant, pages = self.render_variant(
+                db,
+                variant,
+                mode="recompose",
+                pages=[page],
+            )
+        except NativeSkillError as exc:
+            if "部分渲染无法组成完整图组" not in str(exc):
+                raise
+            deferred = True
+        fresh_metadata = self._object(variant.metadata_json)
+        fresh_lifecycle = self._candidate_lifecycle(fresh_metadata)
+        fresh_paths = self._object(variant.output_paths_json)
+        response = self._candidate_response(
+            variant=variant,
+            lifecycle=fresh_lifecycle,
+            page=page,
+            output_paths=fresh_paths,
+            total_pages=total,
+        )
+        response.update(
+            {
+                "deferred_composition": deferred,
+                "pages": pages,
+            }
+        )
+        return variant, response
+
+    def repair_image_candidate(
+        self,
+        db: Session,
+        variant: PlatformVariant,
+        *,
+        page: int,
+        candidate_id: str,
+    ) -> tuple[PlatformVariant, dict[str, Any]]:
+        self._require_light_variant(variant)
+        metadata = self._object(variant.metadata_json)
+        specs = self._poster_specs(metadata)
+        total = len(specs)
+        self._selected_pages([page], total)
+        if self._candidate_feature_mode(metadata) != "production":
+            raise NativeSkillError("当前版本处于 legacy 图片候选模式")
+        lifecycle = self._candidate_lifecycle(metadata)
+        output_paths = self._object(variant.output_paths_json)
+        output_dir = self._variant_directory(
+            (self.settings.export_dir / "wechat").resolve(),
+            variant.id,
+        )
+        output_dir.mkdir(parents=True, exist_ok=True)
+        spec = specs[page - 1]
+        try:
+            result = self.image_candidates.repair_once(
+                lifecycle=lifecycle,
+                page=page,
+                candidate_id=candidate_id,
+                output_dir=output_dir,
+                artifact_paths=output_paths,
+                page_visual_brief=(
+                    spec.get("page_visual_brief")
+                    if isinstance(spec.get("page_visual_brief"), dict)
+                    else None
+                ),
+                invariants=self._candidate_invariants(metadata, spec),
+                series_reference_bytes=self._candidate_reference_bytes(
+                    lifecycle,
+                    page,
+                    output_paths,
+                ),
+            )
+        except ImageCandidateError as exc:
+            raise NativeSkillError(str(exc)) from exc
+        lifecycle = result.lifecycle
+        output_paths = result.artifact_paths
+        metadata["image_candidate_mode"] = "production"
+        metadata["image_candidate_lifecycle"] = lifecycle.model_dump(mode="json")
+        variant.metadata_json = json.dumps(metadata, ensure_ascii=False)
+        variant.output_paths_json = json.dumps(output_paths, ensure_ascii=False)
+        variant.error = ""
+        db.flush()
+        repaired = result.page_state.candidates[-1]
+        if repaired.review.passed and result.page_state.selected_candidate_id == repaired.candidate_id:
+            return self.select_image_candidate(
+                db,
+                variant,
+                page=page,
+                candidate_id=repaired.candidate_id,
+            )
+        return variant, self._candidate_response(
+            variant=variant,
+            lifecycle=lifecycle,
+            page=page,
+            output_paths=output_paths,
+            total_pages=total,
+        )
+
+    def _candidate_response(
+        self,
+        *,
+        variant: PlatformVariant,
+        lifecycle: ImageCandidateLifecycle,
+        page: int,
+        output_paths: dict[str, Any],
+        total_pages: int,
+    ) -> dict[str, Any]:
+        page_state = lifecycle.pages.get(str(page))
+        return {
+            "variant_id": variant.id,
+            "status": variant.status,
+            "page": page,
+            "candidate_page": page_state.model_dump(mode="json") if page_state else {},
+            "publish_allowed": self.image_candidates.publish_allowed(
+                lifecycle,
+                total_pages=total_pages,
+                artifact_paths={key: str(value) for key, value in output_paths.items()},
+            ),
+            "package_available": bool(output_paths.get("package")),
+            "output_paths_json": variant.output_paths_json,
+            "metadata_json": variant.metadata_json,
+        }
 
     @staticmethod
     def _require_light_variant(variant: PlatformVariant) -> None:
@@ -698,6 +1101,12 @@ class MinimalZineNativeService:
         if not 3 <= total <= 6:
             raise NativeSkillError("Minimal Zine 故事板必须包含 3 到 6 页")
         feature_mode = self._compiler_feature_mode(metadata, specs)
+        candidate_mode = self._candidate_feature_mode(metadata)
+        candidate_lifecycle = (
+            self._candidate_lifecycle(metadata)
+            if candidate_mode == "production"
+            else ImageCandidateLifecycle()
+        )
         expected_fingerprints = {
             page: self._expected_model_fingerprint(
                 variant=variant,
@@ -732,6 +1141,7 @@ class MinimalZineNativeService:
             selected_pages=selected_set,
             mode=selected_mode,
             expected_fingerprints=expected_fingerprints,
+            allow_pending_pages=candidate_mode == "production",
         )
         needs_generation = any(
             page_plan["action"] == "regenerated" and page_plan["selected"]
@@ -758,6 +1168,9 @@ class MinimalZineNativeService:
 
         new_specs = [dict(item) for item in specs]
         stage_paths: dict[str, str] = {}
+        if candidate_mode == "production":
+            self._copy_candidate_artifacts(current_paths, staging_dir, stage_paths)
+            self._copy_candidate_artifacts(parent_paths, staging_dir, stage_paths)
         page_results: list[dict[str, Any]] = []
         page_diagnostics: list[dict[str, Any]] = []
         recent_recipes: list[str] = []
@@ -783,6 +1196,17 @@ class MinimalZineNativeService:
                 stored_recipe = self._stored_visual_recipe(spec)
                 recipe = self._persisted_recipe(spec)
                 composition: dict[str, Any] = {}
+
+                if action == "pending":
+                    page_diagnostics.append(
+                        {
+                            "page": page,
+                            "action": "pending",
+                            "review_required": True,
+                            "diagnostics": {},
+                        }
+                    )
+                    continue
 
                 if action == "regenerated":
                     if feature_mode == "legacy":
@@ -813,7 +1237,92 @@ class MinimalZineNativeService:
                         model_fingerprint = visual_spec.source_fingerprint
                         interpretation = self._visual_interpretation(visual_spec, spec)
                         spec["visual_prompt_spec"] = visual_spec.model_dump(mode="json")
-                    image_bytes = self._generate_image(final_prompt)
+                    selected_image_candidate = None
+                    if candidate_mode == "production":
+                        try:
+                            batch = self.image_candidates.generate_candidates(
+                                lifecycle=candidate_lifecycle,
+                                page=page,
+                                prompt=final_prompt,
+                                output_dir=staging_dir,
+                                artifact_paths=stage_paths,
+                                page_visual_brief=(
+                                    spec.get("page_visual_brief")
+                                    if isinstance(spec.get("page_visual_brief"), dict)
+                                    else None
+                                ),
+                                invariants=self._candidate_invariants(metadata, spec),
+                                count=self.settings.image_candidate_count,
+                                series_reference_bytes=self._candidate_reference_bytes(
+                                    candidate_lifecycle,
+                                    page,
+                                    stage_paths,
+                                ),
+                                auto_repair=True,
+                            )
+                            candidate_lifecycle = batch.lifecycle
+                            stage_paths = batch.artifact_paths
+                            selected_image_candidate = (
+                                batch.selected_candidate
+                                if batch.selected_candidate is not None
+                                and batch.selected_candidate.candidate_id
+                                in batch.created_candidate_ids
+                                else None
+                            )
+                            if selected_image_candidate is None:
+                                spec.update(
+                                    {
+                                        "final_prompt": final_prompt,
+                                        "native_zine_recipe": stored_recipe,
+                                        "native_zine_interpretation": interpretation,
+                                        "model_input_fingerprint": model_fingerprint,
+                                        "candidate_review_required": True,
+                                    }
+                                )
+                                for trace_key in (
+                                    "selected_image_candidate_id",
+                                    "image_candidate_review",
+                                    "raw_anchor_fingerprint",
+                                    "raw_anchor_source_variant_id",
+                                    "raw_anchor_provider",
+                                    "final_composition_fingerprint",
+                                    "composition_diagnostics",
+                                ):
+                                    spec.pop(trace_key, None)
+                                recent_recipes.append(
+                                    json.dumps(recipe, ensure_ascii=False, sort_keys=True)
+                                )
+                                review_state = candidate_lifecycle.pages.get(str(page))
+                                diagnostic = {
+                                    "page": page,
+                                    "action": "candidate_review_required",
+                                    "review_required": True,
+                                    "diagnostics": {},
+                                }
+                                page_diagnostics.append(diagnostic)
+                                if page in selected_set:
+                                    page_results.append(
+                                        {
+                                            "page": page,
+                                            "action": "candidate_review_required",
+                                            "review_required": True,
+                                            "candidate_page": (
+                                                review_state.model_dump(mode="json")
+                                                if review_state is not None
+                                                else {}
+                                            ),
+                                        }
+                                    )
+                                continue
+                            image_bytes = self.image_candidates.selected_bytes(
+                                candidate_lifecycle,
+                                page,
+                                stage_paths,
+                            )
+                        except ImageCandidateError as exc:
+                            raise NativeSkillError(f"第 {page} 页候选生成未通过：{exc}") from exc
+                    else:
+                        image_bytes = self._generate_image(final_prompt)
                     self._write_raw_anchor(image_bytes, anchor_path)
                     spec.update(
                         {
@@ -825,6 +1334,16 @@ class MinimalZineNativeService:
                             "raw_anchor_source_variant_id": variant.id,
                         }
                     )
+                    if selected_image_candidate is not None:
+                        spec.update(
+                            {
+                                "selected_image_candidate_id": selected_image_candidate.candidate_id,
+                                "raw_anchor_provider": selected_image_candidate.provider,
+                                "image_candidate_review": selected_image_candidate.review.model_dump(
+                                    mode="json"
+                                ),
+                            }
+                        )
                     composition = self._compose_poster(
                         anchor_path.read_bytes(),
                         poster_path,
@@ -834,6 +1353,7 @@ class MinimalZineNativeService:
                         total=total,
                         font_diagnostics=font_diagnostics,
                     )
+
                 elif action == "cached":
                     source = page_plan.get("final_source")
                     if not isinstance(source, dict):
@@ -871,6 +1391,38 @@ class MinimalZineNativeService:
                         page=page,
                         total=total,
                         font_diagnostics=font_diagnostics,
+                    )
+
+                if candidate_mode == "production":
+                    selected_image_candidate = self.image_candidates.selected_candidate(
+                        candidate_lifecycle,
+                        page,
+                    )
+                    if selected_image_candidate is None:
+                        adopted = self._adopt_existing_candidate(
+                            lifecycle=candidate_lifecycle,
+                            metadata=metadata,
+                            spec=spec,
+                            page=page,
+                            anchor_path=anchor_path,
+                            output_dir=staging_dir,
+                            artifact_paths=stage_paths,
+                        )
+                        candidate_lifecycle = adopted.lifecycle
+                        stage_paths = adopted.artifact_paths
+                        selected_image_candidate = adopted.selected_candidate
+                    if selected_image_candidate is None or not selected_image_candidate.review.passed:
+                        raise NativeSkillError(
+                            f"第 {page} 页没有通过视觉审稿的候选，不能进入最终图组"
+                        )
+                    spec.pop("candidate_review_required", None)
+                    spec.update(
+                        {
+                            "selected_image_candidate_id": selected_image_candidate.candidate_id,
+                            "image_candidate_review": selected_image_candidate.review.model_dump(
+                                mode="json"
+                            ),
+                        }
                     )
 
                 spec.update(
@@ -927,6 +1479,12 @@ class MinimalZineNativeService:
                                 spec.get("native_zine_interpretation") or ""
                             ),
                             "diagnostics": composition,
+                            "candidate_page": (
+                                candidate_lifecycle.pages[str(page)].model_dump(mode="json")
+                                if candidate_mode == "production"
+                                and str(page) in candidate_lifecycle.pages
+                                else {}
+                            ),
                         }
                     )
 
@@ -934,6 +1492,11 @@ class MinimalZineNativeService:
             new_metadata["poster_specs"] = new_specs
             new_metadata["render_engine"] = "gc-minimal-zine-local-compositor-v7"
             new_metadata["visual_prompt_mode"] = feature_mode
+            new_metadata["image_candidate_mode"] = candidate_mode
+            if candidate_mode == "production":
+                new_metadata["image_candidate_lifecycle"] = candidate_lifecycle.model_dump(
+                    mode="json"
+                )
             new_metadata["native_zine"] = {
                 "repository": "https://github.com/LiamGvchi/gc-minimal-zine-poster",
                 "commit": self.manager.definition(
@@ -956,7 +1519,21 @@ class MinimalZineNativeService:
                     "negative prompt, feathered high-risk outer-edge masking, local Chinese type, "
                     "and required human visual review; no watermark-impossibility claim"
                 ),
+                "image_candidates": {
+                    "mode": candidate_mode,
+                    "default_count": self.settings.image_candidate_count,
+                    "auto_repair_limit": 1,
+                    "publish_requires_review_pass": candidate_mode == "production",
+                },
             }
+            candidate_publish_allowed = (
+                candidate_mode != "production"
+                or self.image_candidates.publish_allowed(
+                    candidate_lifecycle,
+                    total_pages=total,
+                    artifact_paths=stage_paths,
+                )
+            )
             stage_paths = self._rebuild_artifacts(
                 variant=variant,
                 metadata=new_metadata,
@@ -964,8 +1541,12 @@ class MinimalZineNativeService:
                 output_dir=staging_dir,
                 output_paths=stage_paths,
                 page_diagnostics=page_diagnostics,
+                allow_package=candidate_publish_allowed,
             )
-            self._assert_complete_artifact_set(stage_paths, total, staging_dir)
+            if candidate_publish_allowed:
+                self._assert_complete_artifact_set(stage_paths, total, staging_dir)
+            else:
+                self._assert_rendered_artifact_set(stage_paths, total, staging_dir)
 
             final_paths = {
                 key: str((target_dir / Path(value).name).resolve())
@@ -975,7 +1556,11 @@ class MinimalZineNativeService:
             promoted = True
             variant.metadata_json = json.dumps(new_metadata, ensure_ascii=False)
             variant.output_paths_json = json.dumps(final_paths, ensure_ascii=False)
-            variant.status = PlatformVariantState.packaged.value
+            variant.status = (
+                PlatformVariantState.packaged.value
+                if "package" in final_paths
+                else PlatformVariantState.rendered.value
+            )
             variant.error = ""
             db.flush()
         except Exception as exc:
@@ -997,8 +1582,12 @@ class MinimalZineNativeService:
             # Result paths must point at the promoted stable directory, never its
             # now-removed staging predecessor.
             for result in page_results:
-                result["path"] = final_paths[result["poster_key"]]
-                result["anchor_path"] = final_paths[result["anchor_key"]]
+                poster_key = str(result.get("poster_key") or "")
+                anchor_key = str(result.get("anchor_key") or "")
+                if poster_key and poster_key in final_paths:
+                    result["path"] = final_paths[poster_key]
+                if anchor_key and anchor_key in final_paths:
+                    result["anchor_path"] = final_paths[anchor_key]
             return variant, page_results
         finally:
             if staging_dir.exists():
@@ -1016,6 +1605,7 @@ class MinimalZineNativeService:
         selected_pages: set[int],
         mode: RenderMode,
         expected_fingerprints: dict[int, str],
+        allow_pending_pages: bool = False,
     ) -> list[dict[str, Any]]:
         plans: list[dict[str, Any]] = []
         for page, spec in enumerate(specs, start=1):
@@ -1134,9 +1724,14 @@ class MinimalZineNativeService:
                     }
                 )
             else:
-                raise NativeSkillError(
-                    f"部分渲染无法组成完整图组：未选中的第 {page} 页没有可保留的 raw anchor 或最终海报。"
-                )
+                if allow_pending_pages:
+                    plans.append(
+                        {"page": page, "selected": False, "action": "pending"}
+                    )
+                else:
+                    raise NativeSkillError(
+                        f"部分渲染无法组成完整图组：未选中的第 {page} 页没有可保留的 raw anchor 或最终海报。"
+                    )
         return plans
 
     def _raw_candidate(
@@ -2418,10 +3013,11 @@ class MinimalZineNativeService:
         output_dir: Path,
         output_paths: dict[str, Any],
         page_diagnostics: list[dict[str, Any]] | None = None,
+        allow_package: bool = True,
     ) -> dict[str, str]:
         output_dir = output_dir.resolve()
         files: dict[str, str] = {}
-        for prefix in ("anchor_", "poster_"):
+        for prefix in ("anchor_", "poster_", "candidate_", "contact_sheet_"):
             for key, value in output_paths.items():
                 if not key.startswith(prefix):
                     continue
@@ -2454,6 +3050,12 @@ class MinimalZineNativeService:
                     "summary": variant.summary,
                     "render_engine": metadata.get("render_engine"),
                     "native_zine": metadata.get("native_zine"),
+                    "image_candidate_mode": metadata.get("image_candidate_mode") or "legacy",
+                    "image_candidate_lifecycle": metadata.get("image_candidate_lifecycle") or {},
+                    "candidate_publish_gate": {
+                        "allowed": allow_package,
+                        "rule": "every page requires a selected candidate that passed visual review",
+                    },
                     "raw_anchors": anchor_names,
                     "posters": poster_names,
                     "pages": page_diagnostics or self._manifest_pages(files, specs),
@@ -2505,24 +3107,26 @@ figcaption{{padding:10px 4px 2px;font-size:13px;color:#bbb}}
         )
         files["preview"] = str(preview.resolve())
 
-        archive_path = output_dir / f"wechat-light-series-{variant.id}.zip"
-        # Explicitly enumerate publishable finals.  Never add all files in the
-        # directory: raw anchors, leftovers and unknown artifacts are excluded.
-        allowlist = [
-            *(Path(files[key]) for key in sorted(files) if key.startswith("poster_")),
-            article,
-            manifest,
-            preview,
-        ]
-        with zipfile.ZipFile(
-            archive_path,
-            "w",
-            compression=zipfile.ZIP_DEFLATED,
-        ) as archive:
-            for file_path in allowlist:
-                if file_path.is_file():
-                    archive.write(file_path, arcname=file_path.name)
-        files["package"] = str(archive_path.resolve())
+        if allow_package:
+            archive_path = output_dir / f"wechat-light-series-{variant.id}.zip"
+            # Explicitly enumerate publishable finals.  Never add all files in the
+            # directory: raw anchors, candidates, contact sheets, leftovers and
+            # unknown artifacts are excluded.
+            allowlist = [
+                *(Path(files[key]) for key in sorted(files) if key.startswith("poster_")),
+                article,
+                manifest,
+                preview,
+            ]
+            with zipfile.ZipFile(
+                archive_path,
+                "w",
+                compression=zipfile.ZIP_DEFLATED,
+            ) as archive:
+                for file_path in allowlist:
+                    if file_path.is_file():
+                        archive.write(file_path, arcname=file_path.name)
+            files["package"] = str(archive_path.resolve())
         return files
 
     @staticmethod
@@ -2558,6 +3162,29 @@ figcaption{{padding:10px 4px 2px;font-size:13px;color:#bbb}}
         missing = sorted(key for key in required if key not in files)
         if missing:
             raise NativeSkillError(f"Minimal Zine 产物不完整：缺少 {', '.join(missing)}")
+        root = output_dir.resolve()
+        invalid = [
+            key
+            for key, value in files.items()
+            if root not in Path(value).resolve().parents or not Path(value).is_file()
+        ]
+        if invalid:
+            raise NativeSkillError(f"Minimal Zine 产物路径无效：{', '.join(invalid)}")
+
+    def _assert_rendered_artifact_set(
+        self,
+        files: dict[str, str],
+        total: int,
+        output_dir: Path,
+    ) -> None:
+        required = {"markdown", "manifest", "preview"}
+        missing = sorted(key for key in required if key not in files)
+        if missing:
+            raise NativeSkillError(
+                f"Minimal Zine 候选审稿产物不完整：缺少 {', '.join(missing)}"
+            )
+        if "package" in files:
+            raise NativeSkillError("视觉审稿未通过时不得生成发布包")
         root = output_dir.resolve()
         invalid = [
             key
@@ -2664,6 +3291,142 @@ figcaption{{padding:10px 4px 2px;font-size:13px;color:#bbb}}
         raw = metadata.get("poster_specs")
         return [dict(item) for item in raw if isinstance(item, dict)] if isinstance(raw, list) else []
 
+    def _candidate_feature_mode(self, metadata: dict[str, Any]) -> str:
+        stored = str(metadata.get("image_candidate_mode") or "").strip().lower()
+        if stored in {"legacy", "production"}:
+            return stored
+        return self.settings.image_candidate_mode
+
+    def _candidate_lifecycle(
+        self,
+        metadata: dict[str, Any],
+    ) -> ImageCandidateLifecycle:
+        try:
+            return self.image_candidates.load(metadata.get("image_candidate_lifecycle"))
+        except ImageCandidateError as exc:
+            raise NativeSkillError(str(exc)) from exc
+
+    @staticmethod
+    def _candidate_invariants(
+        metadata: dict[str, Any],
+        spec: dict[str, Any],
+    ) -> list[str]:
+        values: list[str] = []
+        bible = metadata.get("visual_bible")
+        if isinstance(bible, dict):
+            raw = bible.get("invariants")
+            if isinstance(raw, list):
+                values.extend(str(item).strip() for item in raw if str(item).strip())
+        brief = spec.get("page_visual_brief")
+        if isinstance(brief, dict):
+            frozen = (
+                ("concrete subject", brief.get("concrete_subject")),
+                ("action or relation", brief.get("action_or_relation")),
+                ("setting", brief.get("setting")),
+                ("viewpoint", brief.get("viewpoint")),
+                ("crop", brief.get("crop")),
+                ("lighting", brief.get("lighting")),
+            )
+            values.extend(
+                f"{label}: {_clean(value, 240)}"
+                for label, value in frozen
+                if _clean(value, 240)
+            )
+        deduplicated: list[str] = []
+        for value in values:
+            if value not in deduplicated:
+                deduplicated.append(value)
+        return deduplicated[:12]
+
+    @staticmethod
+    def _copy_candidate_artifacts(
+        current_paths: dict[str, Any],
+        output_dir: Path,
+        stage_paths: dict[str, str],
+    ) -> None:
+        for key, value in current_paths.items():
+            if not key.startswith(("candidate_", "contact_sheet_")):
+                continue
+            source = Path(str(value)).resolve()
+            if not source.is_file():
+                continue
+            target = output_dir / source.name
+            shutil.copy2(source, target)
+            stage_paths[key] = str(target.resolve())
+
+    def _adopt_existing_candidate(
+        self,
+        *,
+        lifecycle: ImageCandidateLifecycle,
+        metadata: dict[str, Any],
+        spec: dict[str, Any],
+        page: int,
+        anchor_path: Path,
+        output_dir: Path,
+        artifact_paths: dict[str, str],
+    ) -> CandidateBatchResult:
+        selected = self.image_candidates.selected_candidate(lifecycle, page)
+        if selected is not None:
+            return CandidateBatchResult(
+                lifecycle=lifecycle,
+                page_state=lifecycle.pages[str(page)],
+                artifact_paths=dict(artifact_paths),
+                selected_candidate=selected,
+            )
+        prompt = str(spec.get("final_prompt") or "").strip()
+        if not prompt:
+            prompt = (
+                "NO TEXT. Preserve this previously reviewed raw visual anchor as an auditable "
+                "candidate; X2RED adds Chinese typography locally."
+            )
+        try:
+            return self.image_candidates.add_manual_candidates(
+                lifecycle=lifecycle,
+                page=page,
+                prompt=prompt,
+                images=[anchor_path.read_bytes()],
+                output_dir=output_dir,
+                artifact_paths=artifact_paths,
+                page_visual_brief=(
+                    spec.get("page_visual_brief")
+                    if isinstance(spec.get("page_visual_brief"), dict)
+                    else None
+                ),
+                invariants=self._candidate_invariants(metadata, spec),
+                provider=str(spec.get("raw_anchor_provider") or "x2red-existing-anchor"),
+                model="frozen-raw-anchor",
+                series_reference_bytes=self._candidate_reference_bytes(
+                    lifecycle,
+                    page,
+                    artifact_paths,
+                ),
+            )
+        except (ImageCandidateError, OSError) as exc:
+            raise NativeSkillError(f"第 {page} 页旧锚点无法纳入候选审计：{exc}") from exc
+
+    def _candidate_reference_bytes(
+        self,
+        lifecycle: ImageCandidateLifecycle,
+        page: int,
+        artifact_paths: dict[str, str],
+    ) -> list[bytes]:
+        references: list[bytes] = []
+        for key in sorted(lifecycle.pages, key=lambda value: int(value)):
+            other_page = int(key)
+            if other_page == page:
+                continue
+            try:
+                references.append(
+                    self.image_candidates.selected_bytes(
+                        lifecycle,
+                        other_page,
+                        artifact_paths,
+                    )
+                )
+            except ImageCandidateError:
+                continue
+        return references[-4:]
+
     @staticmethod
     def _object(value: str) -> dict[str, Any]:
         try:
@@ -2700,52 +3463,8 @@ figcaption{{padding:10px 4px 2px;font-size:13px;color:#bbb}}
         return canonical if canonical.startswith("#") else _ACCENT_COLORS[canonical]
 
     def _generate_image(self, prompt: str) -> bytes:
-        base_url = (self.settings.image_base_url or self.settings.model_base_url).rstrip("/")
-        endpoint = base_url + "/images/generations"
-        api_key = self.settings.image_api_key or self.settings.model_api_key
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-        }
-        bodies = [
-            {
-                "model": self.settings.image_model,
-                "prompt": prompt,
-                "size": self.settings.image_size,
-                "n": 1,
-            },
-            {"model": self.settings.image_model, "prompt": prompt, "n": 1},
-        ]
-        last_error = ""
-        with httpx.Client(timeout=300, follow_redirects=True) as client:
-            for index, body in enumerate(bodies):
-                try:
-                    response = client.post(endpoint, headers=headers, json=body)
-                    if response.status_code in {400, 404, 422} and index == 0:
-                        last_error = response.text[:1000]
-                        continue
-                    response.raise_for_status()
-                    data = response.json()
-                    items = data.get("data") if isinstance(data, dict) else None
-                    if not isinstance(items, list) or not items or not isinstance(items[0], dict):
-                        raise NativeSkillError("图片模型响应缺少 data")
-                    item = items[0]
-                    b64 = str(item.get("b64_json") or item.get("base64") or "")
-                    if b64:
-                        return base64.b64decode(b64)
-                    url = str(item.get("url") or "")
-                    if not url:
-                        raise NativeSkillError("图片模型没有返回 URL 或 base64")
-                    image_response = client.get(url)
-                    image_response.raise_for_status()
-                    return image_response.content
-                except (
-                    httpx.HTTPError,
-                    ValueError,
-                    KeyError,
-                    base64.binascii.Error,
-                ) as exc:
-                    last_error = str(exc)
-                    if index == len(bodies) - 1:
-                        break
-        raise NativeSkillError(f"图片生成失败：{last_error[:1000]}")
+        try:
+            result = self.model.generate_images(prompt=prompt, count=1)
+        except ModelClientError as exc:
+            raise NativeSkillError(str(exc)) from exc
+        return result.images[0].image_bytes
