@@ -19,7 +19,7 @@
 - V4 PR #24 的修复 head `0b87097865dc6d57b1bb082cb12b37e938a4e9bb` 已通过 CI run `823`，随后转 Ready 并 squash merge；功能基线准确前进到 `012299e2c77a02b076eb15aed33e17ad6196ce38`。首轮 CI run `822` 的 Linux CJK 字体失败只通过显式 legacy 测试隔离修复，production fail-closed 未放宽。
 - W1 PR #25 已在 latest head `9085faf29b8b86d47cfcd4a1a2cd93c3cc9a7158` 的 CI run `826` 全部成功后转 Ready 并 squash merge；准确功能基线为 `88b995bfc75f25673e78777ee6f575fc2a5eb666`。
 - W2 PR #26 已在 latest head `4027d0c26ef9b76f4c976231322bca18cac1bb69` 的 CI run `33249003306` / job `99091311679` 成功后转 Ready 并 squash merge；准确功能基线为 `f6dd3bbb747cdfd1758f0542f6977f6f58dd4103`。
-- W3 已从该准确 W2 merge head 创建独立分支 `codex/x2red-w3-title-style-quality`。12—20 标题候选、证据/套路/同质化过滤、读者第一眼 top 5、人工标题 preference、逐字标题合同、授权短范例、author override、模型稿到 direct human revision 的服务端 diff 和动态记忆批准状态已实现；完整 API 套件 `191 passed, 8 warnings`，Ruff、Python/JavaScript/Shell 编译、发布助手回归、全新迁移和 wheel 门禁均通过。当前剩余项是实现提交与独立 PR、latest-head CI、Ready 与 squash merge。
+- W3 已从该准确 W2 merge head 创建独立分支 `codex/x2red-w3-title-style-quality`。12—20 标题候选、证据/套路/同质化过滤、读者第一眼 top 5、人工标题 preference、逐字标题合同、授权短范例、author override、模型稿到 direct human revision 的服务端 diff 和动态记忆批准状态已实现；完整 API 套件 `191 passed, 8 warnings`，Ruff、Python/JavaScript/Shell 编译、发布助手回归、全新迁移和 wheel 门禁均通过。实现提交 `0750999eb305f203d417c1066e9fcdb2e1de9bdf` 已推送并创建 Draft PR #27；当前剩余项是状态文档 latest head、对应 CI、Ready 与 squash merge。
 - C0 修改前完整测试为 `94 passed, 8 warnings`；C0 修改后完整套件为 `99 passed, 8 warnings`，新增 C0 定向测试为 `5 passed`。全仓 CI 范围 Ruff、compileall、导出脚本 py_compile、JSON 校验、敏感信息扫描和 diff check 通过。
 - 12 个写作 fixture、20 个视觉页、两套 rubric、Pydantic schema、旧 Prompt 逐字重放和只读脱敏导出器已经落地；未修改生产行为。
 - 已冻结的关键旧缺陷：`visual-firewall-03-comparison` 与 `visual-firewall-04-conclusion` 的 phrase、note、evidence 和 visual role 不同，但现有 Prompt 与 model fingerprint 相同。
@@ -59,7 +59,7 @@
 
 2026-08-09 00:43 轻内容文案与成图专项验收：已定位并删除“保存文章即从正文连续切句覆盖分镜”的破坏性同步，四页文案现在经过生成、候选采用和 storyboard API 三层跨页去重门禁；真实语料池范围（18 条全池记忆、40280 字、6 条详细来源）与逐页取材依据可追溯。旧 v10 保留，修复后的不可变 v11 使用四组互异文案；已有 raw anchor 的第 1、3 页由 compositor v6 重合成，主体完整、边缘裁切为 0、无本地伪造强调标记。第 2、4 页没有 raw anchor，继续标为待回传且不生成 ZIP。真实浏览器 console 0 error；完整套件 `94 passed, 8 warnings`，CI Ruff、compileall、JavaScript 语法、context JSON 和 diff check 通过。
 
-### 2. PR #19 仍需重查；C0 #20 / V1 #21 / V2 #22 / V3 #23 / V4 #24 / W1 #25 / W2 #26 已合并，W3 PR 尚未创建
+### 2. PR #19 仍需重查；C0 #20 / V1 #21 / V2 #22 / V3 #23 / V4 #24 / W1 #25 / W2 #26 已合并，W3 Draft PR #27 等待 latest-head CI
 
 2026-08-09 重新查询后，PR #19 仍为 open、draft、mergeable，head 已为 `9073a4bc8a71a76dbf6762d7fc64a425eb3c99fe`，该 head 的 PR CI run `811` 成功，尚未进入 `main`。C0 从这一 head 建立独立分支，不继续堆入 PR #19。
 
@@ -69,7 +69,7 @@
 
 - `git pull main` 不会获得本轮功能；
 - C0 / V1 / V2 / V3 / V4 / W1 / W2 历史评审查看已合并 PR #20 / #21 / #22 / #23 / #24 / #25 / #26，不继续扩大 PR #19；
-- W3 必须以独立 PR 指向 `agent/replace-crawlers-with-api-adapters`，latest-head CI 通过后才能转 Ready 并合并；
+- W3 独立 Draft PR #27 已指向 `agent/replace-crawlers-with-api-adapters`，状态文档推送后的 latest-head CI 通过后才能转 Ready 并合并；
 - W3 合并完成前不得创建 UI1 分支；
 - 每次准备合并仍要重新确认 PR #19、W3 PR 的 base/head、mergeability 和 CI 是否对应最新 head。
 

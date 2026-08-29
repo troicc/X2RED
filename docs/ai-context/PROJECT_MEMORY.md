@@ -26,7 +26,7 @@ W1 PR：`#25 W1：证据编译与混合检索`，latest head `9085faf29b8b86d47c
 
 W2 PR：`#26 W2：结构化 Agent 输出与最终主张矩阵`，latest head `4027d0c26ef9b76f4c976231322bca18cac1bb69` 的 CI run `33249003306` / job `99091311679` 成功后已 squash merge；功能基线前进到 `f6dd3bbb747cdfd1758f0542f6977f6f58dd4103`。
 
-W3 当前在独立分支 `codex/x2red-w3-title-style-quality` 实施，准确 base 为上述 W2 merge commit；PR、远端 head 和 CI 尚未创建，提交后必须重新查询。
+W3 当前在独立分支 `codex/x2red-w3-title-style-quality` 实施，准确 base 为上述 W2 merge commit；实现提交 `0750999eb305f203d417c1066e9fcdb2e1de9bdf` 已推送并创建 Draft PR #27，状态文档提交后只认新的 latest-head CI。
 
 C0 首个提交：`08c0920f154d51a7cdfa5d35a604d48b3d393672`
 
@@ -61,6 +61,8 @@ PR #19 属于 C0 的基线功能分支，不是 C0 分支本身。
 2026-08-29 18:54：W2 实现提交 `ba68082c46d3597fb1f92843a559bf9a048c24e8` 已推送并创建 Draft PR #26，base 为准确 W1 合并 head `88b995bfc75f25673e78777ee6f575fc2a5eb666`。PR 创建前再次确认 PR #19 仍为 open、draft、mergeable且功能分支 head 未漂移。初始 CI 已启动，但状态文档提交会产生新 head；下一次合并只认状态提交后的 latest-head CI。
 
 2026-08-29：W2 状态 head `4027d0c26ef9b76f4c976231322bca18cac1bb69` 的 GitHub Actions run `33249003306` / job `99091311679` 在 2m54s 内成功；PR #26 转 Ready 后按该 expected head squash merge，功能基线 commit 为 `f6dd3bbb747cdfd1758f0542f6977f6f58dd4103`。W3 从这一准确 merge head 建立独立分支。
+
+2026-08-29 19:46：W3 实现提交 `0750999eb305f203d417c1066e9fcdb2e1de9bdf` 已推送并创建 Draft PR #27，base 为准确 W2 合并 head `f6dd3bbb747cdfd1758f0542f6977f6f58dd4103`。PR 创建前再次确认 PR #19 仍为 open、draft、mergeable，功能分支 head 未漂移。状态文档提交会产生新 head，下一次合并只认该 head 对应的 CI。
 
 ### 2026-08-29 W3 标题、授权短范例与真实反馈
 
