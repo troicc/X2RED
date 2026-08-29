@@ -20,6 +20,8 @@ V2 PR：`#22 V2：Visual Bible 与逐页视觉简报`，head `833c0d422ab9a8e942
 
 V3 PR：`#23 V3：图片多候选、Contact Sheet 与视觉审稿`，head `5ceeefcbe894cbc8e367f6fcdb314ae738e56d40` 的 CI run `819` 成功后已 squash merge，功能基线前进到 `bd77743808a3eb1ccb0bfa29efa959c0aee2b33a`。
 
+V4 PR：`#24 V4：本地中文排版 Recipe v2`，当前为 Draft，指向 `agent/replace-crawlers-with-api-adapters`，等待 latest-head CI。
+
 C0 首个提交：`08c0920f154d51a7cdfa5d35a604d48b3d393672`
 
 PR #19 属于 C0 的基线功能分支，不是 C0 分支本身。
@@ -39,6 +41,8 @@ PR #19 属于 C0 的基线功能分支，不是 C0 分支本身。
 2026-08-29 16:45 再次查询 GitHub：PR #19 仍为 open、draft、mergeable，head 为 `bd77743808a3eb1ccb0bfa29efa959c0aee2b33a`。V3 PR #23 已在 head `5ceeefcbe894cbc8e367f6fcdb314ae738e56d40` 的 CI run `819` 成功后 squash merge，merge commit 即该功能基线 head。V4 从这个准确远端 head 创建；这些 PR/CI 事实在下一次合并前仍须重新查询。
 
 2026-08-29 17:06 提交 V4 前再次查询 GitHub：PR #19 仍为 open、draft、mergeable，功能分支 head 仍为 `bd77743808a3eb1ccb0bfa29efa959c0aee2b33a`，与 V4 本地基线一致。
+
+2026-08-29 17:08：V4 首个提交 `0f4a6773cbf9258c0ffc2da021830950ebc4cbfe` 已推送并创建 Draft PR #24；下一次合并判断必须以随后文档状态提交后的 latest head 和对应 CI 为准。
 
 ### 2026-08-29 V4 本地中文排版 Recipe v2
 
