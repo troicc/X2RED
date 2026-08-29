@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-29T17:08:37+08:00",
+  "updated_at": "2026-08-29T17:14:35+08:00",
   "repository": "troicc/X2RED",
   "application_version": "0.12.0",
   "snapshot": {
@@ -29,13 +29,13 @@
     "v3_state_at_snapshot": "merged_2026-08-29_after_ci_run_819",
     "v4_pull_request": 24,
     "v4_pull_request_url": "https://github.com/troicc/X2RED/pull/24",
-    "v4_state_at_snapshot": "draft_pr_pending_latest_head_ci",
+    "v4_state_at_snapshot": "draft_pr_first_ci_822_failed_on_legacy_test_font_dependency_fix_pending_new_head_ci",
     "state_at_snapshot": "pr19_open_draft_mergeable_unmerged_inspected_2026-08-29",
     "code_head_at_inspection": "bd77743808a3eb1ccb0bfa29efa959c0aee2b33a",
     "implementation_commit": "f48fff4",
     "ci_portability_fix_commit": "3063a9e",
     "verified_remote_ci_head": "5ceeefcbe894cbc8e367f6fcdb314ae738e56d40",
-    "github_checks_at_inspection": "rechecked 2026-08-29 17:08 +08:00: feature head remains bd77743; PR 19 is still open, draft and mergeable at that same head; V4 Draft PR 24 was created and awaits latest-head CI",
+    "github_checks_at_inspection": "PR 24 CI run 822 completed with 158 passed and one failure: the V0.8 compatibility flow entered production typography on an Ubuntu runner without CJK fonts; the test-only legacy isolation fix now awaits a new latest-head run",
     "last_verified_test_result": "V4 full API suite: 159 passed, 8 warnings; targeted typography recipe suite: 30 passed",
     "v2_browser_smoke": "temporary database copy at 1280x800 and 375x812: four unique subjects, four unique layouts, cover/scene/evidence/conclusion roles, frozen brief/candidate/evidence/Bible UI visible, no horizontal overflow and zero console errors; no model calls or writes to the user database",
     "v3_browser_smoke": "isolated temporary database at 1280x800 and 375x812: three image candidates, numbered Contact Sheet, ten review dimensions, cost/call counts, candidate selection and reasoned rejection all visible and operable; no horizontal overflow, zero console errors, no real model calls or writes to the user database",
@@ -181,6 +181,7 @@
     "visual_verification": "eight-mode contact sheet; all modes legible, with at least four clearly distinct at thumbnail size",
     "browser_verification": "1280x800 and a requested 375x812 mobile breakpoint (in-app browser minimum canvas reported as 450x812) against an isolated temporary database: typography mode, ratio, region count, overflow/subject status and font parameters visible; desktop two-column and mobile one-column layouts passed; no root horizontal overflow, console 0 error/warning, no model call or user-database write",
     "package_verification": "fresh 0001-to-0012 SQLite migration and x2red 0.12.0 wheel build passed; wheel contains typography schema, engine, integrations, UI and tests",
+    "first_remote_ci": "run 822 failed only in test_wechat_workbench_api_end_to_end because the historical compatibility flow did not request legacy typography and the Ubuntu runner had no CJK font; production remains fail-closed and the test now explicitly selects legacy mode",
     "remaining_before_merge": ["latest-head CI", "PR ready and squash merge"]
   },
   "ci_policy": {

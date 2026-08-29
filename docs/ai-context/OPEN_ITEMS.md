@@ -16,7 +16,7 @@
 - V1 PR #21 已在 head `291d6a13ca8606628d1c2c781f7f15e298e57bc2` 的 `test (3.12)` 成功后 squash merge；功能基线准确 head 为 `a7b00d0005d024ab16a770dd7513031f5e21d548`。
 - V2 PR #22 已在 head `833c0d422ab9a8e942e79f0340408e199b40c210` 的 CI run `817` 成功后 squash merge；功能基线准确 head 为 `9086b6226b68e367e10327a577eb625e4d251b5b`。
 - V3 PR #23 已在 head `5ceeefcbe894cbc8e367f6fcdb314ae738e56d40` 的 CI run `819` 成功后 squash merge；功能基线准确 head 为 `bd77743808a3eb1ccb0bfa29efa959c0aee2b33a`。
-- V4 已从该准确 head 创建独立分支 `codex/x2red-v4-local-chinese-typography-recipe-v2`，并创建 Draft PR #24 指向功能基线。严格 schema、八种模式、冻结指纹、四向主体避让、无溢出门禁、四比例测试、缩略图差异、Minimal Zine/公众号封面共用 engine、UI 诊断和 legacy flag 已落地；最后兜底顺序回归补齐后 V4 定向 `30 passed`、完整套件 `159 passed, 8 warnings`。隔离浏览器 1280×800 与手机断点请求 375×812（实际最小 450×812）验证诊断卡片和响应式布局，无根页面横向溢出或 console error/warning；最终静态、迁移与 wheel 内容门禁均通过。剩余项只有 latest-head CI、转 Ready 与 squash merge。
+- V4 已从该准确 head 创建独立分支 `codex/x2red-v4-local-chinese-typography-recipe-v2`，并创建 Draft PR #24 指向功能基线。严格 schema、八种模式、冻结指纹、四向主体避让、无溢出门禁、四比例测试、缩略图差异、Minimal Zine/公众号封面共用 engine、UI 诊断和 legacy flag 已落地；最后兜底顺序回归补齐后 V4 定向 `30 passed`、完整套件 `159 passed, 8 warnings`。隔离浏览器 1280×800 与手机断点请求 375×812（实际最小 450×812）验证诊断卡片和响应式布局，无根页面横向溢出或 console error/warning；最终静态、迁移与 wheel 内容门禁均通过。首轮 CI run `822` 仅因旧 V0.8 兼容测试未声明 legacy 模式、在 Ubuntu 无 CJK 字体时触发 production fail-closed 而失败；最小测试隔离修复不放宽生产门禁。剩余项是修复 head 的 CI、转 Ready 与 squash merge。
 - C0 修改前完整测试为 `94 passed, 8 warnings`；C0 修改后完整套件为 `99 passed, 8 warnings`，新增 C0 定向测试为 `5 passed`。全仓 CI 范围 Ruff、compileall、导出脚本 py_compile、JSON 校验、敏感信息扫描和 diff check 通过。
 - 12 个写作 fixture、20 个视觉页、两套 rubric、Pydantic schema、旧 Prompt 逐字重放和只读脱敏导出器已经落地；未修改生产行为。
 - 已冻结的关键旧缺陷：`visual-firewall-03-comparison` 与 `visual-firewall-04-conclusion` 的 phrase、note、evidence 和 visual role 不同，但现有 Prompt 与 model fingerprint 相同。
@@ -55,7 +55,7 @@
 
 2026-08-09 00:43 轻内容文案与成图专项验收：已定位并删除“保存文章即从正文连续切句覆盖分镜”的破坏性同步，四页文案现在经过生成、候选采用和 storyboard API 三层跨页去重门禁；真实语料池范围（18 条全池记忆、40280 字、6 条详细来源）与逐页取材依据可追溯。旧 v10 保留，修复后的不可变 v11 使用四组互异文案；已有 raw anchor 的第 1、3 页由 compositor v6 重合成，主体完整、边缘裁切为 0、无本地伪造强调标记。第 2、4 页没有 raw anchor，继续标为待回传且不生成 ZIP。真实浏览器 console 0 error；完整套件 `94 passed, 8 warnings`，CI Ruff、compileall、JavaScript 语法、context JSON 和 diff check 通过。
 
-### 2. PR #19 仍需重查；C0 #20 / V1 #21 / V2 #22 / V3 #23 已合并，V4 #24 等待 CI
+### 2. PR #19 仍需重查；C0 #20 / V1 #21 / V2 #22 / V3 #23 已合并，V4 #24 等待修复 head CI
 
 2026-08-09 重新查询后，PR #19 仍为 open、draft、mergeable，head 已为 `9073a4bc8a71a76dbf6762d7fc64a425eb3c99fe`，该 head 的 PR CI run `811` 成功，尚未进入 `main`。C0 从这一 head 建立独立分支，不继续堆入 PR #19。
 
