@@ -13,6 +13,22 @@ const state = {
 const $ = (id) => document.getElementById(id);
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
+const nativeFetch = window.fetch.bind(window);
+window.fetch = (input, options = {}) => {
+  const headers = new Headers(input instanceof Request ? input.headers : undefined);
+  new Headers(options.headers || {}).forEach((value, key) => headers.set(key, value));
+  try {
+    const token = window.sessionStorage.getItem("x2red_api_token") || "";
+    const target = new URL(typeof input === "string" ? input : input.url, window.location.href);
+    if (token && target.origin === window.location.origin && (target.pathname.startsWith("/api") || target.pathname === "/ready")) {
+      headers.set("Authorization", `Bearer ${token}`);
+    }
+  } catch {
+    // Storage may be disabled; the request will receive a regular 401 response.
+  }
+  return nativeFetch(input, { ...options, headers });
+};
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
@@ -781,7 +797,7 @@ async function pollIntakeJob(jobId, submitButton) {
       await loadSources(result.source_id || null);
       return;
     }
-    if (["failed", "canceled"].includes(job.state)) {
+    if (["failed", "dead_letter", "canceled"].includes(job.state)) {
       state.activeJobId = null;
       submitButton.disabled = false;
       message($("intake-status"), `导入失败：${job.error || "未知错误"}`, "error");
@@ -1118,6 +1134,15 @@ function bindEvents() {
   $("refresh").addEventListener("click", () => loadSources());
   $("refresh-publish").addEventListener("click", loadPublish);
   $("refresh-skills").addEventListener("click", loadSkills);
+  $("save-local-api-token").addEventListener("click", () => {
+    const input = $("local-api-token");
+    const token = input.value.trim();
+    if (token) window.sessionStorage.setItem("x2red_api_token", token);
+    else window.sessionStorage.removeItem("x2red_api_token");
+    input.value = "";
+    message($("local-api-token-status"), token ? "令牌仅保存在当前标签页" : "当前标签页令牌已清除", "ok");
+    loadHealth();
+  });
   $("save-note").addEventListener("click", saveNote);
   $("archive-source").addEventListener("click", () => toggleArchive().catch((error) => window.alert(error.message)));
   $("delete-source").addEventListener("click", () => deleteSource().catch((error) => window.alert(error.message)));

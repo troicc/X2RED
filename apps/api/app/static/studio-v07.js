@@ -129,7 +129,7 @@
     while (Date.now() - started < timeoutMs) {
       const job = await api(`/api/jobs/${encodeURIComponent(jobId)}`);
       if (job.state === "succeeded") return job;
-      if (job.state === "failed") throw new Error(job.error || "后台任务失败");
+      if (["failed", "dead_letter"].includes(job.state)) throw new Error(job.error || "后台任务失败");
       await new Promise((resolve) => setTimeout(resolve, 700));
     }
     throw new Error("后台任务等待超时");
@@ -400,10 +400,25 @@
       const button = createElement("button", `writing-project-item${studioState.selectedProject?.id === project.id ? " active" : ""}`);
       button.type = "button";
       button.dataset.projectId = project.id;
-      button.innerHTML = `<strong>${project.promise || project.main_thesis || "未命名写作任务"}</strong><span>${project.mode === "studio" ? "工作室" : "快速"} · ${project.state}</span><small>${project.spent_estimate_cents}/${project.budget_limit_cents} 预算单位</small>`;
+      button.innerHTML = `<strong>${project.promise || project.main_thesis || "未命名写作任务"}</strong><span>${project.mode === "studio" ? "工作室" : "快速"} · ${project.state}</span><small>${writingCostLabel(project)}</small>`;
       button.addEventListener("click", () => selectProject(project.id));
       box.append(button);
     });
+  }
+
+  function writingCostLabel(project) {
+    const status = project.cost_status || "unavailable";
+    if (status === "not_used") return `尚未调用模型 · 上限 US$${(Number(project.budget_limit_cents || 0) / 100).toFixed(2)}`;
+    if (status === "unavailable") return "模型已调用 · provider 未返回成本，且未配置估价";
+    const amount = Number(project.usage_summary?.cost_usd ?? project.spent_cost_usd ?? 0);
+    const prefix = {
+      provider_reported: "Provider 实报",
+      provider_estimate: "Provider 估算",
+      catalog_estimate: "本地费率估算",
+      partial: "部分成本已知",
+      mixed_estimate: "混合口径估算",
+    }[status] || "估算";
+    return `${prefix} US$${amount.toFixed(4)} · 上限 US$${(Number(project.budget_limit_cents || 0) / 100).toFixed(2)}`;
   }
 
   async function selectProject(projectId) {

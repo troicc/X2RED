@@ -2,15 +2,16 @@
 
 ## 1. 当前分支和 PR
 
-2026-08-29 当前 V4 任务：
+2026-08-30 当前 OPS1 任务：
 
 - 基线分支：`agent/replace-crawlers-with-api-adapters`
-- 基线 SHA：`bd77743808a3eb1ccb0bfa29efa959c0aee2b33a`（V3 PR #23 squash merge）
-- 当前本地任务分支：`codex/x2red-v4-local-chinese-typography-recipe-v2`
-- PR #19 仍是基线功能 PR；V4 使用独立分支和独立 PR
-- V3 PR #23 已在 head `5ceeefcbe894cbc8e367f6fcdb314ae738e56d40` 的 CI run `819` 成功后 squash merge
-- V4 已实现严格 recipe schema、八种模式、冻结指纹、主体避让、四比例门禁、封面复用、UI 诊断和 legacy flag；安全区最后兜底回归补齐后定向 `30 passed`、完整套件 `159 passed, 8 warnings`，本地静态/迁移/wheel 门禁已通过，剩余 latest-head CI、PR 与合并
-- V4 合并前不得创建 W1 分支
+- 基线 SHA：`c9e4b74a133b9543040c3e02cb13356c80f1cbef`（UI1 PR #28 squash merge）
+- 当前本地任务分支：`codex/x2red-ops1-observability-ci-security`
+- PR #19 仍是基线功能 PR；OPS1 使用独立分支和独立 PR
+- C0、V1、V2、V3、V4、W1、W2、W3 和 UI1 已依次经独立 PR 合并到基线分支
+- OPS1 已完成真实模型用量与成本、可靠重试、Alembic revision gate、任务租约、CI 门禁和本地安全闭环；本地完整套件为 `220 passed`，分支覆盖率 `72.05%`，静态检查、迁移、依赖审计、Prompt eval 和 wheel 构建已通过
+- 受本地托管沙箱禁止监听回环端口影响，Playwright 与视觉 contact sheet 必须由 OPS1 最新 head 的 GitHub CI 完成硬门禁；剩余提交、独立 PR、latest-head CI 和合并
+- OPS1 合并前不得将 PR #19 合入 `main`
 
 任务书后续阶段必须从最新已合并的前一阶段创建独立分支；C0 后依次为 V1、V2、V3、V4、W1、W2、W3、UI1、OPS1。
 
@@ -208,9 +209,9 @@ X2RED_AUTO_L2_DAILY_LIMIT=5
 
 ## 6. 数据库迁移
 
-当前功能分支包含 Alembic revision `0012`。`0010` 新增语料池和批次表；`0011` 新增 `pool_memory_snapshots` 和 `pool_memory_usages`，正式记忆卡继续复用 append-only `review_artifacts`；`0012` 新增工作台隔离的 `source_workbench_states`。
+当前功能分支包含 Alembic revision `0013`。`0010` 新增语料池和批次表；`0011` 新增 `pool_memory_snapshots` 和 `pool_memory_usages`，正式记忆卡继续复用 append-only `review_artifacts`；`0012` 新增工作台隔离的 `source_workbench_states`；`0013` 新增模型成本真值、job lease/dead letter 和 append-only 发布审计。
 
-`./scripts/start.sh` 和 `x2red serve` 默认自动迁移，因此正常启动不需要先单独运行迁移。
+`./scripts/start.sh` 和 `x2red serve` 默认自动迁移，因此正常启动不需要先单独运行迁移。应用本身不再调用 `create_all`；lifespan 和 `/ready` 都检查当前 revision。`--skip-migrate` 只能跳过升级，不能绕过 revision gate。
 
 手动执行：
 
@@ -228,18 +229,29 @@ x2red migrate
 
 ## 7. 测试和 CI
 
-GitHub Actions 的额度优化策略是：PR 只跑 Python 3.12，`main` push 和手动 `workflow_dispatch` 跑 Python 3.12/3.13 完整矩阵；PR 分支不再额外触发 push workflow。同一 PR/分支的新运行会取消旧运行，每个任务最多 15 分钟。主要门禁：
+GitHub Actions 的额度优化策略是：PR 只跑 Python 3.12，`main` push 和手动 `workflow_dispatch` 跑 Python 3.12/3.13 完整矩阵；PR 分支不再额外触发 push workflow。同一 PR/分支的新运行会取消旧运行，每个任务最多 35 分钟。PR 环境显式清空模型配置，不能调用付费模型。主要门禁：
 
 ```bash
 python -m compileall -q apps/api/app
-python -m py_compile scripts/run-mediacrawler.py
+python -m py_compile scripts/run-mediacrawler.py scripts/run-prompt-eval.py scripts/build-visual-contact-sheet.py scripts/nightly-model-canary.py
 sh -n scripts/start.sh scripts/setup-mediacrawler.sh
 x2red migrate
+pytest -q apps/api/tests/test_ops1_migrations.py
+mypy apps/api/app/core/config.py apps/api/app/core/security.py apps/api/app/core/http_security.py apps/api/app/core/paths.py apps/api/app/db/schema.py apps/api/app/services/model_client.py apps/api/app/services/jobs.py
+pip-audit --local --skip-editable
+bandit -q -r apps/api/app -lll -iii
+npm audit --audit-level=high
+npm run lint:js
+python scripts/run-prompt-eval.py --output ci-artifacts/prompt-eval.json
 node --check <所有前端脚本>
 node apps/api/extensions/wechat-publisher-assistant/content.test.mjs
-pytest -q
+pytest -q --cov=app --cov-report=term-missing --cov-fail-under=70
+python scripts/ui1_playwright_e2e.py --evidence-dir ci-artifacts/ui1
+python scripts/build-visual-contact-sheet.py --source-dir ci-artifacts/ui1 --output ci-artifacts/ui1/visual-contact-sheet.png
 ruff check apps/api --select E,F,I,B,UP --ignore E501,E701,E702,UP035,UP042,B008,I001
 ```
+
+付费探针只存在于独立 nightly workflow：没有专用 secret 时跳过；有 secret 时仍需显式费率，调用前必须把最大重试次数内的全部尝试计入 worst-case，且不得超过配置 cap，脚本硬上限 US$0.10。PR 的确定性 Prompt eval 不替代 W3 成对人工盲评。完整运行合同见 `OPS1_OBSERVABILITY_CI_SECURITY.md`。
 
 2026-08-04 23:03 本地 CI 等价验证为 71 passed、8 warnings。测试数量会变化，不能把固定数字当成永久门槛；真正门槛是当前分支全部测试通过。该次还通过了 compileall、Ruff、active Node 脚本检查、发布助手选择器、shell/py_compile、`git diff --check`、全新数据库 0001→0011 迁移和现有数据库 0010→0011 增量升级。`apps/api/tests/conftest.py` 会隔离开发机 `.env`、`X2RED_*` 和代理变量，避免真实模型/代理配置污染测试；这不改变生产运行时配置加载。运行时依赖使用 `httpx[socks]`，因此宿主机配置 SOCKS 代理时不会在模型客户端初始化阶段因缺少 `socksio` 退出。Minimal Zine 的产物/回滚测试会注入 font preflight，避免依赖 CI 宿主字体；专门的字体解析测试仍使用真实环境验证 CJK 可用与缺失路径。
 
@@ -260,6 +272,8 @@ ruff check apps/api --select E,F,I,B,UP --ignore E501,E701,E702,UP035,UP042,B008
 - Minimal Zine v15 分镜不可变修订、raw/final 分离、render mode 校验和发布包 allowlist。
 - V4 八种本地中文 recipe、3:5/3:4/21:9/1:1 无溢出、主体避让、缩略图差异、公众号双比例封面和 legacy 回滚。
 - W2 全角色 Schema 重放、一次修复上限、review issue 定位/证据、Chief/Final issue 权限、final claims、critical/major 支持度与 `claims_blocked` 完成阻断。
+- OPS1 模型 usage/cost 口径、重试 idempotency、错误脱敏、schema revision 启动门禁、多 worker 原子 claim、lease 恢复、dead letter 和发布审计。
+- PR 环境必须保持无模型配置；nightly canary 必须在付费调用前通过显式费率和硬成本 cap。
 
 ## 8. 手工 smoke test
 

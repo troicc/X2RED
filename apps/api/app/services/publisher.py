@@ -12,10 +12,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
+from app.core.paths import UnsafePathError, resolved_file_within
+from app.core.security import redact_mapping
 from app.domain.models import (
     Asset,
     CardRender,
     DraftRevision,
+    PublishAuditEvent,
     PublishState,
     PublishTask,
     ReviewDecision,
@@ -35,6 +38,31 @@ class PublishError(RuntimeError):
 class PublishService:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
+
+    @staticmethod
+    def record_audit(
+        db: Session,
+        *,
+        action: str,
+        outcome: str,
+        task: PublishTask | None = None,
+        draft_id: str | None = None,
+        detail: dict | None = None,
+    ) -> PublishAuditEvent:
+        event = PublishAuditEvent(
+            task_id=task.id if task is not None else None,
+            draft_id=draft_id or (task.draft_id if task is not None else None),
+            action=action[:60],
+            outcome=outcome[:30],
+            actor="local-user",
+            detail_json=json.dumps(
+                redact_mapping(detail or {}),
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+        )
+        db.add(event)
+        return event
 
     def prepare(
         self,
@@ -75,7 +103,19 @@ class PublishService:
                 card_paths = json.loads(card_render.output_paths_json or "[]")
             except json.JSONDecodeError as exc:
                 raise PublishError("卡片记录已损坏，请重新生成") from exc
-            media_paths.extend(str(path) for path in card_paths if Path(str(path)).is_file())
+            try:
+                media_paths.extend(
+                    str(
+                        resolved_file_within(
+                            str(path),
+                            [self.settings.media_dir, self.settings.export_dir],
+                            suffixes={".png", ".jpg", ".jpeg", ".webp"},
+                        )
+                    )
+                    for path in card_paths
+                )
+            except UnsafePathError as exc:
+                raise PublishError("卡片文件路径无效，请重新生成") from exc
             card_render_id = card_render.id
 
         if include_source_assets:
@@ -87,8 +127,18 @@ class PublishService:
                     )
                 ).all()
             )
-            media_paths.extend(asset.local_path for asset in source_assets if asset.local_path)
-            selected_asset_ids = [asset.id for asset in source_assets if asset.local_path]
+            for asset in source_assets:
+                if not asset.local_path:
+                    continue
+                try:
+                    safe_path = resolved_file_within(
+                        asset.local_path,
+                        [self.settings.media_dir],
+                    )
+                except UnsafePathError as exc:
+                    raise PublishError("来源素材路径无效，请重新导入") from exc
+                media_paths.append(str(safe_path))
+                selected_asset_ids.append(asset.id)
 
         if not media_paths:
             raise PublishError("发布包没有可用图片或视频，请先生成卡片")
@@ -144,6 +194,20 @@ class PublishService:
             package_path=str(package_path.resolve()),
         )
         db.add(task)
+        db.flush()
+        self.record_audit(
+            db,
+            action="prepare_package",
+            outcome="succeeded",
+            task=task,
+            detail={
+                "payload_sha256": digest,
+                "asset_count": len(packaged_assets),
+                "review_id": approved.id,
+                "facts_checked": approved.facts_checked,
+                "rights_checked": approved.rights_checked,
+            },
+        )
         db.commit()
         db.refresh(task)
         return task
@@ -151,9 +215,14 @@ class PublishService:
     async def open_xhs_preview(self, db: Session, task: PublishTask) -> PublishTask:
         if task.state not in {PublishState.packaged.value, PublishState.failed.value}:
             raise PublishError(f"当前发布状态不可打开预览：{task.state}")
-        package = Path(task.package_path)
-        if not package.is_file():
-            raise PublishError("发布包不存在，请重新生成")
+        try:
+            package = resolved_file_within(
+                task.package_path,
+                [self.settings.export_dir],
+                suffixes={".json"},
+            )
+        except UnsafePathError:
+            raise PublishError("发布包不存在，请重新生成") from None
         if importlib.util.find_spec("playwright") is None:
             raise PublishError(
                 "Playwright 未安装。请执行 pip install -e '.[publisher]'，然后运行 playwright install chromium"
@@ -182,6 +251,13 @@ class PublishService:
         except OSError as exc:
             task.state = PublishState.failed.value
             task.error = str(exc)[:1000]
+            self.record_audit(
+                db,
+                action="open_xhs_preview",
+                outcome="failed",
+                task=task,
+                detail={"error_type": type(exc).__name__},
+            )
             db.commit()
             return task
         finally:
@@ -190,6 +266,13 @@ class PublishService:
 
         task.state = PublishState.awaiting_user_confirmation.value
         task.error = ""
+        self.record_audit(
+            db,
+            action="open_xhs_preview",
+            outcome="launched",
+            task=task,
+            detail={"final_publish_requires_human_confirmation": True},
+        )
         db.commit()
         db.refresh(task)
         return task
@@ -208,6 +291,13 @@ class PublishService:
         task.result_url = result_url.strip()
         task.state = PublishState.published.value
         task.error = ""
+        self.record_audit(
+            db,
+            action="mark_published",
+            outcome="human_confirmed",
+            task=task,
+            detail={"result_host": host},
+        )
         draft = db.get(DraftRevision, task.draft_id)
         if draft is not None:
             source = db.get(SourceItem, draft.source_id)

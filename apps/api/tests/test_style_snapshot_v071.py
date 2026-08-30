@@ -33,6 +33,9 @@ def test_writing_project_freezes_style_profile_version(
     import app.main as main_module
 
     importlib.reload(db_session)
+    from app.db.schema import upgrade_database
+
+    upgrade_database(db_session.settings.database_url)
     importlib.reload(main_module)
 
     from app.domain.models import SourceItem
@@ -131,7 +134,7 @@ def test_writing_project_freezes_style_profile_version(
 
         for _ in range(200):
             job = client.get(f"/api/jobs/{run.json()['id']}").json()
-            if job["state"] in {"succeeded", "failed"}:
+            if job["state"] in {"succeeded", "failed", "dead_letter"}:
                 break
             time.sleep(0.05)
         assert job["state"] == "succeeded", job

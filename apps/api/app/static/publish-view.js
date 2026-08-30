@@ -11,6 +11,7 @@ const PLATFORM_LABELS = {
   wechat_light: "公众号轻内容",
 };
 
+/** Surface the current creative brief beside the human-controlled publish queue. */
 export function initPublishView({ store }) {
   const view = document.getElementById("publish-view");
   const listSurface = view?.querySelector(".page-surface");

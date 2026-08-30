@@ -454,6 +454,9 @@ def test_pool_memory_api_and_fast_draft_do_not_fake_application(
     import app.main as main_module
 
     importlib.reload(db_session)
+    from app.db.schema import upgrade_database
+
+    upgrade_database(db_session.settings.database_url)
     importlib.reload(main_module)
 
     with TestClient(main_module.app) as client:

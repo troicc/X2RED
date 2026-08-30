@@ -1,15 +1,15 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-30T12:25:43+08:00",
+  "updated_at": "2026-08-30T13:45:00+08:00",
   "repository": "troicc/X2RED",
   "application_version": "0.12.0",
   "snapshot": {
-    "branch": "codex/x2red-ui1-unified-creative-workflow",
+    "branch": "codex/x2red-ops1-observability-ci-security",
     "base_feature_branch": "agent/replace-crawlers-with-api-adapters",
-    "baseline_commit": "519228354279fc1641bef2fe19a08991b9ed4731",
+    "baseline_commit": "c9e4b74a133b9543040c3e02cb13356c80f1cbef",
     "pull_request": 19,
     "pull_request_title": "重构简中素材采集、语料池与三层创作工作区",
-    "pull_request_relation": "PR 19 remains the baseline feature PR; C0 PR 20 through W3 PR 27 were squash-merged in order; UI1 is active from the resulting 51922835 feature head and still needs its own PR",
+    "pull_request_relation": "PR 19 remains the baseline feature PR; C0 PR 20 through UI1 PR 28 were squash-merged in order; OPS1 is active from the resulting c9e4b74a feature head and requires its own PR",
     "c0_pull_request": 20,
     "c0_pull_request_title": "C0：冻结创作质量基线与可重放评测夹具",
     "c0_pull_request_base": "agent/replace-crawlers-with-api-adapters",
@@ -60,19 +60,23 @@
     "ui1_pull_request": 28,
     "ui1_pull_request_url": "https://github.com/troicc/X2RED/pull/28",
     "ui1_initial_commit": "039f85d1bf9c481d146a383eea906919fa586b02",
-    "ui1_state_at_snapshot": "draft_pr_created_status_commit_pending",
-    "state_at_snapshot": "ui1_pr28_open_draft_mergeable_initial_ci_in_progress_status_commit_pending",
-    "code_head_at_inspection": "039f85d1bf9c481d146a383eea906919fa586b02",
+    "ui1_state_at_snapshot": "merged_after_github_run_33292506967",
+    "ui1_merge_commit": "c9e4b74a133b9543040c3e02cb13356c80f1cbef",
+    "ops1_branch": "codex/x2red-ops1-observability-ci-security",
+    "ops1_base_commit": "c9e4b74a133b9543040c3e02cb13356c80f1cbef",
+    "ops1_state_at_snapshot": "local_verification_complete_before_first_push",
+    "state_at_snapshot": "ops1_local_verified_before_first_push",
+    "code_head_at_inspection": "c9e4b74a133b9543040c3e02cb13356c80f1cbef",
     "implementation_commit": "f48fff4",
     "ci_portability_fix_commit": "3063a9e",
-    "verified_remote_ci_head": "1cee81507088f09eed6d2f17bf1efbd8c0810780",
-    "github_checks_at_inspection": "2026-08-30 12:25 +08:00: PR 19 was open, draft and mergeable at exact feature head 51922835; PR 27 was merged; UI1 PR 28 was open, draft and mergeable at implementation head 039f85d1 with initial test (3.12) in progress, but the forthcoming status commit requires a new latest-head CI",
-    "last_verified_test_result": "UI1 final full API suite: 196 passed, 8 warnings; UI1 targeted 5 passed and the complete Playwright workflow passed after the final layout and 44px target fixes; all local CI-equivalent and package gates passed",
+    "verified_remote_ci_head": "c9e4b74a133b9543040c3e02cb13356c80f1cbef",
+    "github_checks_at_inspection": "At 2026-08-30 13:37 +08:00 the remote feature head remained c9e4b74a; PR 19 was open, draft, CLEAN and MERGEABLE, and CI run 33292708661 succeeded on that exact head",
+    "last_verified_test_result": "220 passed, 55 warnings; branch-aware coverage 72.05%; three OPS1 test files 23 passed; static, dependency-audit, migration round-trip, empty CLI and wheel gates passed",
     "v2_browser_smoke": "temporary database copy at 1280x800 and 375x812: four unique subjects, four unique layouts, cover/scene/evidence/conclusion roles, frozen brief/candidate/evidence/Bible UI visible, no horizontal overflow and zero console errors; no model calls or writes to the user database",
     "v3_browser_smoke": "isolated temporary database at 1280x800 and 375x812: three image candidates, numbered Contact Sheet, ten review dimensions, cost/call counts, candidate selection and reasoned rejection all visible and operable; no horizontal overflow, zero console errors, no real model calls or writes to the user database",
     "v4_visual_qa": "eight-mode 4x2 thumbnail contact sheet rendered with cmap-verified local CJK; Chinese remained legible and type-led, diagonal, archive and color-block modes had clearly different thumbnail structures; no model call or user database write occurred",
     "browser_smoke_at_inspection": "UI1 isolated Playwright E2E at 860x900, 1360x960 and 1800x1100 verified six navigation groups and every legacy entry, six-step task handoff, focus restoration, arrow-key tabs, visual series overview, Prompt provenance/diff, Contact Sheet, candidate state and batch-upload contracts; no root overflow, console error or page error, and reduced motion was honored",
-    "local_runtime_after_change": "UI1 validation used an isolated temporary database, a local temporary service and synthetic images only; it did not call a real text, image or embedding model, mutate the user database or rewrite immutable historical artifacts",
+    "local_runtime_after_change": "OPS1 validation uses isolated temporary databases, deterministic fixtures and synthetic browser evidence; PR tests have no model configuration and do not call a paid text, image or embedding model, mutate the user database or rewrite immutable historical artifacts",
     "volatile_fields_must_be_rechecked": true
   },
   "creative_quality_baseline": {
@@ -100,7 +104,7 @@
     "frozen_semantic_gap": "visual-firewall-03-comparison and visual-firewall-04-conclusion have different phrase, note, evidence and page role but the same legacy model-input fingerprint and final prompt",
     "exporter": "scripts/export-creative-baseline.py opens SQLite read-only, never loads model configuration or calls models, hashes structured ID fields, redacts secrets/sessions/sensitive URL parameters/absolute local paths, and emits replayable JSON only to an explicit output path",
     "documentation": "docs/ai-context/CREATIVE_QUALITY_BASELINE.md",
-    "next_phase": "UI1 is active on its independent branch from merged W3 head 51922835; OPS1 may start only after UI1 latest-head CI passes and UI1 is merged into the feature baseline"
+    "next_phase": "OPS1 is active on its independent branch from merged UI1 head c9e4b74a; it must pass local and latest-head CI gates before merge into the feature baseline"
   },
   "visual_prompt_compiler_v1": {
     "phase": "V1",
@@ -326,8 +330,30 @@
     "pull_request": 28,
     "pull_request_url": "https://github.com/troicc/X2RED/pull/28",
     "initial_implementation_commit": "039f85d1bf9c481d146a383eea906919fa586b02",
-    "state": "draft_pr_created_status_commit_pending",
-    "remaining_before_merge": ["status-document commit and push", "latest-head CI", "PR ready and squash merge"]
+    "latest_ci_run": 33292506967,
+    "state": "merged_into_feature_baseline",
+    "merge_commit": "c9e4b74a133b9543040c3e02cb13356c80f1cbef",
+    "remaining_before_merge": []
+  },
+  "operations_observability_ops1": {
+    "phase": "OPS1",
+    "branch": "codex/x2red-ops1-observability-ci-security",
+    "base_commit": "c9e4b74a133b9543040c3e02cb13356c80f1cbef",
+    "usage_fields": ["provider", "model", "input_tokens", "output_tokens", "image_count", "cost_usd", "cost_kind", "latency_ms", "attempts", "retries", "request_id"],
+    "cost_kinds": ["provider_reported", "provider_estimate", "catalog_estimate", "partial", "mixed_estimate", "unavailable", "not_used"],
+    "retry_contract": "timeout and transport errors plus HTTP 408/409/425/429/5xx use bounded exponential backoff, jitter and Retry-After; retries of one payload reuse an idempotency key while compatibility payload variants use a new scope",
+    "schema_authority": "Alembic only; standard serve migrates first, lifespan and readiness require repository head, and skip-migrate cannot bypass the revision gate",
+    "job_contract": "atomic conditional claim, active dedupe index, worker id, lease, heartbeat, bounded retry, dead letter and explicit manual retry; crash recovery remains honestly at-least-once",
+    "security_contract": "loopback default, non-loopback bind protection, optional local token, Origin and cross-site checks, approved-root file resolution, bounded decoded uploads, generated-image URL policy, credential redaction and append-only publish audit",
+    "ci_gates": ["70_percent_coverage", "mypy", "ruff", "bandit", "pip_audit", "npm_audit", "eslint_jsdoc", "empty_and_prior_migration", "deterministic_prompt_eval", "playwright_e2e", "visual_contact_sheet"],
+    "paid_model_policy": "PR clears all provider settings; the separate nightly canary requires a dedicated secret and explicit pricing, defaults to a USD 0.05 cap and enforces a USD 0.10 hard maximum",
+    "migration": "0013",
+    "documentation": "docs/ai-context/OPS1_OBSERVABILITY_CI_SECURITY.md",
+    "local_verification": "220 passed, 55 warnings with 72.05% branch-aware coverage; three OPS1 test files 23 passed; Mypy, Bandit, Ruff, ESLint/JSDoc, compile and syntax gates, pip/npm audit, deterministic prompt eval, empty-database CLI, 0013-to-0012-to-0013 migration round-trip and offline wheel passed",
+    "browser_verification": "managed desktop sandbox denied temporary loopback binding, so current-head Playwright/contact-sheet must pass on the isolated GitHub runner before merge; prior UI1 baseline E2E is historical evidence only",
+    "creative_quality_boundary": "deterministic prompt eval does not replace the pending title >=65% and style >=70% paired human blind panel",
+    "state": "local_verified_before_first_push",
+    "remaining_before_merge": ["first commit and push", "independent PR", "latest-head CI including Playwright and contact sheet", "PR ready and squash merge"]
   },
   "ci_policy": {
     "reason": "private-repository Actions quota conservation",
@@ -336,10 +362,13 @@
     "push_branches": ["main"],
     "workflow_dispatch": true,
     "cancel_superseded_runs": true,
-    "timeout_minutes": 25,
+    "timeout_minutes": 35,
     "expected_pr_jobs_per_push": 1,
     "previous_pr_jobs_per_push": 4,
-    "tradeoff": "Python 3.13 feedback moves to main or an explicit pre-merge manual run; PR Python 3.12 also installs Chromium and executes the UI1 browser workflow after the full API suite"
+    "coverage_fail_under": 70,
+    "pr_paid_model_calls": false,
+    "nightly_canary_cost_cap_hard_max_usd": 0.1,
+    "tradeoff": "Python 3.13 feedback moves to main or an explicit pre-merge manual run; PR Python 3.12 runs security, migration, coverage and Chromium workflow gates without provider credentials"
   },
   "product_architecture": [
     {
@@ -430,10 +459,13 @@
     "constraints": ["low frequency", "manual trigger", "no comments", "no media download", "no access-control bypass", "non-commercial learning license"]
   },
   "database": {
-    "alembic_revision": "0012",
+    "alembic_revision": "0013",
     "revision_0010_tables": ["corpus_pools", "corpus_pool_sources", "corpus_batches"],
     "revision_0011_tables": ["pool_memory_snapshots", "pool_memory_usages"],
     "revision_0012_tables": ["source_workbench_states"],
+    "revision_0013_tables": ["publish_audit_events"],
+    "revision_0013_fields": ["writing_projects.spent_cost_usd", "jobs.lease_expires_at", "jobs.heartbeat_at", "jobs.last_worker_id", "jobs.last_error_code", "jobs.dead_lettered_at"],
+    "schema_authority": "Alembic is the only runtime schema authority; startup and readiness require repository head",
     "source_archive_contract": "SourceItem.workspace_state is canonical material-library state; source_workbench_states stores independent active/archived queues by source_id and workbench",
     "pool_memory_cards_storage": "review_artifacts"
   },
@@ -598,7 +630,23 @@
     "apps/api/tests/test_evidence_compiler.py",
     "apps/api/tests/test_title_tournament.py",
     "apps/api/tests/test_style_exemplars.py",
-    "apps/api/tests/test_product_ui_v17.py"
+    "apps/api/tests/test_product_ui_v17.py",
+    "apps/api/app/core/security.py",
+    "apps/api/app/core/http_security.py",
+    "apps/api/app/core/paths.py",
+    "apps/api/app/db/schema.py",
+    "apps/api/app/services/model_client.py",
+    "apps/api/app/services/jobs.py",
+    "migrations/versions/0013_ops_observability_security.py",
+    "apps/api/tests/test_ops1_observability_security.py",
+    "apps/api/tests/test_ops1_jobs.py",
+    "apps/api/tests/test_ops1_migrations.py",
+    "scripts/run-prompt-eval.py",
+    "scripts/nightly-model-canary.py",
+    "scripts/build-visual-contact-sheet.py",
+    ".github/workflows/ci.yml",
+    ".github/workflows/nightly-model-canary.yml",
+    "docs/ai-context/OPS1_OBSERVABILITY_CI_SECURITY.md"
   ],
   "non_negotiables": [
     "keep the three-layer information architecture",

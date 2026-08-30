@@ -20,7 +20,7 @@
     while (Date.now() - started < timeoutMs) {
       const job = await api(`/api/jobs/${encodeURIComponent(jobId)}`);
       if (job.state === "succeeded") return job;
-      if (job.state === "failed") throw new Error(job.error || "风格训练失败");
+      if (["failed", "dead_letter"].includes(job.state)) throw new Error(job.error || "风格训练失败");
       await new Promise((resolve) => setTimeout(resolve, 700));
     }
     throw new Error("风格训练等待超时");

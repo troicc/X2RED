@@ -30,6 +30,9 @@ def test_signal_promotion_and_light_series(
     import app.main as main_module
 
     importlib.reload(db_session)
+    from app.db.schema import upgrade_database
+
+    upgrade_database(db_session.settings.database_url)
     importlib.reload(main_module)
 
     from app.domain.discovery import DiscoveryCandidate, DiscoveryRun

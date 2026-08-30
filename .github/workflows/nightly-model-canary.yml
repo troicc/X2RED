@@ -1,0 +1,45 @@
+name: Nightly model canary
+
+on:
+  schedule:
+    - cron: "30 18 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-model-canary
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      X2RED_MODEL_BASE_URL: ${{ vars.X2RED_CANARY_MODEL_BASE_URL }}
+      X2RED_MODEL_NAME: ${{ vars.X2RED_CANARY_MODEL_NAME }}
+      X2RED_MODEL_API_KEY: ${{ secrets.X2RED_CANARY_API_KEY }}
+      X2RED_MODEL_INPUT_COST_PER_MILLION_USD: ${{ vars.X2RED_CANARY_INPUT_COST_PER_MILLION_USD || '0' }}
+      X2RED_MODEL_OUTPUT_COST_PER_MILLION_USD: ${{ vars.X2RED_CANARY_OUTPUT_COST_PER_MILLION_USD || '0' }}
+      X2RED_MODEL_MAX_RETRIES: "1"
+      X2RED_CANARY_COST_CAP_USD: ${{ vars.X2RED_CANARY_COST_CAP_USD || '0.05' }}
+      X2RED_CANARY_MAX_OUTPUT_TOKENS: "32"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e .
+      - if: env.X2RED_MODEL_API_KEY == ''
+        run: echo "Nightly model canary skipped because X2RED_CANARY_API_KEY is not configured."
+      - if: env.X2RED_MODEL_API_KEY != ''
+        run: python scripts/nightly-model-canary.py --output ci-artifacts/nightly-model-canary.json
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: nightly-model-canary-${{ github.run_id }}
+          path: ci-artifacts/nightly-model-canary.json
+          if-no-files-found: ignore
+          retention-days: 30

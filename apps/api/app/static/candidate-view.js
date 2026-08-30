@@ -19,6 +19,7 @@ function imageUrl(variantId, key) {
   return `/api/platforms/variants/${encodeURIComponent(variantId)}/files/${encodeURIComponent(key)}?v=${Date.now()}`;
 }
 
+/** Return cross-page warnings for candidates that share an image hash. */
 export function duplicateImageWarnings(lifecycle) {
   const hashes = new Map();
   const warnings = [];
@@ -35,6 +36,7 @@ export function duplicateImageWarnings(lifecycle) {
   return warnings;
 }
 
+/** Render candidate review state and human selection controls. */
 export function renderCandidateView(container, {
   variantId = "",
   pageState = null,

@@ -187,14 +187,16 @@ outline 每一项包含 heading、purpose、source_indices，并按读者理解�
             final = initial
             passes = ["editorial.analysis", "writing.draft"]
             if polish_binding.enabled:
-                final = await self._polish_draft(
+                polished = await self._polish_draft(
                     initial,
                     analysis,
                     source_json,
                     polish_binding,
                     memory_prompt=memory.get("polish", ""),
                 )
-                passes.append("writing.de_translate")
+                if polished is not None:
+                    final = polished
+                    passes.append("writing.de_translate")
 
             return {
                 "analysis": analysis,
@@ -220,7 +222,7 @@ outline 每一项包含 heading、purpose、source_indices，并按读者理解�
         binding: SkillBinding,
         *,
         memory_prompt: str = "",
-    ) -> dict:
+    ) -> dict | None:
         prompt = f"""
 把下面初稿做最后一轮读者编辑。
 
@@ -251,7 +253,7 @@ outline 每一项包含 heading、purpose、source_indices，并按读者理解�
                 model_name=binding.model_name,
             )
         except (httpx.HTTPError, KeyError, TypeError, ValueError, json.JSONDecodeError):
-            return initial
+            return None
 
     def _fallback(self, context, style: str) -> dict:
         items = list(context)

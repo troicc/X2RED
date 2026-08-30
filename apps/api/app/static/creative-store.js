@@ -44,6 +44,7 @@ function readStored() {
   }
 }
 
+/** Create the current-tab creative brief store and persistence bridge. */
 export function createCreativeStore() {
   let task = readStored();
   const listeners = new Set();

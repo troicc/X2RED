@@ -142,7 +142,7 @@ class EvidenceCompiler:
                     material_kind="source",
                     selection_role=selection_role,
                     title=self.source_title(source),
-                    author=source.author_name or source.author_handle,
+                    author=source.author_name or source.author_handle or "",
                     canonical_url=source.canonical_url or "",
                     published_at=source.created_at,
                     captured_at=source.captured_at,

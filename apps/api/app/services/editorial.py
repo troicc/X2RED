@@ -13,7 +13,7 @@ from app.core.config import Settings
 from app.domain.evidence_schemas import EvidenceBundle, EvidenceSectionRequest
 from app.domain.models import DraftRevision, SkillBinding, SourceItem, new_id
 from app.services.evidence_compiler import EvidenceCompiler
-from app.services.model_client import StructuredOutputError
+from app.services.model_client import ModelClient, StructuredOutputError
 from app.services.pool_memory import PoolMemoryService
 from app.services.retrieval import bounded_json, keyword_digest
 from app.services.skills import binding_for
@@ -78,6 +78,7 @@ _ANALYSIS_FIELDS = (
 class EditorialService:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
+        self.model_client = ModelClient(settings)
 
     async def generate(self, db: Session, source: SourceItem, style: str) -> DraftRevision:
         context = self._context(db, source)
@@ -491,14 +492,16 @@ audience_value、angles、recommended_angle、title_candidates、outline、avoid
             final = initial
             passes = ["editorial.analysis", "writing.draft"]
             if polish_binding.enabled:
-                final = await self._polish_draft(
+                polished = await self._polish_draft(
                     initial,
                     analysis,
                     source_json,
                     polish_binding,
                     memory_prompt=memory.get("polish", ""),
                 )
-                passes.append("writing.de_translate")
+                if polished is not None:
+                    final = polished
+                    passes.append("writing.de_translate")
             return {
                 "analysis": analysis,
                 "quality_passes": passes,
@@ -523,7 +526,7 @@ audience_value、angles、recommended_angle、title_candidates、outline、avoid
         binding: SkillBinding,
         *,
         memory_prompt: str = "",
-    ) -> dict:
+    ) -> dict | None:
         prompt = f"""
 把初稿做最后一轮中文编辑：事实、数字、来源归属和不确定性边界不变；打散英文语序；
 删除机械过渡、同义反复和模板句；每段只承担一个意思；不增加背景或个人体验。
@@ -542,7 +545,7 @@ audience_value、angles、recommended_angle、title_candidates、outline、avoid
                 model_name=binding.model_name,
             )
         except (httpx.HTTPError, KeyError, TypeError, ValueError, json.JSONDecodeError):
-            return initial
+            return None
 
     async def _chat_json(
         self,
@@ -554,60 +557,25 @@ audience_value、angles、recommended_angle、title_candidates、outline、avoid
         model_name: str = "",
         max_tokens: int | None = None,
         capture_response_meta: bool = False,
+        capture_usage_meta: bool = False,
         request_timeout_seconds: float | None = None,
     ) -> dict:
-        selected_model = model_name.strip() or self.settings.model_name
-        request_body: dict = {
-            "model": selected_model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "temperature": temperature,
-            "response_format": {"type": "json_object"},
-        }
-        if max_tokens is not None:
-            request_body["max_tokens"] = max(256, min(int(max_tokens), 32768))
-        request_body.update(self._reasoning_options(reasoning_effort, selected_model))
-        headers = {"Content-Type": "application/json"}
-        if self.settings.model_api_key:
-            headers["Authorization"] = f"Bearer {self.settings.model_api_key}"
-        endpoint = self.settings.model_base_url.rstrip("/") + "/chat/completions"
-        variants = [request_body]
-        without_format = dict(request_body)
-        without_format.pop("response_format", None)
-        variants.append(without_format)
-        if "thinking" in request_body or "reasoning_effort" in request_body:
-            portable = dict(without_format)
-            portable.pop("thinking", None)
-            portable.pop("reasoning_effort", None)
-            variants.append(portable)
-        last_response: httpx.Response | None = None
-        timeout_seconds = max(30.0, min(float(request_timeout_seconds or 180.0), 600.0))
-        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-            for index, payload in enumerate(variants):
-                response = await client.post(endpoint, headers=headers, json=payload)
-                last_response = response
-                if response.status_code not in {400, 404, 422} or index == len(variants) - 1:
-                    response.raise_for_status()
-                    response_payload = response.json()
-                    choice = response_payload["choices"][0]
-                    content = str(choice["message"].get("content") or "")
-                    parsed = self._parse_json_object(content)
-                    if capture_response_meta:
-                        usage = response_payload.get("usage")
-                        parsed["_x2red_response_meta"] = {
-                            "finish_reason": str(choice.get("finish_reason") or ""),
-                            "completion_tokens": (
-                                usage.get("completion_tokens")
-                                if isinstance(usage, dict)
-                                else None
-                            ),
-                        }
-                    return parsed
-        if last_response is not None:
-            last_response.raise_for_status()
-        raise ValueError("model returned no response")
+        parsed, response_meta = await self.model_client.chat_json_async(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=temperature,
+            reasoning_effort=reasoning_effort,
+            model_name=model_name,
+            max_tokens=(
+                max(256, min(int(max_tokens), 32768))
+                if max_tokens is not None
+                else None
+            ),
+            request_timeout_seconds=request_timeout_seconds,
+        )
+        if capture_response_meta or capture_usage_meta:
+            parsed["_x2red_response_meta"] = response_meta
+        return parsed
 
     def _reasoning_options(self, effort: str, model_name: str = "") -> dict:
         model = (model_name or self.settings.model_name).lower()

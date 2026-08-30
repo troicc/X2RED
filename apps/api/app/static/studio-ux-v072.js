@@ -399,7 +399,7 @@
     while (Date.now() - started < timeoutMs) {
       const job = await api(`/api/jobs/${encodeURIComponent(jobId)}`);
       if (job.state === "succeeded") return job;
-      if (["failed", "canceled"].includes(job.state)) {
+      if (["failed", "dead_letter", "canceled"].includes(job.state)) {
         throw new Error(job.error || "后台任务执行失败");
       }
       await wait(700);

@@ -6,9 +6,9 @@
 
 仓库：`troicc/X2RED`
 
-当前本地任务分支：`codex/x2red-ui1-unified-creative-workflow`
+当前本地任务分支：`codex/x2red-ops1-observability-ci-security`
 
-UI1 分支来源：已合并 W3 的 `agent/replace-crawlers-with-api-adapters`，准确基线 SHA `519228354279fc1641bef2fe19a08991b9ed4731`
+OPS1 分支来源：已合并 UI1 的 `agent/replace-crawlers-with-api-adapters`，准确基线 SHA `c9e4b74a133b9543040c3e02cb13356c80f1cbef`
 
 基线 PR：`#19 重构简中素材采集、语料池与三层创作工作区`
 
@@ -28,7 +28,7 @@ W2 PR：`#26 W2：结构化 Agent 输出与最终主张矩阵`，latest head `40
 
 W3 PR：`#27 W3：标题竞赛、授权风格范例与真实反馈`，latest head `1cee81507088f09eed6d2f17bf1efbd8c0810780` 的 CI 成功后已 squash merge；功能基线前进到 `519228354279fc1641bef2fe19a08991b9ed4731`。
 
-UI1 当前在独立分支 `codex/x2red-ui1-unified-creative-workflow` 实施，准确 base 为上述 W3 merge commit；实现提交 `039f85d1bf9c481d146a383eea906919fa586b02` 已推送并创建 Draft PR #28，状态文档提交后只认新的 latest-head CI。
+UI1 PR #28 的 latest-head GitHub Actions run `33292506967` 成功后已 squash merge；功能基线前进到 `c9e4b74a133b9543040c3e02cb13356c80f1cbef`。OPS1 从这一准确远端 head 建立独立分支。
 
 C0 首个提交：`08c0920f154d51a7cdfa5d35a604d48b3d393672`
 
@@ -71,6 +71,19 @@ PR #19 属于 C0 的基线功能分支，不是 C0 分支本身。
 2026-08-30 12:24：UI1 提交前重新 fetch 并查询 GitHub；PR #19 仍为 open、draft、mergeable，head 与 UI1 base 均为 `519228354279fc1641bef2fe19a08991b9ed4731`，该 head 的 `test (3.12)` 成功。PR #27 状态为 merged，记录的 head/merge commit 分别为 `1cee81507088f09eed6d2f17bf1efbd8c0810780` / `519228354279fc1641bef2fe19a08991b9ed4731`。UI1 创建 PR 后仍须按其最新 head 重新判断 CI。
 
 2026-08-30 12:25：UI1 实现提交 `039f85d1bf9c481d146a383eea906919fa586b02` 已推送并创建 Draft PR #28，base 为准确 W3 合并 head `519228354279fc1641bef2fe19a08991b9ed4731`；PR 创建后查询为 open、draft、mergeable，初始 `test (3.12)` 正在运行。状态文档提交会产生新 head，合并只认该 latest head 对应的 CI。
+
+2026-08-30 随后完成 UI1：PR #28 的 latest-head GitHub Actions run `33292506967` 成功后转 Ready 并 squash merge，功能基线准确前进到 `c9e4b74a133b9543040c3e02cb13356c80f1cbef`。OPS1 从该 merge head 创建独立分支 `codex/x2red-ops1-observability-ci-security`；提交、PR、CI 和 merge 状态仍须在推送前重新查询。
+
+### 2026-08-30 OPS1 可观测性、可靠性、CI 与安全
+
+- 文本和图片调用统一输出 provider/model、tokens 或 image count、latency、attempts、retries、request ID 与 USD cost。Provider 实报、Provider 估算、本地费率估算、部分/混合和 unavailable 分开显示；删除写作项目按尝试次数固定计 1 cent 的旧逻辑。结构化输出解析失败仍保留已发生 usage，确定性 fallback 不伪记模型调用或记忆应用。
+- 同步文本、异步文本和图片请求统一 timeout/transport/HTTP 错误码；408/409/425/429/5xx 使用有界指数退避、jitter 和 `Retry-After`。同 payload 重试复用 idempotency key，兼容性 payload fallback 使用新 scope；provider detail、job error 和发布拒绝审计统一脱敏。
+- FastAPI 启动移除 `create_all`，Alembic 成为唯一 schema authority。lifespan 和 `/ready` 都比较 revision；`--skip-migrate` 不能绕过门禁。Revision `0013` 新增 writing USD cost、job lease/heartbeat/worker/error/dead-letter、active dedupe 条件唯一索引和 append-only 发布审计。
+- Job claim 改为原子条件更新；worker heartbeat 续 lease，仅过期 lease 可恢复；失败有界退避并最终进入 dead letter，人工 retry 显式重置。并发 worker 不会同时 claim 同一 pending job，但崩溃恢复仍是诚实的 at-least-once，不冒充分布式 exactly-once。
+- CLI 默认 loopback，非 loopback 无 token 时拒绝启动；受保护 API 支持本地 token、Origin/CSRF、cross-site 拒绝和安全 header。持久化文件必须位于批准 root，图片上传/下载受类型、像素、host、HTTPS、重定向和大小约束。Web UI 与公众号发布助手均只在会话级保存 token；X2RED 仍不点击最终发布按钮。
+- PR CI 显式清空所有付费模型配置，加入 70% coverage、Mypy、Bandit、pip/npm audit、ESLint/JSDoc、空库/旧快照迁移、离线 Prompt eval、Playwright E2E 与 visual contact sheet。独立 nightly canary 只有专用 secret 存在才调用模型，要求显式费率，并把全部最大重试尝试计入预检；默认 cap US$0.05、硬上限 US$0.10，artifact 不保存原始响应。
+- 完整操作、迁移、回滚、配置和已知限制记录在 `docs/ai-context/OPS1_OBSERVABILITY_CI_SECURITY.md`。离线 Prompt eval 和自动测试不替代 W3 标题 ≥65% / 风格 ≥70% 的真实成对人工盲评。
+- 2026-08-30 13:37 提交前重新 fetch：远端功能分支仍为准确基线 `c9e4b74a133b9543040c3e02cb13356c80f1cbef`；PR #19 为 open、draft、CLEAN、MERGEABLE，同 head 的 CI run `33292708661` 成功。13:45 当前精确本地 head 的最终套件 `220 passed, 55 warnings`，branch-aware coverage `72.05%`；三个 OPS1 测试文件 `23 passed`。Mypy、Bandit、Ruff、ESLint/JSDoc、Python/JavaScript/Shell/JSON、pip/npm audit、离线 Prompt eval、空库 CLI、`0013→0012→0013` 往返迁移和离线 wheel 均通过。桌面受管沙箱拒绝临时 loopback 端口，当前 OPS1 head 的 Playwright/contact sheet 由 GitHub latest-head CI 作为合并硬门禁；此前 UI1 基线 E2E 已通过，不能替代本次 CI 结果。
 
 ### 2026-08-30 UI1 统一创作任务与视觉工作流
 
@@ -572,6 +585,8 @@ revision `0011` 相关实现：
 
 数据库 revision `0012` 新增 `source_workbench_states`，以 `(source_id, workbench)` 唯一约束保存内容工作台自己的 active/archived 状态。该表不替代 `SourceItem.workspace_state`：前者是工作台处理队列，后者仍是语料素材库的标准来源生命周期。相关实现位于 `apps/api/app/services/source_workbenches.py`、`apps/api/app/api/sources.py` 和 `migrations/versions/0012_source_workbench_states.py`。
 
+数据库 revision `0013` 新增 `writing_projects.spent_cost_usd`、job lease/heartbeat/worker/error/dead-letter 字段、active dedupe 条件唯一索引与 `publish_audit_events`。标准启动不再隐式 `create_all`；Alembic head 是唯一 schema authority。旧库 active dedupe 冲突只会把额外记录标为 canceled，不物理删除；完整迁移和回滚边界见 `OPS1_OBSERVABILITY_CI_SECURITY.md`。
+
 ### L. GitHub Actions 额度优化
 
 由于仓库为 private，标准 GitHub-hosted runner 会消耗账户额度。旧工作流对 `agent/**` 同时监听 `push` 和 `pull_request`，每次 PR 推送再乘 Python 3.12/3.13，实际产生 4 个任务。
@@ -582,7 +597,9 @@ revision `0011` 相关实现：
 - PR 以受支持的最低版本 Python 3.12 作为日常门禁；
 - `main` 和 `workflow_dispatch` 才运行 Python 3.12/3.13 完整矩阵；
 - 同一 PR/分支启用 `cancel-in-progress`，新提交取消旧运行；
-- 每个任务设置 15 分钟超时，防止异常挂起；
+- 每个任务设置 35 分钟超时，为完整 coverage 和 Chromium E2E 留出冷启动余量；
+- PR 明确清空文本/图片 provider 配置，并加入 Mypy、Bandit、pip/npm audit、ESLint/JSDoc、70% coverage、Prompt eval、迁移快照、Playwright 和 visual artifact；
+- 付费模型只允许在独立 nightly canary 使用专用 secret、显式费率和硬成本 cap；
 - 不用 `paths-ignore` 跳过必需检查，避免 required check 长期 Pending。
 
 常规 PR 推送因此从 4 个任务降为 1 个；Python 3.13 的兼容性反馈延后到主分支或人工完整检查，这是额度紧张时的明确取舍。

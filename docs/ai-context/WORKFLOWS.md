@@ -149,6 +149,16 @@ Guizang 运行时使用固定上游 checkout、完整 seed、主题、布局 rec
 
 X2RED 可以打开发布准备页面，但不点击最终发布。
 
+发布包准备、打开预览、失败/拒绝和用户确认都写 append-only 审计。审计只保存任务、动作、结果、包 hash/素材计数等必要字段，不保存 API key、Cookie 或完整结果 URL。公众号发布助手配置本地 token 时只将它保存到浏览器会话。
+
+### 4.6 运行状态、成本和后台任务
+
+工作台只把真实模型 usage 显示为 Provider 实报、Provider 估算或显式本地费率估算；没有成本来源时显示 unavailable，不按调用次数虚构金额。失败的结构化输出仍保留已经发生的 token/cost，确定性 fallback 则不登记模型已生效。
+
+后台生成任务使用 active dedupe key、原子 claim、worker lease/heartbeat、有界 retry 和 dead letter。多个 worker 不会同时 claim 同一 pending job；进程崩溃后的过期 lease 可以重放，因此带外部副作用的 handler 仍要使用业务幂等键。人工 retry 是明确动作，不会静默清空失败历史。
+
+服务正常启动前必须处于 Alembic head；revision 不匹配会在启动 job/scheduler 前失败。完整配置与故障处理见 `OPS1_OBSERVABILITY_CI_SECURITY.md`。
+
 ## 5. 公众号长文工作台
 
 ### 5.1 来源和证据

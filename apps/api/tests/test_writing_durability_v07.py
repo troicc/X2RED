@@ -17,7 +17,7 @@ def wait_for_job(client: TestClient, job_id: str, timeout: float = 15.0) -> dict
         response = client.get(f"/api/jobs/{job_id}")
         assert response.status_code == 200, response.text
         latest = response.json()
-        if latest["state"] in {"succeeded", "failed"}:
+        if latest["state"] in {"succeeded", "failed", "dead_letter"}:
             return latest
         time.sleep(0.05)
     return latest
@@ -46,6 +46,9 @@ def test_completed_agent_stages_survive_later_model_failures(
     import app.main as main_module
 
     importlib.reload(db_session)
+    from app.db.schema import upgrade_database
+
+    upgrade_database(db_session.settings.database_url)
     importlib.reload(main_module)
 
     from app.domain.models import DraftRevision, SourceItem
@@ -205,7 +208,7 @@ def test_completed_agent_stages_survive_later_model_failures(
         )
         assert queued.status_code == 202, queued.text
         job = wait_for_job(client, queued.json()["id"])
-        assert job["state"] == "failed", job
+        assert job["state"] == "dead_letter", job
         assert job["attempts"] == 2
 
         project = client.get(f"/api/writing/projects/{project_id}").json()
@@ -278,6 +281,9 @@ def test_deep_writing_preserves_complete_longform_and_links_wechat_output(
     import app.main as main_module
 
     importlib.reload(db_session)
+    from app.db.schema import upgrade_database
+
+    upgrade_database(db_session.settings.database_url)
     importlib.reload(main_module)
 
     from app.domain.models import DraftRevision, SourceItem

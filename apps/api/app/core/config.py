@@ -46,7 +46,22 @@ class Settings(BaseSettings):
     evidence_embedding_model: str = ""
     writing_schema_mode: Literal["legacy", "production"] = "production"
     writing_quality_mode: Literal["legacy", "production"] = "production"
-    request_timeout_seconds: float = 20.0
+    request_timeout_seconds: float = Field(default=20.0, gt=0, le=600)
+    model_max_retries: int = Field(default=2, ge=0, le=8)
+    model_retry_base_seconds: float = Field(default=0.5, ge=0, le=60)
+    model_retry_max_seconds: float = Field(default=8.0, ge=0, le=120)
+    model_retry_jitter_seconds: float = Field(default=0.25, ge=0, le=10)
+    model_input_cost_per_million_usd: float = Field(default=0.0, ge=0)
+    model_output_cost_per_million_usd: float = Field(default=0.0, ge=0)
+    image_cost_per_image_usd: float = Field(default=0.0, ge=0)
+
+    job_lease_seconds: int = Field(default=90, ge=15, le=3600)
+    job_heartbeat_seconds: int = Field(default=20, ge=5, le=600)
+    job_retry_base_seconds: float = Field(default=2.0, ge=0.1, le=120)
+
+    local_api_token: str = ""
+    allowed_origins: str = ""
+    allow_insecure_non_loopback: bool = False
 
     material_user_agent: str = "X2RED-MaterialResearch/0.13 (+local research)"
     material_min_interval_seconds: float = Field(default=2.0, ge=0.5, le=60.0)

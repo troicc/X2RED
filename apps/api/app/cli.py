@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import sys
 import tempfile
 from pathlib import Path
 
@@ -36,13 +37,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def migrate() -> int:
-    from alembic import command
-    from alembic.config import Config
+    from app.core.config import get_settings
+    from app.db.schema import upgrade_database
 
-    config = Config(str(ROOT / "alembic.ini"))
-    config.set_main_option("script_location", str(ROOT / "migrations"))
-    config.set_main_option("prepend_sys_path", str(ROOT / "apps/api"))
-    command.upgrade(config, "head")
+    upgrade_database(get_settings().database_url)
     print("database migrations are up to date")
     return 0
 
@@ -92,12 +90,14 @@ def _check_publisher() -> None:
 
 def check(*, network: bool = False, publisher: bool = False) -> int:
     from app.core.config import get_settings
+    from app.db.schema import assert_schema_current
     from app.db.session import engine
 
     migrate()
     settings = get_settings()
     with engine.connect() as connection:
         connection.execute(text("SELECT 1"))
+    assert_schema_current(engine)
     print(f"database: {settings.database_url} [connected]")
     _check_writable(settings.media_dir, "media")
     _check_writable(settings.raw_dir, "raw snapshots")
@@ -120,6 +120,24 @@ def main() -> int:
         return migrate()
     if command_name == "serve":
         import uvicorn
+
+        from app.core.config import get_settings
+        from app.core.http_security import is_loopback_host
+
+        settings = get_settings()
+        if not is_loopback_host(args.host):
+            if not settings.local_api_token and not settings.allow_insecure_non_loopback:
+                print(
+                    "refusing non-loopback bind without X2RED_LOCAL_API_TOKEN; "
+                    "set a token or explicitly set X2RED_ALLOW_INSECURE_NON_LOOPBACK=true",
+                    file=sys.stderr,
+                )
+                return 2
+            print(
+                "warning: X2RED is binding to a non-loopback interface; "
+                "verify firewall, Origin policy, and local API token settings",
+                file=sys.stderr,
+            )
 
         if not args.skip_migrate:
             migrate()

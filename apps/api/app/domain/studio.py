@@ -190,6 +190,7 @@ class WritingProject(Base):
     style_profile_id: Mapped[str | None] = mapped_column(ForeignKey("style_profiles.id", ondelete="SET NULL"), nullable=True, index=True)
     budget_limit_cents: Mapped[int] = mapped_column(Integer, default=100)
     spent_estimate_cents: Mapped[int] = mapped_column(Integer, default=0)
+    spent_cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
     error: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
