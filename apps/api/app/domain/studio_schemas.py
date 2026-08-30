@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 
 class MonitorTargetCreate(BaseModel):
@@ -188,12 +189,28 @@ class StyleProfileOut(BaseModel):
 
 class WritingProjectCreate(BaseModel):
     source_id: str
+    supporting_source_ids: list[str] = Field(default_factory=list, max_length=12)
+    material_refs: list[str] = Field(default_factory=list, max_length=32)
     mode: Literal["fast", "studio"] = "studio"
     reader: str = Field(default="", max_length=2000)
     promise: str = Field(default="", max_length=2000)
     main_thesis: str = Field(default="", max_length=2000)
     style_profile_id: str | None = None
     budget_limit_cents: int = Field(default=100, ge=0, le=10000)
+
+
+class WritingMaterialOption(BaseModel):
+    ref: str
+    kind: Literal["source", "draft_revision", "platform_variant"]
+    id: str
+    source_id: str
+    title: str
+    excerpt: str
+    author: str
+    platform: str
+    version: int | None = None
+    status: str
+    created_at: datetime | None
 
 
 class WritingArtifactOut(BaseModel):
@@ -208,6 +225,16 @@ class WritingArtifactOut(BaseModel):
     created_by_role: str
     approved: bool
     created_at: datetime
+
+    @computed_field(return_type=dict[str, Any])
+    @property
+    def structured_output(self) -> dict[str, Any]:
+        try:
+            payload = json.loads(self.content_json or "{}")
+        except (TypeError, json.JSONDecodeError):
+            return {}
+        trace = payload.get("_structured_output") if isinstance(payload, dict) else None
+        return trace if isinstance(trace, dict) else {}
 
 
 class AgentRunOut(BaseModel):
@@ -234,6 +261,9 @@ class WritingProjectOut(BaseModel):
 
     id: str
     source_id: str
+    source_ids: list[str] = Field(default_factory=list)
+    source_summaries: list[dict[str, Any]] = Field(default_factory=list)
+    material_summaries: list[dict[str, Any]] = Field(default_factory=list)
     mode: str
     state: str
     current_stage: str
@@ -243,11 +273,21 @@ class WritingProjectOut(BaseModel):
     style_profile_id: str | None
     budget_limit_cents: int
     spent_estimate_cents: int
+    spent_cost_usd: float
+    cost_status: str
+    usage_summary: dict[str, Any] = Field(default_factory=dict)
     error: str
+    output_draft_id: str = ""
+    output_draft_version: int | None = None
+    output_draft_chars: int = 0
+    wechat_variant_id: str = ""
+    wechat_variant_version: int | None = None
+    wechat_variant_status: str = ""
     created_at: datetime
     updated_at: datetime
     artifacts: list[WritingArtifactOut] = Field(default_factory=list)
     runs: list[AgentRunOut] = Field(default_factory=list)
+    memory_snapshot: dict[str, Any] = Field(default_factory=dict)
 
 
 class ArtifactApprovalRequest(BaseModel):
@@ -255,12 +295,36 @@ class ArtifactApprovalRequest(BaseModel):
     note: str = Field(default="", max_length=2000)
 
 
+class TitlePreferenceRequest(BaseModel):
+    tournament_artifact_id: str = Field(min_length=1, max_length=160)
+    candidate_id: str = Field(min_length=1, max_length=120)
+    note: str = Field(default="", max_length=2000)
+
+
 class WritingFeedbackCreate(BaseModel):
-    draft_before_id: str | None = None
-    draft_after_id: str | None = None
-    diff: dict[str, Any] = Field(default_factory=dict)
-    feedback_reason: str = Field(default="", max_length=4000)
-    affected_rules: list[str] = Field(default_factory=list)
+    model_config = ConfigDict(extra="forbid")
+
+    draft_before_id: str = Field(min_length=1, max_length=160)
+    draft_after_id: str = Field(min_length=1, max_length=160)
+    article_type: str = Field(min_length=1, max_length=80)
+    feedback_reason: str = Field(min_length=1, max_length=4000)
+    affected_dimensions: list[
+        Literal[
+            "identity",
+            "reader_relationship",
+            "tone",
+            "sentence_rhythm",
+            "paragraph_rhythm",
+            "opening",
+            "title",
+            "structure",
+            "transition",
+            "judgment",
+            "ending",
+            "forbidden_expression",
+            "positive_phrase",
+        ]
+    ] = Field(min_length=1, max_length=13)
 
 
 class WritingRunRequest(BaseModel):

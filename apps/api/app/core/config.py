@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -32,17 +33,61 @@ class Settings(BaseSettings):
     image_api_key: str = ""
     image_model: str = ""
     image_size: str = "1024x1536"
-    request_timeout_seconds: float = 20.0
+    minimal_zine_prompt_mode: Literal["legacy", "skill_v03", "production"] = (
+        "production"
+    )
+    visual_brief_mode: Literal["legacy", "production"] = "production"
+    image_candidate_mode: Literal["legacy", "production"] = "production"
+    image_candidate_count: int = Field(default=3, ge=1, le=4)
+    typography_recipe_mode: Literal["legacy", "production"] = "production"
+    evidence_retrieval_mode: Literal["legacy", "hybrid"] = "hybrid"
+    evidence_embedding_base_url: str = ""
+    evidence_embedding_api_key: str = ""
+    evidence_embedding_model: str = ""
+    writing_schema_mode: Literal["legacy", "production"] = "production"
+    writing_quality_mode: Literal["legacy", "production"] = "production"
+    request_timeout_seconds: float = Field(default=20.0, gt=0, le=600)
+    model_max_retries: int = Field(default=2, ge=0, le=8)
+    model_retry_base_seconds: float = Field(default=0.5, ge=0, le=60)
+    model_retry_max_seconds: float = Field(default=8.0, ge=0, le=120)
+    model_retry_jitter_seconds: float = Field(default=0.25, ge=0, le=10)
+    model_input_cost_per_million_usd: float = Field(default=0.0, ge=0)
+    model_output_cost_per_million_usd: float = Field(default=0.0, ge=0)
+    image_cost_per_image_usd: float = Field(default=0.0, ge=0)
 
-    material_user_agent: str = "X2RED-MaterialResearch/0.11 (+local research; public pages)"
+    job_lease_seconds: int = Field(default=90, ge=15, le=3600)
+    job_heartbeat_seconds: int = Field(default=20, ge=5, le=600)
+    job_retry_base_seconds: float = Field(default=2.0, ge=0.1, le=120)
+
+    local_api_token: str = ""
+    allowed_origins: str = ""
+    allow_insecure_non_loopback: bool = False
+
+    material_user_agent: str = "X2RED-MaterialResearch/0.13 (+local research)"
     material_min_interval_seconds: float = Field(default=2.0, ge=0.5, le=60.0)
-    material_max_page_bytes: int = Field(default=5 * 1024 * 1024, ge=100_000, le=20_000_000)
+    material_max_page_bytes: int = Field(
+        default=5 * 1024 * 1024,
+        ge=100_000,
+        le=20_000_000,
+    )
     material_browser_enabled: bool = True
     material_browser_timeout_seconds: float = Field(default=40.0, ge=5.0, le=180.0)
     material_browser_wait_ms: int = Field(default=1800, ge=0, le=15_000)
-    material_search_provider: str = "auto"
-    material_gdelt_base_url: str = "https://api.gdeltproject.org/api/v2/doc/doc"
+    material_search_provider: str = "mediacrawler"
 
+    mediacrawler_root: Path = Path("./.vendor/MediaCrawler")
+    mediacrawler_python: str = ""
+    mediacrawler_revision: str = "1779dde9725f6b7ef42e29022c0054b3e678f1af"
+    mediacrawler_platform: str = "xhs"
+    mediacrawler_login_type: str = "qrcode"
+    mediacrawler_connect_existing: bool = True
+    mediacrawler_cdp_port: int = Field(default=9222, ge=1024, le=65535)
+    mediacrawler_timeout_seconds: int = Field(default=600, ge=30, le=3600)
+    mediacrawler_max_results: int = Field(default=30, ge=1, le=100)
+
+    # Existing provider configuration remains for old internal modules only;
+    # the material-library API and UI do not route through these providers.
+    material_gdelt_base_url: str = "https://api.gdeltproject.org/api/v2/doc/doc"
     serpapi_api_key: str = ""
     serpapi_base_url: str = "https://serpapi.com/search.json"
     dataforseo_login: str = ""

@@ -6,12 +6,28 @@ const state = {
   currentCardRender: null,
   activeJobId: null,
   sourceItems: [],
-  workspaceState: "active",
+  workbenchState: "active",
   health: null,
 };
 
 const $ = (id) => document.getElementById(id);
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+const nativeFetch = window.fetch.bind(window);
+window.fetch = (input, options = {}) => {
+  const headers = new Headers(input instanceof Request ? input.headers : undefined);
+  new Headers(options.headers || {}).forEach((value, key) => headers.set(key, value));
+  try {
+    const token = window.sessionStorage.getItem("x2red_api_token") || "";
+    const target = new URL(typeof input === "string" ? input : input.url, window.location.href);
+    if (token && target.origin === window.location.origin && (target.pathname.startsWith("/api") || target.pathname === "/ready")) {
+      headers.set("Authorization", `Bearer ${token}`);
+    }
+  } catch {
+    // Storage may be disabled; the request will receive a regular 401 response.
+  }
+  return nativeFetch(input, { ...options, headers });
+};
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -68,17 +84,57 @@ function formatLongDate(value) {
 }
 
 function initials(item) {
-  const seed = (item.author_name || item.author_handle || "X").trim();
+  const seed = (item.author_name || item.author_handle || sourcePlatformLabel(item)).trim();
   return [...seed][0]?.toUpperCase() || "X";
 }
 
 function contentKindLabel(value) {
   return {
-    article: "ARTICLE",
-    post: "POST",
-    thread: "THREAD",
-    longer_post: "LONG POST",
-  }[value] || String(value || "POST").toUpperCase();
+    article: "长文",
+    post: "帖子",
+    thread: "串文",
+    longer_post: "长帖",
+    corpus_batch: "冻结批次",
+  }[value] || "来源";
+}
+
+const SOURCE_GROUP_LABELS = {
+  pool: "语料池批次",
+  x: "X / 信号台",
+  xhs: "小红书",
+  dy: "抖音",
+  ks: "快手",
+  bili: "B站",
+  wb: "微博",
+  tieba: "贴吧",
+  zhihu: "知乎",
+  web: "网页与文档",
+};
+
+function sourceGroup(item) {
+  if (item?.provider === "corpus_pool" || item?.content_kind === "corpus_batch") return "pool";
+  if (item?.platform === "x" || ["fxtwitter", "signal-studio", "x2pdf"].includes(item?.provider)) return "x";
+  if (["xhs", "dy", "ks", "bili", "wb", "tieba", "zhihu"].includes(item?.platform)) {
+    return item.platform;
+  }
+  return "web";
+}
+
+function sourcePlatformLabel(item) {
+  return SOURCE_GROUP_LABELS[sourceGroup(item)] || "其他来源";
+}
+
+function sourceDisplayName(item) {
+  if (sourceGroup(item) === "pool") return item.author_name || "未命名语料池批次";
+  return item.author_handle ? `@${item.author_handle}` : item.author_name || "未知作者";
+}
+
+function sourceOriginCopy(item) {
+  if (item.published_count) return `发布 ${item.published_count} 次`;
+  if (item.provider === "x2pdf") return "X2PDF 导入";
+  if (item.provider === "manual") return "手工导入";
+  if (sourceGroup(item) === "pool") return "可追溯材料";
+  return "";
 }
 
 function kindLabel(value) {
@@ -158,7 +214,14 @@ async function loadHealth() {
 }
 
 async function loadSources(selectId = null) {
-  const items = await api(`/api/sources?workspace_state=${encodeURIComponent(state.workspaceState)}`);
+  const params = new URLSearchParams({
+    workspace_state: "active",
+    workbench: "xhs",
+    workbench_state: state.workbenchState,
+    include_pool_batches: "true",
+    limit: "2000",
+  });
+  const items = await api(`/api/sources?${params.toString()}`);
   state.sourceItems = items || [];
   renderSourceList();
   if (selectId) await selectSource(selectId);
@@ -179,14 +242,20 @@ function renderSourceList() {
     empty.className = "source-list-empty";
     empty.textContent = query
       ? "没有匹配的来源"
-      : state.workspaceState === "active" ? "来源箱还是空的" : "还没有归档内容";
+      : state.workbenchState === "active" ? "没有待处理来源" : "本工作台还没有归档来源";
     list.appendChild(empty);
     return;
   }
   for (const item of items) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = `source-item${item.id === state.sourceId ? " active" : ""}`;
+    const row = document.createElement("article");
+    row.className = `source-item${item.id === state.sourceId ? " active" : ""}`;
+    row.dataset.sourceId = item.id;
+    row.dataset.sourceGroup = sourceGroup(item);
+    const selectButton = document.createElement("button");
+    selectButton.type = "button";
+    selectButton.className = "source-item-select";
+    selectButton.dataset.sourceId = item.id;
+    selectButton.setAttribute("aria-label", `打开来源：${sourceDisplayName(item)}`);
     const top = document.createElement("span");
     top.className = "source-item-top";
     const avatar = document.createElement("span");
@@ -195,28 +264,52 @@ function renderSourceList() {
     const meta = document.createElement("span");
     meta.className = "source-meta";
     const name = document.createElement("strong");
-    name.textContent = item.author_handle ? `@${item.author_handle}` : item.author_name || "未知作者";
+    name.textContent = sourceDisplayName(item);
     const date = document.createElement("small");
-    date.textContent = formatDate(item.archived_at || item.captured_at);
+    date.textContent = formatDate(item.captured_at);
     meta.append(name, date);
+    const platform = document.createElement("span");
+    platform.className = "source-platform-badge";
+    platform.textContent = sourcePlatformLabel(item);
     const dot = document.createElement("span");
     dot.className = `source-state-dot${item.state === "available" ? " ready" : ""}`;
-    top.append(avatar, meta, dot);
+    dot.setAttribute("aria-hidden", "true");
+    top.append(avatar, meta, platform, dot);
     const preview = document.createElement("span");
     preview.className = "source-preview";
     preview.textContent = item.text_original || "（无正文）";
-    const bottom = document.createElement("span");
+    const bottom = document.createElement("div");
     bottom.className = "source-item-bottom";
     const type = document.createElement("span");
     type.className = "source-type";
     type.textContent = contentKindLabel(item.content_kind);
-    const published = document.createElement("span");
-    published.className = "source-published";
-    published.textContent = item.published_count ? `已发布 ${item.published_count} 次` : item.provider === "x2pdf" ? "X2PDF" : "X SOURCE";
-    bottom.append(type, published);
-    button.append(top, preview, bottom);
-    button.addEventListener("click", () => selectSource(item.id));
-    list.appendChild(button);
+    bottom.appendChild(type);
+    const originCopy = sourceOriginCopy(item);
+    if (originCopy) {
+      const origin = document.createElement("span");
+      origin.className = "source-origin-copy";
+      origin.textContent = originCopy;
+      bottom.appendChild(origin);
+    }
+    const archive = document.createElement("button");
+    archive.type = "button";
+    archive.className = "source-row-archive";
+    archive.dataset.sourceAction = "archive";
+    const restoring = item.workbench_state === "archived";
+    archive.textContent = restoring ? "恢复" : "归档";
+    archive.title = `${restoring ? "恢复到" : "归档于"}小红书工作台，不影响素材库和其他工作台`;
+    archive.setAttribute(
+      "aria-label",
+      `${restoring ? "恢复" : "归档"} ${sourceDisplayName(item)}，仅影响小红书工作台`,
+    );
+    archive.addEventListener("click", () => {
+      toggleArchive(item, archive).catch((error) => window.alert(error.message));
+    });
+    bottom.appendChild(archive);
+    selectButton.append(top, preview);
+    selectButton.addEventListener("click", () => selectSource(item.id));
+    row.append(selectButton, bottom);
+    list.appendChild(row);
   }
 }
 
@@ -236,7 +329,7 @@ async function selectSource(id) {
   state.currentDraft = null;
   renderSourceList();
   try {
-    const item = await api(`/api/sources/${encodeURIComponent(id)}`);
+    const item = await api(`/api/sources/${encodeURIComponent(id)}?workbench=xhs`);
     state.currentSource = item;
     $("empty-workbench").hidden = true;
     $("active-workbench").hidden = false;
@@ -250,15 +343,34 @@ async function selectSource(id) {
 }
 
 function renderSourceDetail(item) {
+  const group = sourceGroup(item);
   $("source-avatar").textContent = initials(item);
   $("source-author").textContent = item.author_handle
     ? `${item.author_name || item.author_handle} · @${item.author_handle}`
     : item.author_name || "未知作者";
-  $("source-link").href = item.canonical_url;
+  const link = $("source-link");
+  const canOpenOriginal = group !== "pool" && /^https?:\/\//i.test(item.canonical_url || "");
+  link.hidden = !canOpenOriginal;
+  if (canOpenOriginal) {
+    link.href = item.canonical_url;
+    link.textContent = `在${sourcePlatformLabel(item).replace(" / 信号台", "")}查看原文 ↗`;
+  } else {
+    link.removeAttribute("href");
+  }
   $("source-kind-badge").textContent = contentKindLabel(item.content_kind);
-  $("archive-source").textContent = item.workspace_state === "archived" ? "恢复到来源箱" : "归档";
+  const archiveCopy = $("archive-source").querySelector("span");
+  const restoring = item.workbench_state === "archived";
+  archiveCopy.textContent = restoring ? "恢复到本台" : "归档此来源";
+  $("archive-source").title = `${restoring ? "恢复到" : "归档于"}小红书工作台，不影响素材库和其他工作台`;
+  $("delete-source").hidden = group === "pool";
+  const readerLabels = {
+    pool: ["CORPUS BATCH READER", "冻结批次与来源"],
+    x: ["X SOURCE READER", "原帖与上下文"],
+  }[group] || ["SOURCE READER", "来源正文与关联内容"];
+  $("source-reader-kicker").textContent = readerLabels[0];
+  $("source-reader-title").textContent = readerLabels[1];
   $("editor-note").value = item.editor_note || "";
-  renderXSource(item);
+  renderSource(item);
   renderAssets(item.assets || []);
 }
 
@@ -277,7 +389,7 @@ function avatarNode(item, sizeClass = "x-avatar") {
   return fallback;
 }
 
-function createXHeader(item) {
+function createSourceHeader(item) {
   const header = document.createElement("header");
   header.className = "x-post-header";
   header.appendChild(avatarNode(item));
@@ -292,10 +404,17 @@ function createXHeader(item) {
   const time = document.createElement("small");
   time.textContent = formatLongDate(item.created_at || item.captured_at);
   identity.append(firstLine, time);
-  const logo = document.createElement("span");
-  logo.className = "x-glyph";
-  logo.textContent = "𝕏";
-  header.append(identity, logo);
+  const group = sourceGroup(item);
+  const origin = document.createElement("span");
+  if (group === "x") {
+    origin.className = "x-glyph";
+    origin.textContent = "𝕏";
+    origin.setAttribute("aria-label", "X 平台");
+  } else {
+    origin.className = `source-origin-badge source-origin-${group}`;
+    origin.textContent = sourcePlatformLabel(item);
+  }
+  header.append(identity, origin);
   return header;
 }
 
@@ -307,7 +426,7 @@ function createXPost(item, options = {}) {
     line.className = "x-thread-line";
     post.appendChild(line);
   }
-  post.appendChild(createXHeader(item));
+  post.appendChild(createSourceHeader(item));
   const body = document.createElement("div");
   body.className = "x-post-body";
   const text = document.createElement("p");
@@ -453,7 +572,7 @@ function renderArticleBlock(block) {
 function renderStructuredArticle(item, documentValue) {
   const article = document.createElement("article");
   article.className = "x-article";
-  article.appendChild(createXHeader(item));
+  article.appendChild(createSourceHeader(item));
   const content = document.createElement("div");
   content.className = "x-article-content";
   const title = document.createElement("h1");
@@ -475,7 +594,7 @@ function renderStructuredArticle(item, documentValue) {
   return article;
 }
 
-function renderXSource(item) {
+function renderSource(item) {
   const feed = $("x-source-feed");
   feed.replaceChildren();
   const documentValue = parseJSON(item.structured_content_json, {});
@@ -487,7 +606,11 @@ function renderXSource(item) {
       feed.appendChild(createXPost(related, { thread: true, includeAssets: false }));
     });
   }
-  $("related-count").textContent = `${(item.related || []).length} 条上下文`;
+  const relatedCount = (item.related || []).length;
+  const relatedLabel = sourceGroup(item) === "pool"
+    ? "批次来源"
+    : sourceGroup(item) === "x" ? "上下文" : "关联来源";
+  $("related-count").textContent = `${relatedCount} 条${relatedLabel}`;
 }
 
 function renderAssets(assets) {
@@ -669,12 +792,12 @@ async function pollIntakeJob(jobId, submitButton) {
       message($("intake-status"), `已导入 ${result.imported_count || 0} 条内容，发现 ${result.asset_count || 0} 个素材。`, "ok");
       state.activeJobId = null;
       submitButton.disabled = false;
-      state.workspaceState = "active";
+      state.workbenchState = "active";
       updateSourceTabs();
       await loadSources(result.source_id || null);
       return;
     }
-    if (["failed", "canceled"].includes(job.state)) {
+    if (["failed", "dead_letter", "canceled"].includes(job.state)) {
       state.activeJobId = null;
       submitButton.disabled = false;
       message($("intake-status"), `导入失败：${job.error || "未知错误"}`, "error");
@@ -707,7 +830,10 @@ async function saveNote() {
       method: "PUT",
       body: JSON.stringify({ editor_note: $("editor-note").value }),
     });
-    state.currentSource = item;
+    state.currentSource = {
+      ...item,
+      workbench_state: state.currentSource?.workbench_state || item.workbench_state,
+    };
     message($("note-status"), "我的判断已保存，会进入下一次 AI 分析。", "ok");
   } catch (error) {
     message($("note-status"), error.message, "error");
@@ -716,14 +842,30 @@ async function saveNote() {
   }
 }
 
-async function toggleArchive() {
-  if (!state.currentSource) return;
-  const isArchived = state.currentSource.workspace_state === "archived";
+async function toggleArchive(source = state.currentSource, button = $("archive-source")) {
+  if (!source) return;
+  const isArchived = source.workbench_state === "archived";
   const path = isArchived ? "restore" : "archive";
-  const item = await api(`/api/sources/${encodeURIComponent(state.sourceId)}/${path}`, { method: "POST" });
-  state.currentSource = item;
-  clearActiveSource();
-  await loadSources();
+  if (button) {
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+  }
+  try {
+    const item = await api(
+      `/api/sources/${encodeURIComponent(source.id)}/workbenches/xhs/${path}`,
+      { method: "POST" },
+    );
+    if (state.currentSource?.id === source.id) {
+      state.currentSource = item;
+      clearActiveSource();
+    }
+    await loadSources();
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.removeAttribute("aria-busy");
+    }
+  }
 }
 
 async function deleteSource() {
@@ -972,7 +1114,9 @@ async function loadSkills() {
 
 function updateSourceTabs() {
   document.querySelectorAll(".source-tab").forEach((button) => {
-    button.classList.toggle("active", button.dataset.sourceState === state.workspaceState);
+    const selected = button.dataset.sourceState === state.workbenchState;
+    button.classList.toggle("active", selected);
+    button.setAttribute("aria-pressed", String(selected));
   });
 }
 
@@ -980,7 +1124,7 @@ function bindEvents() {
   document.querySelectorAll(".nav-item").forEach((button) => button.addEventListener("click", () => setView(button.dataset.view)));
   document.querySelectorAll(".stage-tab").forEach((button) => button.addEventListener("click", () => setTab(button.dataset.tab)));
   document.querySelectorAll(".source-tab").forEach((button) => button.addEventListener("click", async () => {
-    state.workspaceState = button.dataset.sourceState;
+    state.workbenchState = button.dataset.sourceState;
     updateSourceTabs();
     clearActiveSource();
     await loadSources();
@@ -990,6 +1134,15 @@ function bindEvents() {
   $("refresh").addEventListener("click", () => loadSources());
   $("refresh-publish").addEventListener("click", loadPublish);
   $("refresh-skills").addEventListener("click", loadSkills);
+  $("save-local-api-token").addEventListener("click", () => {
+    const input = $("local-api-token");
+    const token = input.value.trim();
+    if (token) window.sessionStorage.setItem("x2red_api_token", token);
+    else window.sessionStorage.removeItem("x2red_api_token");
+    input.value = "";
+    message($("local-api-token-status"), token ? "令牌仅保存在当前标签页" : "当前标签页令牌已清除", "ok");
+    loadHealth();
+  });
   $("save-note").addEventListener("click", saveNote);
   $("archive-source").addEventListener("click", () => toggleArchive().catch((error) => window.alert(error.message)));
   $("delete-source").addEventListener("click", () => deleteSource().catch((error) => window.alert(error.message)));

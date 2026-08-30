@@ -2,12 +2,22 @@ from __future__ import annotations
 
 import hashlib
 import json
+from typing import Any
 
+from pydantic import ValidationError
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.domain.models import utcnow
 from app.domain.studio import AgentRun, AgentRunStatus, WritingArtifact, WritingProject
+from app.domain.writing_agent_schemas import (
+    StructuredOutputTrace,
+    WritingAgentContractError,
+    schema_for_artifact,
+    validate_agent_payload,
+)
+from app.services.model_client import ModelClientError, StructuredOutputError
+from app.services.retrieval import bounded_json
 from app.services.skills import binding_for
 from app.services.writing_core import ROLE_SKILLS
 
@@ -15,13 +25,135 @@ _AUTHOR_CONTEXT_ROLES = {
     "editor_in_chief",
     "evidence_researcher",
     "outline_architect",
+    "title_strategist",
     "writer",
     "chief_editor",
     "final_reviser",
 }
 
+_SCHEMA_REPAIR_ERRORS = (
+    StructuredOutputError,
+    ValidationError,
+    WritingAgentContractError,
+    TypeError,
+)
+
 
 class DurableAgentRunnerMixin:
+    @staticmethod
+    def _validation_message(exc: Exception) -> str:
+        if isinstance(exc, ValidationError):
+            parts = []
+            for item in exc.errors(include_url=False)[:10]:
+                location = ".".join(str(value) for value in item.get("loc") or [])
+                parts.append(f"{location or '<root>'}: {item.get('msg') or 'invalid'}")
+            return "; ".join(parts)[:4000]
+        return str(exc)[:4000]
+
+    @staticmethod
+    def _payload_hash(payload: dict[str, Any]) -> str:
+        serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        return hashlib.sha256(serialized.encode()).hexdigest()
+
+    @staticmethod
+    def _merge_response_meta(
+        current: dict[str, Any] | None,
+        incoming: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        if not incoming:
+            return current
+        if not current:
+            output = dict(incoming)
+            output["call_count"] = 1
+            request_id = str(output.get("request_id", "") or "")
+            output["request_ids"] = [request_id] if request_id else []
+            return output
+        output = dict(current)
+        for field in ("input_tokens", "output_tokens", "latency_ms", "retries", "attempts"):
+            left = output.get(field)
+            right = incoming.get(field)
+            output[field] = (
+                int(left or 0) + int(right or 0)
+                if left is not None and right is not None
+                else None
+            )
+        left_cost = output.get("cost_usd")
+        right_cost = incoming.get("cost_usd")
+        if left_cost is None and right_cost is None:
+            output["cost_usd"] = None
+            output["cost_kind"] = "unavailable"
+        elif left_cost is None or right_cost is None:
+            known_cost = right_cost if left_cost is None else left_cost
+            if known_cost is None:  # Defensive narrowing for non-standard mapping values.
+                output["cost_usd"] = None
+                output["cost_kind"] = "unavailable"
+            else:
+                output["cost_usd"] = round(float(known_cost), 8)
+                output["cost_kind"] = "partial"
+        else:
+            output["cost_usd"] = round(float(left_cost) + float(right_cost), 8)
+            kinds = {str(output.get("cost_kind") or ""), str(incoming.get("cost_kind") or "")}
+            output["cost_kind"] = (
+                "partial"
+                if "partial" in kinds
+                else kinds.pop()
+                if len(kinds) == 1
+                else "mixed_estimate"
+            )
+        output["finish_reason"] = str(incoming.get("finish_reason") or "")
+        output["call_count"] = int(output.get("call_count") or 1) + 1
+        request_ids = [str(item) for item in output.get("request_ids") or [] if item]
+        incoming_id = str(incoming.get("request_id") or "")
+        if incoming_id:
+            request_ids.append(incoming_id)
+        output["request_ids"] = request_ids
+        return output
+
+    @staticmethod
+    def _recorded_usage(
+        response_meta: dict[str, Any] | None,
+        *,
+        structured_output: dict[str, Any],
+        error: Exception | None = None,
+    ) -> dict[str, Any]:
+        usage = dict(response_meta or {})
+        usage.setdefault("provider", "")
+        usage.setdefault("model", "")
+        usage.setdefault("input_tokens", None)
+        usage.setdefault("output_tokens", None)
+        usage.setdefault("image_count", 0)
+        usage.setdefault("cost_usd", None)
+        usage.setdefault("cost_kind", "unavailable")
+        usage.setdefault("latency_ms", None)
+        usage.setdefault("retries", 0)
+        usage.setdefault("attempts", 0)
+        usage["structured_output"] = structured_output
+        if isinstance(error, ModelClientError):
+            usage["error"] = error.as_dict()
+            usage["provider"] = str(usage.get("provider") or error.provider)
+            usage["model"] = str(usage.get("model") or error.model)
+            usage["attempts"] = max(int(usage.get("attempts") or 0), error.attempts)
+            if error.retryable:
+                usage["retries"] = max(
+                    int(usage.get("retries") or 0),
+                    max(error.attempts - 1, 0),
+                )
+        return usage
+
+    @staticmethod
+    def _apply_recorded_cost(
+        project: WritingProject,
+        response_meta: dict[str, Any] | None,
+    ) -> None:
+        if not response_meta or response_meta.get("cost_usd") is None:
+            return
+        try:
+            cost = max(0.0, float(response_meta["cost_usd"]))
+        except (TypeError, ValueError):
+            return
+        project.spent_cost_usd = round(float(project.spent_cost_usd or 0.0) + cost, 8)
+        project.spent_estimate_cents = round(project.spent_cost_usd * 100)
+
     async def _run_agent(
         self,
         db: Session,
@@ -33,11 +165,44 @@ class DurableAgentRunnerMixin:
         system_prompt: str,
         user_prompt: str,
         temperature: float,
+        max_tokens: int | None = None,
+        capture_response_meta: bool = False,
+        request_timeout_seconds: float | None = None,
+        schema_context: dict[str, Any] | None = None,
     ) -> WritingArtifact:
         skill_name = ROLE_SKILLS[role]
         binding = binding_for(db, skill_name, self.settings.model_name)
         if not binding.enabled:
             raise ValueError(f"Skill {skill_name} 已关闭")
+
+        mode = self.settings.writing_schema_mode
+        schema = schema_for_artifact(artifact_type) if mode == "production" else None
+        memory = self._memory_payload(
+            db,
+            project,
+            role=role,
+            allow_pending=True,
+        )
+        user_prompt = (
+            f"{user_prompt}\n\n当前任务冻结的池子记忆：\n{memory['text']}\n"
+            "长期风格宪法与任务记忆必须分开理解；任务记忆只决定怎么写，不能补充事实。"
+        )
+
+        if (
+            self.settings.writing_quality_mode == "production"
+            and role in {"title_strategist", "writer", "final_reviser"}
+        ):
+            exemplars = self._style_exemplar_payload(db, project)
+            exemplar_prompt = str(exemplars.get("prompt_text") or "").strip()
+            if exemplar_prompt:
+                user_prompt = f"{user_prompt}\n\n{exemplar_prompt}"
+            style = self._style_payload(db, project)
+            author_overrides = style.get("author_overrides")
+            if isinstance(author_overrides, list) and author_overrides:
+                user_prompt = (
+                    f"{user_prompt}\n\n作者明确覆盖规则（优先级高于模型推断与范例）：\n"
+                    f"{bounded_json(author_overrides, 8000)}"
+                )
 
         if role in _AUTHOR_CONTEXT_ROLES:
             decision = self.latest_artifact(db, project.id, "author_decision")
@@ -49,10 +214,21 @@ class DurableAgentRunnerMixin:
                     "必须优先执行作者明确写出的调整要求；不要把已否决版本原样返回。"
                 )
 
+        if schema is not None:
+            contract = bounded_json(schema.model_json_schema(), 24000)
+            user_prompt = (
+                f"{user_prompt}\n\n结构化输出契约（必须严格遵守；禁止额外字段）：\n"
+                f"{contract}\n只返回一个符合该 Schema 的 JSON 对象。"
+            )
+
+        model_configured = bool(self.settings.model_base_url and self.settings.model_name)
         input_hash = hashlib.sha256(
             (
                 f"{role}\n{system_prompt}\n{user_prompt}\n"
-                f"{binding.model_name}\n{binding.prompt_version}"
+                f"{binding.model_name}\n{binding.prompt_version}\n"
+                f"mode={mode}\nmodel_configured={model_configured}\n"
+                f"schema_context={bounded_json(schema_context or {}, 8000)}\n"
+                f"max_tokens={max_tokens}\nrequest_timeout_seconds={request_timeout_seconds}"
             ).encode()
         ).hexdigest()
         cached_run = db.scalar(
@@ -62,7 +238,11 @@ class DurableAgentRunnerMixin:
                 AgentRun.role == role,
                 AgentRun.input_hash == input_hash,
                 AgentRun.status.in_(
-                    [AgentRunStatus.succeeded.value, AgentRunStatus.cached.value]
+                    [
+                        AgentRunStatus.succeeded.value,
+                        AgentRunStatus.cached.value,
+                        AgentRunStatus.degraded.value,
+                    ]
                 ),
                 AgentRun.output_artifact_id.is_not(None),
             )
@@ -74,7 +254,7 @@ class DurableAgentRunnerMixin:
             if cached is not None:
                 return cached
 
-        if project.spent_estimate_cents >= project.budget_limit_cents:
+        if project.spent_cost_usd * 100 >= project.budget_limit_cents:
             raise ValueError("写作项目已达到模型预算上限")
 
         run = AgentRun(
@@ -90,17 +270,133 @@ class DurableAgentRunnerMixin:
         )
         db.add(run)
         db.flush()
+
+        validation_errors: list[str] = []
+        repair_attempted = False
+        response_meta: dict[str, Any] | None = None
+        initial_structured_error: StructuredOutputError | None = None
+        structured_status = "degraded"
+        warning = ""
         try:
-            if self.settings.model_base_url and self.settings.model_name:
-                result = await self.editorial._chat_json(
-                    system_prompt=system_prompt,
-                    user_prompt=user_prompt,
-                    temperature=temperature,
-                    reasoning_effort=binding.reasoning_effort,
-                    model_name=binding.model_name,
-                )
+            if model_configured:
+                try:
+                    raw_result = await self.editorial._chat_json(
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        temperature=temperature,
+                        reasoning_effort=binding.reasoning_effort,
+                        model_name=binding.model_name,
+                        max_tokens=max_tokens,
+                        capture_response_meta=capture_response_meta,
+                        capture_usage_meta=True,
+                        request_timeout_seconds=request_timeout_seconds,
+                    )
+                except StructuredOutputError as exc:
+                    response_meta = self._merge_response_meta(response_meta, exc.usage)
+                    if schema is None:
+                        raise
+                    initial_structured_error = exc
+                    result = {}
+                else:
+                    result = dict(raw_result)
+                    raw_meta = result.pop("_x2red_response_meta", None)
+                    response_meta = self._merge_response_meta(
+                        response_meta,
+                        raw_meta if isinstance(raw_meta, dict) else None,
+                    )
             else:
                 result = self._fallback_agent(role, project)
+                required_title = str((schema_context or {}).get("required_title") or "")
+                if required_title and role in {"writer", "final_reviser"}:
+                    result["title"] = required_title
+
+            if schema is not None:
+                try:
+                    if initial_structured_error is not None:
+                        raise initial_structured_error
+                    validated = validate_agent_payload(
+                        artifact_type,
+                        result,
+                        context=schema_context,
+                    )
+                    result = validated.model_dump(mode="json")
+                    structured_status = "valid" if model_configured else "degraded"
+                    if not model_configured:
+                        warning = "未配置文本模型；当前产物为确定性降级输出，不代表模型已执行"
+                except _SCHEMA_REPAIR_ERRORS as initial_exc:
+                    if not model_configured:
+                        raise
+                    repair_attempted = True
+                    run.attempts = 2
+                    initial_error = self._validation_message(initial_exc)
+                    validation_errors.append(initial_error)
+                    raw_content = (
+                        initial_exc.raw_content
+                        if isinstance(initial_exc, StructuredOutputError)
+                        else bounded_json(result, 30000)
+                    )
+                    repair_prompt = (
+                        "上一轮输出未通过结构化契约。只修复 JSON 结构和字段映射，"
+                        "不得扩展事实、观点、审稿 issue 或修改范围。\n"
+                        f"错误：{initial_error}\n"
+                        f"原始输出：{raw_content[:30000]}\n"
+                        f"目标 Schema：{bounded_json(schema.model_json_schema(), 24000)}\n"
+                        "只返回一个符合 Schema 的 JSON 对象。"
+                    )
+                    try:
+                        repaired_raw = await self.editorial._chat_json(
+                            system_prompt="你是结构化输出修复器，只修复格式与字段，不创造内容。",
+                            user_prompt=repair_prompt,
+                            temperature=0,
+                            reasoning_effort=binding.reasoning_effort,
+                            model_name=binding.model_name,
+                            max_tokens=max_tokens,
+                            capture_response_meta=capture_response_meta,
+                            capture_usage_meta=True,
+                            request_timeout_seconds=request_timeout_seconds,
+                        )
+                    except StructuredOutputError as repair_exc:
+                        response_meta = self._merge_response_meta(
+                            response_meta,
+                            repair_exc.usage,
+                        )
+                        raise
+                    repaired = dict(repaired_raw)
+                    repaired_meta = repaired.pop("_x2red_response_meta", None)
+                    if isinstance(repaired_meta, dict):
+                        response_meta = self._merge_response_meta(response_meta, repaired_meta)
+                    validated = validate_agent_payload(
+                        artifact_type,
+                        repaired,
+                        context=schema_context,
+                    )
+                    result = validated.model_dump(mode="json")
+                    structured_status = "repaired"
+            else:
+                warning = (
+                    "legacy 模式未执行 W2 Schema 校验；产物可读但必须按降级结果处理"
+                    if model_configured
+                    else "legacy 模式且未配置文本模型；当前产物为确定性降级输出"
+                )
+
+            payload_sha256 = self._payload_hash(result)
+            if capture_response_meta and response_meta is not None:
+                result["_completion"] = {
+                    "finish_reason": str(response_meta.get("finish_reason") or ""),
+                    "completion_tokens": response_meta.get("completion_tokens")
+                    or response_meta.get("output_tokens"),
+                }
+            trace = StructuredOutputTrace(
+                mode=mode,
+                status=structured_status,
+                schema_name=schema.__name__ if schema is not None else "legacy-unvalidated",
+                repair_attempted=repair_attempted,
+                validation_errors=validation_errors,
+                payload_sha256=payload_sha256,
+                warning=warning,
+            )
+            result["_structured_output"] = trace.model_dump(mode="json")
+
             artifact = self._store_artifact(
                 db,
                 project=project,
@@ -109,20 +405,54 @@ class DurableAgentRunnerMixin:
                 role=role,
                 approved=False,
             )
-            run.status = AgentRunStatus.succeeded.value
+            run.status = (
+                AgentRunStatus.degraded.value
+                if structured_status == "degraded"
+                else AgentRunStatus.succeeded.value
+            )
             run.output_artifact_id = artifact.id
             run.finished_at = utcnow()
-            run.usage_json = json.dumps({"estimated_cost_cents": 1}, ensure_ascii=False)
-            project.spent_estimate_cents += 1
+            run.usage_json = json.dumps(
+                self._recorded_usage(
+                    response_meta,
+                    structured_output=trace.model_dump(mode="json"),
+                ),
+                ensure_ascii=False,
+            )
+            self._apply_recorded_cost(project, response_meta)
+            if model_configured and schema is not None and memory.get("memory_ids"):
+                self._mark_memory_applied(
+                    db,
+                    project,
+                    role=role,
+                    stage=stage,
+                )
             project.error = ""
             db.flush()
             return artifact
         except Exception as exc:
-            # Preserve the failed attempt while leaving the project at the same
-            # stage. The durable job can retry, and all prior role handoffs remain.
+            # Keep the stage unchanged. Durable retries may resume from this exact
+            # checkpoint, while failed schema attempts remain replayable in AgentRun.
+            if repair_attempted and isinstance(exc, _SCHEMA_REPAIR_ERRORS):
+                final_error = self._validation_message(exc)
+                validation_errors.append(final_error)
             run.status = AgentRunStatus.failed.value
             run.error = str(exc)[:2000]
             run.finished_at = utcnow()
+            run.usage_json = json.dumps(
+                self._recorded_usage(
+                    response_meta,
+                    structured_output={
+                        "mode": mode,
+                        "status": "failed",
+                        "repair_attempted": repair_attempted,
+                        "validation_errors": validation_errors,
+                    },
+                    error=exc,
+                ),
+                ensure_ascii=False,
+            )
+            self._apply_recorded_cost(project, response_meta)
             project.error = run.error
             db.commit()
             raise

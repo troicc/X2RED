@@ -106,6 +106,7 @@ def test_sqlite_0006_upgrade_recovers_without_losing_jobs(
     command.upgrade(config, "head")
 
     inspector = sa.inspect(engine)
+    table_names = set(inspector.get_table_names())
     column_names = {column["name"] for column in inspector.get_columns("jobs")}
     assert {
         "max_attempts",
@@ -114,8 +115,16 @@ def test_sqlite_0006_upgrade_recovers_without_losing_jobs(
         "available_at",
         "locked_by",
     }.issubset(column_names)
-    assert "platform_variants" in inspector.get_table_names()
-    assert "review_artifacts" in inspector.get_table_names()
+    assert {
+        "platform_variants",
+        "review_artifacts",
+        "corpus_pools",
+        "corpus_pool_sources",
+        "corpus_batches",
+        "pool_memory_snapshots",
+        "pool_memory_usages",
+        "source_workbench_states",
+    }.issubset(table_names)
 
     index_names = {index["name"] for index in inspector.get_indexes("jobs")}
     assert {
@@ -143,7 +152,7 @@ def test_sqlite_0006_upgrade_recovers_without_losing_jobs(
     assert row["available_at"] is not None
     assert str(row["available_at"]).startswith("2026-01-02 03:04:05")
     assert str(row["created_at"]).startswith("2026-01-02 03:04:05")
-    assert revision == "0009"
+    assert revision == "0013"
 
     get_settings.cache_clear()
     command.upgrade(config, "head")

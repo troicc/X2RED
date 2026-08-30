@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import re
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -16,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.api import (
     assets,
     cards,
+    corpus_pools,
     discovery,
     drafts,
     extension,
@@ -25,16 +28,21 @@ from app.api import (
     materials,
     native_skills,
     platforms,
+    pool_memory,
     publish,
     reviews,
-    settings as settings_api,
     signals,
     sources,
     writing,
 )
+from app.api import (
+    settings as settings_api,
+)
 from app.core.config import get_settings
-from app.db.base import Base
+from app.core.http_security import LocalSecurityMiddleware
+from app.db.schema import SchemaRevisionError, assert_schema_current
 from app.db.session import engine
+from app.domain import pool_memory as pool_memory_models  # noqa: F401
 from app.domain import review_artifacts as review_artifact_models  # noqa: F401
 from app.domain.studio import ContentAnalysis, WritingProject
 from app.providers.fxtwitter import FxTwitterProvider
@@ -44,6 +52,7 @@ from app.services.jobs import JobEngine
 from app.services.media_store import MediaStore
 from app.services.native_cards import NativeAwareCardService
 from app.services.platform_studio import PlatformStudioService
+from app.services.pool_memory import PoolMemoryService
 from app.services.publisher import PublishService
 from app.services.raw_store import RawStore
 from app.services.review_flow import ReviewFlowService
@@ -55,23 +64,56 @@ from app.services.x2pdf_import import X2PDFImportService
 
 settings = get_settings()
 STATIC_DIR = Path(__file__).parent / "static"
-STYLESHEET = (
-    "[hidden]{display:none!important;}\n"
-    + (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
-    + "\n"
-    + (STATIC_DIR / "workbench-v06.css").read_text(encoding="utf-8")
-    + "\n"
-    + (STATIC_DIR / "studio-v07.css").read_text(encoding="utf-8")
-    + "\n"
-    + (STATIC_DIR / "style-v07.css").read_text(encoding="utf-8")
-    + "\n"
-    + (STATIC_DIR / "platform-v08.css").read_text(encoding="utf-8")
+STATIC_REFERENCE_RE = re.compile(r"/static/(?P<name>[A-Za-z0-9_.-]+\.(?:css|js))")
+
+
+def version_static_references(html: str) -> str:
+    """Keep long-lived browser tabs from mixing old and new UI controllers."""
+
+    def replace(match: re.Match[str]) -> str:
+        path = STATIC_DIR / match.group("name")
+        if not path.is_file():
+            return match.group(0)
+        digest = static_asset_digest(match.group("name"))
+        return f"{match.group(0)}?v={digest}"
+
+    return STATIC_REFERENCE_RE.sub(replace, html)
+
+
+STYLESHEET_FILES = (
+    "styles.css",
+    "workbench-v06.css",
+    "studio-v07.css",
+    "style-v07.css",
+    "platform-v08.css",
 )
+
+
+def build_stylesheet() -> str:
+    """Build the legacy aggregate from current files, not process-startup bytes."""
+
+    parts = ["[hidden]{display:none!important;}"]
+    parts.extend(
+        (STATIC_DIR / name).read_text(encoding="utf-8")
+        for name in STYLESHEET_FILES
+    )
+    return "\n".join(parts)
+
+
+def static_asset_digest(name: str) -> str:
+    """Hash the bytes the browser will actually receive for a static reference."""
+
+    payload = (
+        build_stylesheet().encode("utf-8")
+        if name == "styles.css"
+        else (STATIC_DIR / name).read_bytes()
+    )
+    return hashlib.sha256(payload).hexdigest()[:12]
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    Base.metadata.create_all(engine)
+    assert_schema_current(engine)
     provider = FxTwitterProvider(
         settings.fxtwitter_base_url,
         timeout_seconds=settings.request_timeout_seconds,
@@ -87,13 +129,14 @@ async def lifespan(app: FastAPI):
     writing_service = MultiAgentWritingService(settings, editorial_service)
     signal_service = SignalStudioService(settings, provider, raw_store, editorial_service)
     platform_service = PlatformStudioService(settings, editorial_service)
+    pool_memory_service = PoolMemoryService(settings, editorial_service)
     card_service = NativeAwareCardService(settings)
     review_flow_service = ReviewFlowService(
         settings,
         card_service,
         platform_service,
     )
-    job_engine = JobEngine(intake_service)
+    job_engine = JobEngine(intake_service, settings=settings)
 
     async def scan_target_handler(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
         result = await signal_service.scan_target(db, str(payload["target_id"]))
@@ -180,6 +223,9 @@ async def lifespan(app: FastAPI):
             original_samples=[str(item) for item in payload.get("original_samples") or []],
             held_out_samples=[str(item) for item in payload.get("held_out_samples") or []],
             author_feedback=[str(item) for item in payload.get("author_feedback") or []],
+            confirm_original_or_authorized=bool(
+                payload.get("confirm_original_or_authorized", False)
+            ),
         )
         return {
             "style_profile_id": profile.id,
@@ -202,6 +248,7 @@ async def lifespan(app: FastAPI):
     app.state.writing_service = writing_service
     app.state.signal_service = signal_service
     app.state.platform_service = platform_service
+    app.state.pool_memory_service = pool_memory_service
     app.state.review_flow_service = review_flow_service
     app.state.scheduler = scheduler
     app.state.card_service = card_service
@@ -217,23 +264,36 @@ async def lifespan(app: FastAPI):
     await media_store.close()
 
 
-app = FastAPI(title="X2RED", version="0.11.0", lifespan=lifespan)
+app = FastAPI(title="X2RED", version="0.12.0", lifespan=lifespan)
+app.add_middleware(LocalSecurityMiddleware, settings=settings)
 app.add_middleware(
     CORSMiddleware,
+    allow_origins=sorted(
+        origin.strip().rstrip("/")
+        for origin in settings.allowed_origins.split(",")
+        if origin.strip()
+    ),
     allow_origin_regex=r"^(chrome-extension://[a-z]{32}|http://(?:127\.0\.0\.1|localhost)(?::\d+)?)$",
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "X-Request-ID",
+        "X-X2RED-Token",
+    ],
 )
 app.include_router(jobs.router)
 app.include_router(discovery.router)
 app.include_router(signals.router)
 app.include_router(writing.router)
 app.include_router(platforms.router)
+app.include_router(pool_memory.router)
 app.include_router(reviews.router)
 app.include_router(intake.router)
 app.include_router(integrations.router)
 app.include_router(materials.router)
+app.include_router(corpus_pools.router)
 app.include_router(native_skills.router)
 app.include_router(assets.router)
 app.include_router(sources.router)
@@ -246,7 +306,11 @@ app.include_router(extension.router)
 
 @app.get("/static/styles.css", include_in_schema=False)
 def stylesheet() -> Response:
-    return Response(STYLESHEET, media_type="text/css")
+    return Response(
+        build_stylesheet(),
+        media_type="text/css",
+        headers={"Cache-Control": "no-cache"},
+    )
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -265,11 +329,21 @@ def health() -> dict:
         if model_configured
         else "multi-agent-structured-fallback",
         "intelligence_pipeline": "monitor-score-l1-l2",
-        "writing_pipeline": "editor-research-outline-writer-three-reviews-chief-editor",
-        "style_pipeline": "original-samples-held-out-feedback",
+        "writing_pipeline": (
+            "editor-research-outline-title-tournament-writer-three-reviews-chief-final-claims-evidence-gate"
+        ),
+        "writing_schema_mode": settings.writing_schema_mode,
+        "writing_quality_mode": settings.writing_quality_mode,
+        "writing_claim_gate": settings.writing_schema_mode == "production",
+        "title_tournament": settings.writing_quality_mode == "production",
+        "style_pipeline": "authorized-originals-held-out-author-overrides-short-exemplars-real-feedback",
         "platform_pipeline": "reviewable-artifacts-shared-evidence-platform-variants",
         "review_pipeline": "storyboard-module-tree-cover-brief-versioned-approval",
         "light_content_pipeline": "corpus-grounded-multi-agent-candidates-independent-reviews-human-gate",
+        "corpus_pool_pipeline": "compiled-global-memory-plus-rotating-detailed-batches",
+        "pool_memory_pipeline": "human-approved-append-only-task-snapshots-role-scoped",
+        "pool_memory": True,
+        "corpus_pools": True,
         "light_content_lab": True,
         "light_content_source_fit_gate": True,
         "signal_to_studio": True,
@@ -284,8 +358,8 @@ def health() -> dict:
         "card_renderer": "reviewed-semantic-playwright",
         "native_card_renderer": "guizang-native-upstream-seed-playwright",
         "wechat_renderer": "reviewed-module-tree-plus-cover-brief",
-        "light_content_renderer": "six-route-distinct-visual-v12-or-native-minimal-zine-image",
-        "material_pipeline": "gdelt-rss-sitemap-robots-trafilatura-limited-quote",
+        "light_content_renderer": "stable-local-default-plus-explicit-minimal-zine-v15",
+        "material_pipeline": "mediacrawler-cdp-jsonl-limited-quote",
         "native_skill_runtime": True,
         "native_skill_source_available": True,
         "image_generation_configured": bool(
@@ -299,7 +373,8 @@ def ready() -> dict:
     try:
         with engine.connect() as connection:
             connection.execute(text("SELECT 1"))
-    except SQLAlchemyError as exc:
+        revision = assert_schema_current(engine)
+    except (SQLAlchemyError, SchemaRevisionError) as exc:
         raise HTTPException(status_code=503, detail="database is not ready") from exc
 
     required_dirs = {
@@ -318,6 +393,7 @@ def ready() -> dict:
     return {
         "ok": True,
         "database": "ready",
+        "schema_revision": list(revision.current),
         "directories": sorted(required_dirs),
         "scheduler": "enabled" if settings.scheduler_enabled else "disabled",
     }
@@ -329,15 +405,20 @@ def index() -> HTMLResponse:
     scripts = (
         '<script src="/static/studio-v07.js"></script>'
         '<script src="/static/style-v07.js"></script>'
-        '<script src="/static/studio-navigation-v071.js"></script>'
         '<script src="/static/platform-v08.js"></script>'
         '<script src="/static/card-skill-v08.js"></script>'
         '<script src="/static/review-v09.js"></script>'
         '<script src="/static/review-bridge-v09.js"></script>'
-        '<script src="/static/light-content-v10.js"></script>'
         '<script src="/static/signal-to-studio-v10.js"></script>'
         '<script src="/static/materials-v11.js"></script>'
+        '<script src="/static/corpus-pools-v13.js"></script>'
+        '<script src="/static/pool-memory-v16.js"></script>'
+        '<script src="/static/product-shell-v15.js"></script>'
+        '<script src="/static/light-content-v15.js"></script>'
         '<script src="/static/native-skills-v11.js"></script>'
     )
     html = html.replace("</body>", f"{scripts}</body>")
-    return HTMLResponse(html)
+    return HTMLResponse(
+        version_static_references(html),
+        headers={"Cache-Control": "no-store"},
+    )

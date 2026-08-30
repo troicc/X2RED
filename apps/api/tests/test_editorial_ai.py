@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import httpx
 import pytest
 
 from app.core.config import Settings
@@ -101,3 +102,43 @@ def test_glm_reasoning_options_are_enabled() -> None:
         "thinking": {"type": "enabled"},
         "reasoning_effort": "high",
     }
+
+
+@pytest.mark.asyncio
+async def test_failed_polish_is_not_reported_as_a_completed_quality_pass(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = EditorialService(
+        Settings(
+            model_base_url="https://model.example/v1",
+            model_name="test-model",
+        )
+    )
+    source = SourceItem(
+        id="src_polish_failure",
+        external_id="polish-failure",
+        canonical_url="https://x.com/test/status/polish-failure",
+        text_original="A documented product update shipped today.",
+        metrics_json="{}",
+    )
+    responses = [
+        {"recommended_angle": {}, "title_candidates": [], "outline": []},
+        {
+            "title": "一次可核查的产品更新",
+            "body": "作者今天发布了一次产品更新。",
+            "tags": ["产品观察", "更新记录", "信息拆解", "内容创作"],
+            "claims": [],
+        },
+    ]
+
+    async def fake_chat_json(**_kwargs):
+        if responses:
+            return responses.pop(0)
+        raise httpx.ReadTimeout("polish timed out")
+
+    monkeypatch.setattr(service, "_chat_json", fake_chat_json)
+    result = await service._model_generate([source], "explain")
+
+    assert result is not None
+    assert result["draft"]["body"] == "作者今天发布了一次产品更新。"
+    assert result["quality_passes"] == ["editorial.analysis", "writing.draft"]

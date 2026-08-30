@@ -1,44 +1,104 @@
-# Editorial workflow
+# X2RED workflow
 
-## 1. Intake
+## 1. Discover or import material
 
-Paste a supported X URL or use the Chrome extension. Choose:
+X2RED has three legitimate source paths:
 
-- **Thread**: focal post plus the author's thread. This is the default.
-- **Conversation**: thread plus available replies. Use this only when discussion context matters.
+1. **X signal discovery** monitors selected profiles, searches, quote streams or trends; candidates retain metric snapshots and may receive L1/L2 analysis.
+2. **Simplified-Chinese platform discovery** runs a low-frequency, user-triggered search through the pinned local MediaCrawler checkout for Xiaohongshu, Douyin, Kuaishou, Bilibili, Weibo, Tieba or Zhihu.
+3. **Web, document and manual import** accepts user-selected public inputs without bypassing authentication, paywalls, CAPTCHAs or network-address safety gates.
 
-X2RED stores the exact FxTwitter response in `data/raw` and normalizes the source graph into SQLite.
+Discovery results are candidates, not automatically reusable content. The user selects what to import. X2RED then normalizes it as a `SourceItem`, preserves sanitized raw evidence and defaults uncertain reuse rights to human review.
 
-## 2. Assets
+## 2. Classify and review sources
 
-Media returned by FxTwitter is represented as `Asset` and `AssetVariant`. The default selector prefers MP4/H.264 variants at or below 1080p. Downloads are restricted to known X/FxTwitter media hosts and saved by SHA-256 under `data/assets`.
+The source library groups entries by corpus batch, X, each supported Simplified-Chinese platform, and web/document inputs. Users can search, inspect provenance and metrics, add editorial notes, set rights status, archive or restore sources, add them to corpus pools, or send them directly to a workspace.
 
-A failed media download does not discard the source text. The UI shows the failure on that asset so it can be retried or handled manually.
+A failed media fetch does not discard source text. Editing a source note, deleting a source, or changing pool membership recompiles affected corpus pools.
 
-## 3. Editorial drafting
+## 3. Build a reusable corpus pool
 
-The deterministic fallback works without an AI account. It creates an editable Chinese structure and explicitly warns that source-only claims still require external verification.
+A `CorpusPool` is a durable content asset, not a one-shot generation form. Compilation cleans duplicated/HTML/URL noise, summarizes each member, extracts keywords, aggregates themes and contradictions, and creates a context-budgeted full-pool memory without simply dropping later sources.
 
-When `X2RED_MODEL_BASE_URL`, `X2RED_MODEL_API_KEY`, and `X2RED_MODEL_NAME` are configured, X2RED calls an OpenAI-compatible `/chat/completions` endpoint. Invalid model output falls back to the deterministic editor.
+Previewing the next batch does not consume usage. A formal generation or workspace handoff freezes a `CorpusBatch` containing:
 
-Every save creates a new immutable `DraftRevision`; earlier versions remain in the database.
+- pool ID and revision;
+- batch ID, sequence and fingerprint;
+- compressed full-pool memory;
+- detailed selected source IDs;
+- focus, selection rationale and provenance.
 
-## 4. Review
+The hidden batch anchor can be selected by a workspace. The `corpus_batch` edge is one-way and one layer deep so an old batch cannot contaminate a later context through shared sources.
 
-A draft must receive an explicit `approved` review event before package creation. Rejecting a version does not delete it. Edit the draft, save a new version, and approve that version instead.
+## 4. Choose a content workspace
 
-## 5. Publish package
+### Xiaohongshu
 
-The package contains:
+Select a source or frozen batch, use the quick editorial flow or a multi-Agent writing project, save immutable `DraftRevision` versions, and render cards with the fast renderer or pinned Guizang Editorial/Swiss runtime. Review facts, quotations, media rights and the exact approved version before preparing a package. X2RED stops before the final publish click.
 
-- `publish.json`: frozen title, body, tags, source and asset paths.
-- `caption.txt`: copy-ready body and hashtags.
-- `media/`: ordered copies of ready local assets.
+### WeChat long-form
 
-The package SHA-256 is saved in `PublishTask`.
+Create an immutable WeChat `PlatformVariant`, edit Markdown/HTML and summary/cover data, validate HTML, and generate a preview and package from the same version. Publishing remains manual.
 
-## 6. Xiaohongshu preview
+### WeChat light content
 
-Install the optional publisher dependencies and Chromium, then press **Open Xiaohongshu preview**. A persistent browser profile opens Creator Center and attempts to upload and fill the approved package.
+The v15 workspace has four stages:
 
-X2RED deliberately never clicks the final publish button. Review the account, title, body, media order, disclosure, rights, and platform preview before publishing manually.
+1. **任务设置** — choose the source/batch, recipe, page count, audience, tone, visual style and quality mode.
+2. **文案候选** — compare generated candidates and reports; adopting or editing content creates an immutable version.
+3. **视觉分镜** — persist the current candidate/editor first, expand one page at a time, edit page text and visual controls, then freeze the complete 3–6 page contract as an immutable child `PlatformVariant`.
+4. **成品交付** — render, inspect the complete page set, preview, manifest, ZIP and review state.
+
+The storyboard endpoint freezes editorial intent; it does not generate copy or call the image model.
+
+## 5. Close the personal-memory loop
+
+Approved drafts, platform variants, explicit feedback, pattern cards and writing artifacts expose an **加入池子记忆** action. The standalone **模型与 Skill → 池子记忆** workspace also accepts authorized manual rules. The lifecycle is deliberately gated:
+
+1. select a source and learning dimensions;
+2. generate a `memory_candidate` only;
+3. preview and edit its rules, preferences, prohibitions, examples, structure, visual direction and scope;
+4. confirm authorization when the source rights are not already approved;
+5. explicitly approve a new `memory_card`;
+6. later supersede or revoke it through append-only `memory_event` records rather than rewriting history.
+
+Before generation, X2RED hard-filters approved cards by platform, format, article type, style profile, audience, recipe and visual route, then scores task relevance, source priority, recency and historical usage. It deduplicates cards from the same source and normally selects 4–8. Each Agent receives only role-relevant dimensions; factual and evidence roles receive no style-memory payload.
+
+The current evidence pack is the fact boundary. Historical names, numbers, dates, outcomes and causal claims in memory cannot become new-article facts unless the current sources independently contain them. Each target freezes the selected card IDs, role prompts and hash in an immutable `PoolMemorySnapshot`. A derived version clones that frozen choice instead of mutating its parent. `PoolMemoryUsage` is appended only after a configured model really consumes the snapshot; deterministic fallback remains traceable but `applied=false`.
+
+## 6. Render Minimal Zine safely
+
+One `VisualPromptCompiler` reads the pinned v0.3 Skill, references and evals and compiles a per-page `VisualPromptSpec`. Web handoff and API rendering use the same structured recipe and semantic source fingerprint. Web handoff may call this text compiler but never an image API. A compiler failure is labeled `DEGRADED_FALLBACK`; it is never presented as faithful Skill execution.
+
+The source fingerprint binds the article thesis, section title, page role, phrase, note, evidence, audience, emotion, current/neighboring concepts, Visual Bible, Skill SHA and compiler version. The production text-safe step preserves the selected visual recipe and adds only the no-readable-text/local-CJK invariant.
+
+The image model produces only raw visual anchors. X2RED then:
+
+1. validates and stores `anchor-XX.png` separately;
+2. performs constrained high-risk edge cleanup while preserving the upstream plate and color signal;
+3. composes phrase, note and page number with a cmap-verified local CJK font;
+4. writes final `poster-XX.png` pages;
+5. rebuilds Markdown, manifest, preview and ZIP from the same variant;
+6. excludes raw anchors from the release ZIP through an explicit allowlist.
+
+Rendering modes are:
+
+- `render_missing`: reuse valid complete pages, locally recompose valid raw anchors, and generate only genuinely missing selected work;
+- `recompose`: require stored raw anchors and call neither prompt compiler nor image model;
+- `regenerate`: explicitly call the image model for selected pages.
+
+Set `X2RED_MINIMAL_ZINE_PROMPT_MODE=legacy` to roll back new requests to the pinned v0.1 compiler. Historical raw anchors without a structured v0.3 trace are automatically interpreted as legacy.
+
+The complete directory is staged, validated and atomically promoted. A failure retains the previous directory, package and database references. Negative prompting and edge cleanup reduce—but cannot absolutely eliminate—model watermark or badge risk, so human visual review remains required.
+
+## 7. Review and publishing handoff
+
+Every workspace requires review of:
+
+- factual claims, numbers and causality against sources;
+- quotation scope and provenance;
+- source and media rights;
+- image watermarks, abnormal characters and platform marks;
+- agreement between the approved version, preview and package.
+
+Rejection does not delete a version. Package or publishing-helper failure retains the frozen payload and hash for diagnosis and retry. X2RED may prepare or open a platform workflow, but the user performs the final publish action.

@@ -8,31 +8,170 @@
 
   const approvalTypes = new Set(["editorial_brief", "outline", "revision_plan"]);
   const artifactNames = {
+    source_selection: "冻结的输入材料",
     editorial_brief: "总编辑任务单",
     evidence_pack: "证据包",
     outline: "文章大纲",
-    draft: "初稿",
+    style_exemplar_bundle: "冻结的授权风格短范例",
+    title_candidates: "标题候选",
+    title_tournament: "标题锦标赛",
+    title_preference: "作者标题选择",
+    draft: "公众号完整初稿",
     reader_review: "读者审稿",
     fact_review: "事实审稿",
     style_review: "风格审稿",
     revision_plan: "主编修改计划",
-    final_draft: "完成文章",
+    final_draft: "深度写作终稿",
+    final_claims: "终稿 Claims",
+    claim_evidence_matrix: "Claim-Evidence Matrix",
     author_decision: "作者决定",
   };
   const stageNames = {
     clarifying: "总编辑正在建立任务单",
     researching: "证据研究员正在整理材料",
     outlining: "结构 Agent 正在制作大纲",
-    drafting: "写手正在生成初稿",
+    drafting: "写手正在生成公众号完整初稿",
     reviewing: "三路审稿与主编正在工作",
     revising: "终稿 Agent 正在执行修改",
+    claims_blocked: "终稿证据闸门未通过",
     awaiting_brief_approval: "请确认总编辑任务单",
     awaiting_outline_approval: "请确认文章大纲",
     awaiting_revision_approval: "请确认主编修改计划",
-    completed: "文章已经完成",
+    completed: "深度终稿完成，等待公众号成稿",
     failed: "项目执行失败",
     canceled: "项目已取消",
   };
+  const artifactGuides = {
+    source_selection: {
+      verb: "冻结输入",
+      reads: "素材库来源、已写版本和粘贴材料",
+      writes: "本项目不可变的材料引用、事实来源和 provenance",
+      optimize: "材料缺失或事实范围不对时，回到公众号阶段 01 调整来源。",
+      skill: "人工选择",
+    },
+    editorial_brief: {
+      verb: "产生任务单",
+      reads: "输入材料、目标读者、文章承诺和核心判断",
+      writes: "单一主线、必须使用、禁止主张和成功标准",
+      optimize: "主线或读者定位不准时，调整这里；不要先改写手。",
+      skill: "writing.editor",
+    },
+    evidence_pack: {
+      verb: "产生证据",
+      reads: "任务单和全部事实来源",
+      writes: "事实、数字、来源引文、未知项和材料缺口",
+      optimize: "事实遗漏、来源归属或比较维度有问题时，调整这里。",
+      skill: "writing.research",
+    },
+    outline: {
+      verb: "产生结构",
+      reads: "任务单、证据包和写作偏好",
+      writes: "开头、章节顺序、证据分配、目标篇幅和转场",
+      optimize: "文章顺序、章节职责或认知负荷不顺时，调整这里。",
+      skill: "writing.outline",
+    },
+    style_exemplar_bundle: {
+      verb: "冻结范例",
+      reads: "项目创建时冻结的池子记忆快照",
+      writes: "2—4 个授权、人工批准、标注修辞职责且通过事实防火墙的短范例",
+      optimize: "缺少范例时先在人类审核的池子记忆中批准，不从历史文章临时抓句子。",
+      skill: "style-exemplar-retrieval-v1",
+    },
+    title_candidates: {
+      verb: "生成候选",
+      reads: "任务单、证据包、大纲、标题偏好和授权短范例",
+      writes: "覆盖七类机制的 12—20 个有证据引用的标题候选",
+      optimize: "先修证据支持、角度差异和空泛承诺，不只换同义词。",
+      skill: "writing.writer · title strategist",
+    },
+    title_tournament: {
+      verb: "筛选标题",
+      reads: "标题候选、当前证据与目标读者",
+      writes: "过滤原因、读者第一眼模拟和可人工选择的 top 5",
+      optimize: "无 top 5 时检查证据引用、套路词、过度悬念和候选同质化。",
+      skill: "title-tournament-v1",
+    },
+    title_preference: {
+      verb: "记录偏好",
+      reads: "作者在最新标题锦标赛 top 5 中的明确选择",
+      writes: "写手与终稿必须逐字保留的不可变标题选择",
+      optimize: "新锦标赛会使旧选择失效，必须在最新 top 5 中重选。",
+      skill: "人工选择",
+    },
+    draft: {
+      verb: "产生正文",
+      reads: "原始材料、任务单、证据包、大纲和写作偏好",
+      writes: "1800—4500 字、3—6 个 H2 的公众号完整初稿",
+      optimize: "叙事、例子、节奏和表达质量有问题时，调整这里。",
+      skill: "writing.writer",
+    },
+    reader_review: {
+      verb: "检查理解",
+      reads: "目标读者、文章大纲和完整初稿",
+      writes: "退出点、术语阻力、数字解释和最小修改建议",
+      optimize: "文章难懂、第一屏弱或阅读节奏差时，调整这里。",
+      skill: "review.reader",
+    },
+    fact_review: {
+      verb: "检查事实",
+      reads: "完整初稿和证据包",
+      writes: "无支持主张、范围扩大、数字错误和归属问题",
+      optimize: "事实准确性或证据追溯有问题时，调整这里。",
+      skill: "review.fact",
+    },
+    style_review: {
+      verb: "检查风格",
+      reads: "完整初稿和写作偏好",
+      writes: "AI 腔、节奏、模板转场和身份偏差",
+      optimize: "语言像报告、太均匀或不像你时，调整这里。",
+      skill: "review.style",
+    },
+    revision_plan: {
+      verb: "产生修改单",
+      reads: "三份审稿报告和完整初稿",
+      writes: "对每个已有 issue_id 的批准、拒绝或延后裁决",
+      optimize: "审稿意见冲突或修改优先级不合理时，调整这里。",
+      skill: "writing.chief_editor",
+    },
+    final_draft: {
+      verb: "修改正文",
+      reads: "完整初稿、修改单、证据包和原始材料",
+      writes: "不缩短主线、通过完整度门禁的深度写作终稿",
+      optimize: "修改执行不完整、文章被压短或引入新问题时，调整这里。",
+      skill: "writing.final_revision",
+    },
+    final_claims: {
+      verb: "重提主张",
+      reads: "终稿、初稿 claims、获批 issue 和冻结证据",
+      writes: "终稿全部关键主张、原句位置、来源引用和主张来源",
+      optimize: "抽取遗漏或归因不准时，应修复 claim 提取，不得绕过证据闸门。",
+      skill: "review.fact",
+    },
+    claim_evidence_matrix: {
+      verb: "核验证据",
+      reads: "终稿 claims、W1 evidence chunks、初稿 claims 和获批 issue",
+      writes: "逐 claim 支持度、范围变化、阻断原因和完成许可",
+      optimize: "关键主张无支持或终稿扩大主张时，必须回到证据或终稿修订阶段。",
+      skill: "claim-checker-v1",
+    },
+    author_decision: {
+      verb: "记录决定",
+      reads: "你的确认、退回原因和阶段反馈",
+      writes: "后续 Agent 必须优先执行的作者决定",
+      optimize: "反馈越具体，下一轮越容易只修目标问题。",
+      skill: "人工反馈",
+    },
+  };
+  const deepStages = [
+    { key: "brief", number: "01", title: "任务定义", types: ["editorial_brief"], roles: ["editor_in_chief"] },
+    { key: "evidence", number: "02", title: "证据研究", types: ["evidence_pack"], roles: ["evidence_researcher"] },
+    { key: "outline", number: "03", title: "结构与标题", types: ["outline"], roles: ["outline_architect", "title_strategist"] },
+    { key: "draft", number: "04", title: "完整初稿", types: ["draft"], roles: ["writer"] },
+    { key: "reviews", number: "05", title: "三路审稿", types: ["reader_review", "fact_review", "style_review"], roles: ["reader_reviewer", "fact_reviewer", "style_reviewer"] },
+    { key: "plan", number: "06", title: "修改裁决", types: ["revision_plan"], roles: ["chief_editor"] },
+    { key: "final", number: "07", title: "终稿与证据闸门", types: ["final_draft", "final_claims", "claim_evidence_matrix"], roles: ["final_reviser", "claim_extractor"] },
+    { key: "handoff", number: "08", title: "公众号成稿", types: [], roles: [] },
+  ];
 
   function scheduleEnhance() {
     if (uxState.scheduled) return;
@@ -87,6 +226,170 @@
     }
   }
 
+  function latestRun(project, roles = [], artifactId = "") {
+    const runs = [...(project.runs || [])].reverse();
+    if (artifactId) {
+      const exact = runs.find((run) => run.output_artifact_id === artifactId);
+      if (exact) return exact;
+    }
+    return runs.find((run) => roles.includes(run.role)) || null;
+  }
+
+  function runDescription(run) {
+    if (!run) return "模型：未执行或人工环节";
+    const model = run.model_name || "确定性回退";
+    const effort = run.reasoning_effort ? ` · 推理 ${run.reasoning_effort}` : "";
+    const attempts = run.attempts > 1 ? ` · ${run.attempts} 次尝试` : "";
+    const degraded = run.status === "degraded" ? " · 降级输出" : "";
+    return `模型：${model}${effort}${attempts}${degraded}`;
+  }
+
+  function guideForStage(stage) {
+    if (stage.key === "reviews") {
+      return {
+        verb: "并行检查",
+        reads: "完整初稿、证据包、目标读者和写作偏好",
+        writes: "读者理解、事实准确、语言风格三份独立审稿报告",
+        optimize: "难懂看读者审稿，事实问题看事实审稿，AI 腔看风格审稿。",
+        skill: "review.reader / review.fact / review.style",
+      };
+    }
+    if (stage.key === "handoff") {
+      return {
+        verb: "产生平台稿",
+        reads: "原始证据、深度写作终稿和公众号成稿设置",
+        writes: "1800—4500 字公众号 PlatformVariant，不覆盖深度终稿",
+        optimize: "整体叙事、公众号阅读节奏、标题和完整度在公众号工作台调整。",
+        skill: "wechat.adapt_longform",
+      };
+    }
+    return artifactGuides[stage.types[0]] || {
+      verb: "处理内容",
+      reads: "上一步产物",
+      writes: "本阶段产物",
+      optimize: "检查本阶段输入、Prompt、模型和人工反馈。",
+      skill: "未记录",
+    };
+  }
+
+  function activeDeepStageIndex(project) {
+    if (project.wechat_variant_id) return 7;
+    const stage = project.current_stage || "";
+    const state = project.state || "";
+    if (["completed"].includes(stage) || state === "completed") return 7;
+    if (["final_revision", "claim_evidence_gate"].includes(stage) || ["revising", "claims_blocked"].includes(state)) return 6;
+    if (["approve_revision_plan"].includes(stage) || state === "awaiting_revision_approval") return 5;
+    if (["parallel_reviews"].includes(stage) || state === "reviewing") return 4;
+    if (["draft"].includes(stage) || state === "drafting") return 3;
+    if (["outline", "approve_outline"].includes(stage) || ["outlining", "awaiting_outline_approval"].includes(state)) return 2;
+    if (["evidence_pack"].includes(stage) || state === "researching") return 1;
+    return 0;
+  }
+
+  function deepStageState(project, stage, index, activeIndex) {
+    if (stage.key === "handoff") {
+      if (project.wechat_variant_id) return { kind: "complete", label: `公众号 v${project.wechat_variant_version || ""}` };
+      if (project.state === "completed") return { kind: "active", label: "下一步" };
+      return { kind: "waiting", label: "待终稿" };
+    }
+    const artifacts = stage.types.map((type) => latestArtifact(project, (item) => item.artifact_type === type));
+    const complete = artifacts.every(Boolean);
+    const waitingApproval = artifacts.some((artifact) => artifact && approvalTypes.has(artifact.artifact_type) && !artifact.approved);
+    if (project.state === "claims_blocked" && stage.key === "final") return { kind: "error", label: "证据阻断" };
+    if (project.state === "failed" && index === activeIndex) return { kind: "error", label: "失败" };
+    if (waitingApproval && index === activeIndex) return { kind: "waiting", label: "等你确认" };
+    if (complete && (index < activeIndex || project.state === "completed")) return { kind: "complete", label: "已产出" };
+    if (index === activeIndex) return { kind: "active", label: complete ? "处理中" : "当前" };
+    return { kind: complete ? "complete" : "waiting", label: complete ? "已产出" : "待开始" };
+  }
+
+  function stageRunDescription(project, stage) {
+    if (stage.key === "handoff") return "模型路由：在公众号工作台查看 Skill 配置";
+    const descriptions = stage.roles.map((role) => latestRun(project, [role])).filter(Boolean);
+    if (!descriptions.length) return "模型：尚未执行";
+    const labels = [...new Set(descriptions.map((run) => runDescription(run).replace(/^模型：/, "")))];
+    return `模型：${labels.join(" ｜ ")}`;
+  }
+
+  function scrollToStageArtifact(project, stage) {
+    if (stage.key === "handoff") {
+      if (project.state === "completed" && typeof window.openX2redWechatForProject === "function") {
+        window.openX2redWechatForProject(project).catch((error) => window.alert(error.message));
+      }
+      return;
+    }
+    const artifact = latestArtifact(project, (item) => stage.types.includes(item.artifact_type));
+    const card = artifact && document.querySelector(`.artifact-card[data-artifact-id="${CSS.escape(artifact.id)}"]`);
+    if (!card) return;
+    card.classList.remove("collapsed");
+    const toggle = card.querySelector(".artifact-toggle");
+    if (toggle) toggle.textContent = "收起";
+    card.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  function buildStageMap(project) {
+    const map = document.createElement("section");
+    map.className = "writing-stage-map";
+    map.setAttribute("aria-labelledby", "writing-stage-map-title");
+    const activeIndex = activeDeepStageIndex(project);
+    const head = document.createElement("header");
+    const copy = document.createElement("div");
+    copy.innerHTML = '<span class="section-kicker">DEEP WRITING TRACE</span><h4 id="writing-stage-map-title">深度写作内部流程</h4><p>点击已有阶段可定位产物；每一步都显示读取、输出、Skill 和实际模型。</p>';
+    const progress = document.createElement("span");
+    progress.className = "writing-stage-progress";
+    progress.textContent = project.wechat_variant_id
+      ? "8 / 8 · 已进入公众号"
+      : `当前 ${Math.min(activeIndex + 1, 8)} / 8 · ${deepStages[activeIndex].title}`;
+    head.append(copy, progress);
+
+    const list = document.createElement("ol");
+    list.className = "writing-stage-list";
+    deepStages.forEach((stage, index) => {
+      const state = deepStageState(project, stage, index, activeIndex);
+      const guide = guideForStage(stage);
+      const item = document.createElement("li");
+      item.className = `writing-stage-item is-${state.kind}${index === activeIndex ? " is-current" : ""}`;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "writing-stage-button";
+      button.setAttribute("aria-label", `阶段 ${stage.number}：${stage.title}，${state.label}`);
+      if (index === activeIndex) button.setAttribute("aria-current", "step");
+      const top = document.createElement("span");
+      top.className = "writing-stage-top";
+      const number = document.createElement("span");
+      number.className = "writing-stage-number";
+      number.textContent = stage.number;
+      const verb = document.createElement("span");
+      verb.className = "writing-stage-verb";
+      verb.textContent = guide.verb;
+      const status = document.createElement("span");
+      status.className = "writing-stage-state";
+      status.textContent = state.label;
+      top.append(number, verb, status);
+      const title = document.createElement("strong");
+      title.textContent = stage.title;
+      const io = document.createElement("span");
+      io.className = "writing-stage-io";
+      const reads = document.createElement("small");
+      reads.textContent = `读取：${guide.reads}`;
+      const writes = document.createElement("small");
+      writes.textContent = `输出：${guide.writes}`;
+      io.append(reads, writes);
+      const route = document.createElement("span");
+      route.className = "writing-stage-route";
+      route.textContent = `${guide.skill} · ${stageRunDescription(project, stage)}`;
+      const optimize = document.createElement("small");
+      optimize.className = "writing-stage-optimize";
+      optimize.textContent = `优化：${guide.optimize}`;
+      button.append(top, title, io, route, optimize);
+      button.addEventListener("click", () => scrollToStageArtifact(project, stage));
+      item.appendChild(button);
+      list.appendChild(item);
+    });
+    map.append(head, list);
+    return map;
+  }
+
   function wait(milliseconds) {
     return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
   }
@@ -96,7 +399,7 @@
     while (Date.now() - started < timeoutMs) {
       const job = await api(`/api/jobs/${encodeURIComponent(jobId)}`);
       if (job.state === "succeeded") return job;
-      if (["failed", "canceled"].includes(job.state)) {
+      if (["failed", "dead_letter", "canceled"].includes(job.state)) {
         throw new Error(job.error || "后台任务执行失败");
       }
       await wait(700);
@@ -187,20 +490,101 @@
     }
   }
 
-  async function openCompletedDraft(project, tabId) {
-    if (!project.source_id) {
-      window.alert("这个项目缺少来源关联，无法打开终稿。");
+  async function handoffToWechat(project, dock) {
+    if (!project.source_id || typeof window.openX2redWechatForProject !== "function") {
+      window.alert("公众号工作台尚未就绪，请刷新页面后重试。");
       return;
     }
-    window.setView?.("workbench-view");
-    if (typeof window.loadSources === "function") {
-      await window.loadSources(project.source_id);
-    } else if (typeof window.selectSource === "function") {
-      await window.selectSource(project.source_id);
+    if (dock) setDockBusy(dock, project.wechat_variant_id ? "正在打开对应公众号版本…" : "正在交接深度终稿与冻结材料…");
+    try {
+      await window.openX2redWechatForProject(project);
+    } catch (error) {
+      window.alert(error.message);
+      resetDock();
     }
-    window.setTab?.(tabId);
-    history.replaceState(null, "", `${window.location.pathname}?source=${encodeURIComponent(project.source_id)}`);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function showFinalPreview() {
+    document.querySelector(".final-article-preview")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function appendMarkdownPreview(container, markdown) {
+    const lines = String(markdown || "").split(/\r?\n/);
+    let paragraph = [];
+    let list = null;
+    let code = null;
+    const flushParagraph = () => {
+      if (!paragraph.length) return;
+      const node = document.createElement("p");
+      node.textContent = paragraph.join("\n").trim();
+      container.appendChild(node);
+      paragraph = [];
+    };
+    const flushList = () => {
+      if (!list) return;
+      container.appendChild(list);
+      list = null;
+    };
+    lines.forEach((line) => {
+      if (/^```/.test(line.trim())) {
+        flushParagraph();
+        flushList();
+        if (code) {
+          container.appendChild(code);
+          code = null;
+        } else {
+          code = document.createElement("pre");
+        }
+        return;
+      }
+      if (code) {
+        code.textContent += `${line}\n`;
+        return;
+      }
+      const heading = line.match(/^(#{2,4})\s+(.+)$/);
+      if (heading) {
+        flushParagraph();
+        flushList();
+        const node = document.createElement(heading[1].length === 2 ? "h3" : "h4");
+        node.textContent = heading[2];
+        container.appendChild(node);
+        return;
+      }
+      const bullet = line.match(/^[-*]\s+(.+)$/);
+      if (bullet) {
+        flushParagraph();
+        if (!list || list.tagName !== "UL") {
+          flushList();
+          list = document.createElement("ul");
+        }
+        const node = document.createElement("li");
+        node.textContent = bullet[1];
+        list.appendChild(node);
+        return;
+      }
+      const ordered = line.match(/^\d+[.)]\s+(.+)$/);
+      if (ordered) {
+        flushParagraph();
+        if (!list || list.tagName !== "OL") {
+          flushList();
+          list = document.createElement("ol");
+        }
+        const node = document.createElement("li");
+        node.textContent = ordered[1];
+        list.appendChild(node);
+        return;
+      }
+      if (!line.trim()) {
+        flushParagraph();
+        flushList();
+        return;
+      }
+      flushList();
+      paragraph.push(line);
+    });
+    flushParagraph();
+    flushList();
+    if (code) container.appendChild(code);
   }
 
   function buildFinalPreview(project) {
@@ -211,16 +595,14 @@
     preview.className = "final-article-preview";
 
     const heading = document.createElement("header");
-    heading.innerHTML = '<span class="section-kicker">FINAL ARTICLE</span><strong>多 Agent 完成文章</strong>';
+    heading.innerHTML = project.state === "claims_blocked"
+      ? '<span class="section-kicker">CLAIM GATE BLOCKED</span><strong>候选终稿 · 禁止交接公众号</strong>'
+      : '<span class="section-kicker">STAGE 07 OUTPUT</span><strong>深度写作终稿 · 尚未覆盖公众号版本</strong>';
     const title = document.createElement("h2");
     title.textContent = content.title || project.promise || "完成文章";
     const body = document.createElement("div");
     body.className = "final-article-body";
-    String(content.body || "").split(/\n{2,}/).filter(Boolean).forEach((paragraph) => {
-      const node = document.createElement("p");
-      node.textContent = paragraph.trim();
-      body.appendChild(node);
-    });
+    appendMarkdownPreview(body, content.body || "");
     const tags = document.createElement("div");
     tags.className = "final-article-tags";
     const values = Array.isArray(content.tags)
@@ -239,7 +621,11 @@
     const cards = [...detail.querySelectorAll(".artifact-card")];
     if (!cards.length) return null;
     const pending = pendingArtifact(project);
+    const blockedMatrix = project.state === "claims_blocked"
+      ? latestArtifact(project, (item) => item.artifact_type === "claim_evidence_matrix")
+      : null;
     const focusArtifact = pending
+      || blockedMatrix
       || latestArtifact(project, (item) => item.artifact_type === "final_draft")
       || latestArtifact(project);
 
@@ -250,6 +636,58 @@
       card.dataset.artifactType = artifact.artifact_type;
       const header = card.querySelector(".artifact-header");
       if (!header) return;
+      card.querySelector(".artifact-explainer")?.remove();
+      header.querySelector(".artifact-schema-status")?.remove();
+      const artifactPayload = parseArtifact(artifact);
+      const structured = artifact.structured_output || artifactPayload._structured_output;
+      if (structured && ["valid", "repaired", "degraded"].includes(structured.status)) {
+        const schemaStatus = document.createElement("span");
+        schemaStatus.className = `artifact-schema-status is-${structured.status}`;
+        schemaStatus.textContent = {
+          valid: "Schema 通过",
+          repaired: "Schema 已修复",
+          degraded: "降级输出",
+        }[structured.status];
+        schemaStatus.title = structured.warning || `Schema：${structured.schema_name || "unknown"}`;
+        header.insertBefore(schemaStatus, header.querySelector(".artifact-toggle"));
+      } else if (artifact.artifact_type === "claim_evidence_matrix") {
+        const gateStatus = document.createElement("span");
+        gateStatus.className = `artifact-schema-status ${artifactPayload.completion_allowed ? "is-valid" : "is-blocked"}`;
+        gateStatus.textContent = artifactPayload.completion_allowed ? "证据闸门通过" : "证据闸门阻断";
+        header.insertBefore(gateStatus, header.querySelector(".artifact-toggle"));
+      }
+      const guide = artifactGuides[artifact.artifact_type] || guideForStage({ key: "unknown", types: [artifact.artifact_type] });
+      const run = latestRun(project, [artifact.created_by_role], artifact.id);
+      const explainer = document.createElement("section");
+      explainer.className = "artifact-explainer";
+      const explainerHead = document.createElement("div");
+      explainerHead.className = "artifact-explainer-head";
+      const verb = document.createElement("span");
+      verb.className = "artifact-verb";
+      verb.textContent = guide.verb;
+      const route = document.createElement("strong");
+      route.textContent = `Skill：${guide.skill}`;
+      explainerHead.append(verb, route);
+      const io = document.createElement("div");
+      io.className = "artifact-io-grid";
+      [["读取", guide.reads], ["输出 / 修改", guide.writes]].forEach(([label, value]) => {
+        const block = document.createElement("div");
+        const key = document.createElement("span");
+        key.textContent = label;
+        const text = document.createElement("p");
+        text.textContent = value;
+        block.append(key, text);
+        io.appendChild(block);
+      });
+      const meta = document.createElement("div");
+      meta.className = "artifact-run-meta";
+      const model = document.createElement("span");
+      model.textContent = runDescription(run);
+      const optimize = document.createElement("p");
+      optimize.textContent = `建议优化：${guide.optimize}`;
+      meta.append(model, optimize);
+      explainer.append(explainerHead, io, meta);
+      header.after(explainer);
       let toggle = header.querySelector(".artifact-toggle");
       if (!toggle) {
         toggle = document.createElement("button");
@@ -271,10 +709,14 @@
   function buildDock(project) {
     const dock = document.createElement("section");
     dock.className = "writing-action-dock";
+    dock.classList.toggle("is-claims-blocked", project.state === "claims_blocked");
     const copy = document.createElement("div");
     copy.className = "writing-dock-copy";
     const kicker = document.createElement("span");
-    kicker.textContent = project.state === "completed" ? "READY FOR EDITING" : "CURRENT ACTION";
+    kicker.textContent = project.state === "completed"
+      ? project.wechat_variant_id ? "WECHAT VERSION READY" : "NEXT: WECHAT ARTICLE"
+      : project.state === "claims_blocked" ? "CLAIM GATE BLOCKED"
+      : "CURRENT ACTION";
     const title = document.createElement("strong");
     title.textContent = stageNames[project.state] || project.current_stage || "继续写作流程";
     const detail = document.createElement("small");
@@ -282,8 +724,12 @@
     detail.textContent = pending
       ? `${artifactName(pending.artifact_type)}确认后，系统会自动运行到下一个需要你决定的阶段。`
       : project.state === "completed"
-        ? "终稿已经写入创作工作台，可直接编辑、制图和发布。"
-        : "系统会运行到下一个人工确认点。";
+        ? project.wechat_variant_id
+          ? `深度终稿已关联公众号 v${project.wechat_variant_version || ""}；可打开继续编辑、配图与排版。`
+          : `深度终稿已完整保存（${project.output_draft_chars || 0} 字符）；下一步以它和原始证据生成公众号版本。`
+        : project.state === "claims_blocked"
+          ? project.error || "关键主张缺少证据或终稿扩大了主张；当前候选终稿不会进入公众号成稿。"
+          : "系统会运行到下一个人工确认点。";
     copy.append(kicker, title, detail);
 
     const actions = document.createElement("div");
@@ -304,14 +750,23 @@
       const article = document.createElement("button");
       article.type = "button";
       article.className = "primary-action writing-primary-action";
-      article.textContent = "查看完成文章";
-      article.addEventListener("click", () => openCompletedDraft(project, "draft-pane"));
-      const cards = document.createElement("button");
-      cards.type = "button";
-      cards.className = "secondary-action";
-      cards.textContent = "去制图";
-      cards.addEventListener("click", () => openCompletedDraft(project, "cards-pane"));
-      actions.append(article, cards);
+      article.textContent = project.wechat_variant_id
+        ? `打开公众号 v${project.wechat_variant_version || ""}`
+        : "进入公众号成稿阶段";
+      article.addEventListener("click", () => handoffToWechat(project, dock));
+      const preview = document.createElement("button");
+      preview.type = "button";
+      preview.className = "secondary-action";
+      preview.textContent = "查看本页终稿";
+      preview.addEventListener("click", showFinalPreview);
+      actions.append(article, preview);
+    } else if (project.state === "claims_blocked") {
+      const preview = document.createElement("button");
+      preview.type = "button";
+      preview.className = "secondary-action";
+      preview.textContent = "查看候选终稿";
+      preview.addEventListener("click", showFinalPreview);
+      actions.append(preview);
     } else if (!["failed", "canceled"].includes(project.state)) {
       const run = document.createElement("button");
       run.type = "button";
@@ -326,7 +781,19 @@
 
   function projectFingerprint(project) {
     const tail = latestArtifact(project);
-    return [project.id, project.state, project.current_stage, project.artifacts.length, tail?.id || ""].join(":");
+    const run = [...(project.runs || [])].at(-1);
+    return [
+      project.id,
+      project.state,
+      project.current_stage,
+      project.artifacts.length,
+      tail?.id || "",
+      project.runs?.length || 0,
+      run?.id || "",
+      project.output_draft_id || "",
+      project.wechat_variant_id || "",
+      project.wechat_variant_version || "",
+    ].join(":");
   }
 
   function enhanceProjectDetail() {
@@ -342,11 +809,14 @@
     detail.dataset.uxFingerprint = fingerprint;
     detail.querySelector(".writing-action-dock")?.remove();
     detail.querySelector(".final-article-preview")?.remove();
+    detail.querySelector(".writing-stage-map")?.remove();
     detail.querySelector(".project-run-actions")?.classList.add("legacy-project-actions");
     detail.querySelectorAll(".artifact-approval").forEach((node) => node.classList.add("legacy-artifact-actions"));
 
+    const header = detail.querySelector(".project-detail-header");
+    if (header) header.after(buildStageMap(project));
     const timeline = detail.querySelector(".artifact-timeline");
-    if (project.state === "completed" && timeline) {
+    if (["completed", "claims_blocked"].includes(project.state) && timeline) {
       const preview = buildFinalPreview(project);
       if (preview) timeline.before(preview);
     }
@@ -357,7 +827,9 @@
     if (focusKey !== uxState.lastFocusKey) {
       uxState.lastFocusKey = focusKey;
       const panel = detail.closest(".project-detail-panel");
-      if (project.state === "completed") {
+      if (window.matchMedia("(max-width: 1050px)").matches) {
+        detail.scrollIntoView({ behavior: "smooth", block: "start" });
+      } else if (project.state === "completed") {
         panel?.scrollTo({ top: 0, behavior: "smooth" });
       } else if (focusCard && panel) {
         panel.scrollTo({ top: Math.max(0, focusCard.offsetTop - 20), behavior: "smooth" });

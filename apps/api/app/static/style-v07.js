@@ -20,7 +20,7 @@
     while (Date.now() - started < timeoutMs) {
       const job = await api(`/api/jobs/${encodeURIComponent(jobId)}`);
       if (job.state === "succeeded") return job;
-      if (job.state === "failed") throw new Error(job.error || "风格训练失败");
+      if (["failed", "dead_letter"].includes(job.state)) throw new Error(job.error || "风格训练失败");
       await new Promise((resolve) => setTimeout(resolve, 700));
     }
     throw new Error("风格训练等待超时");
@@ -57,6 +57,7 @@
             <label>原创样本（至少 3 篇，用单独一行 --- 分隔）<textarea id="style-originals" required rows="12" placeholder="第一篇原创全文\n\n---\n\n第二篇原创全文\n\n---\n\n第三篇原创全文"></textarea></label>
             <label>留出样本（可选，同样用 --- 分隔）<textarea id="style-held-out" rows="7" placeholder="这些样本不会参与初次规则提炼，只用于验证"></textarea></label>
             <label>真实改稿反馈（可选，每行一条）<textarea id="style-feedback" rows="5" placeholder="例如：删掉‘值得注意的是’，太像 AI"></textarea></label>
+            <label class="style-rights-confirm"><input id="style-rights-confirm" type="checkbox" required /> 我确认以上样本均为本人原创或已获得明确授权，可用于本地风格分析。</label>
             <button class="primary-action" type="submit">训练并验证风格档案</button>
           </form>
         </article>
@@ -76,46 +77,6 @@
     label.innerHTML = '个人风格<select id="writing-style-profile"><option value="">默认通用风格</option></select>';
     if (modeLabel?.nextSibling) form.insertBefore(label, modeLabel.nextSibling);
     else form.append(label);
-
-    // The base studio listener predates style selection. Capture the submit first
-    // so the selected version is included in the immutable writing project.
-    form.addEventListener(
-      "submit",
-      async (event) => {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        const button = event.submitter;
-        if (button) button.disabled = true;
-        try {
-          const mode = document.getElementById("writing-mode").value;
-          const project = await api("/api/writing/projects", {
-            method: "POST",
-            body: JSON.stringify({
-              source_id: document.getElementById("writing-source").value,
-              mode,
-              reader: document.getElementById("writing-reader").value,
-              promise: document.getElementById("writing-promise").value,
-              main_thesis: document.getElementById("writing-thesis").value,
-              style_profile_id: document.getElementById("writing-style-profile").value || null,
-              budget_limit_cents: mode === "studio" ? 20 : 10,
-            }),
-          });
-          const job = await api(`/api/writing/projects/${encodeURIComponent(project.id)}/run`, {
-            method: "POST",
-            body: JSON.stringify({ continuous: true }),
-          });
-          await waitForJob(job.id);
-          if (typeof window.setView === "function") window.setView("writing-view");
-          window.location.hash = `writing-project=${project.id}`;
-          window.location.reload();
-        } catch (error) {
-          window.alert(error.message);
-        } finally {
-          if (button) button.disabled = false;
-        }
-      },
-      true,
-    );
   }
 
   const previousSetView = window.setView;
@@ -181,6 +142,9 @@
       try {
         const originals = splitSamples(document.getElementById("style-originals").value);
         if (originals.length < 3) throw new Error("至少需要 3 篇用 --- 分隔的原创样本");
+        if (!document.getElementById("style-rights-confirm").checked) {
+          throw new Error("请先确认样本为本人原创或已获得明确授权");
+        }
         const feedback = document.getElementById("style-feedback").value
           .split("\n")
           .map((item) => item.trim())
@@ -193,6 +157,7 @@
             original_samples: originals,
             held_out_samples: splitSamples(document.getElementById("style-held-out").value),
             author_feedback: feedback,
+            confirm_original_or_authorized: true,
           }),
         });
         await waitForJob(job.id);

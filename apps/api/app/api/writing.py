@@ -6,26 +6,75 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_job_engine, get_writing_service
+from app.api.deps import get_job_engine, get_pool_memory_service, get_writing_service
 from app.db.session import get_db
 from app.domain.jobs import Job
-from app.domain.models import SourceItem
+from app.domain.models import DraftRevision
+from app.domain.platforms import PlatformVariant
+from app.domain.pool_memory_schemas import PoolMemoryTargetCandidateRequest
 from app.domain.schemas import JobOut
-from app.domain.studio import StyleProfile, WritingArtifact, WritingProject
+from app.domain.studio import (
+    AgentRun,
+    StyleProfile,
+    WritingArtifact,
+    WritingFeedback,
+    WritingProject,
+)
 from app.domain.studio_schemas import (
     ArtifactApprovalRequest,
     StyleProfileCreate,
     StyleProfileOut,
+    TitlePreferenceRequest,
     WritingFeedbackCreate,
+    WritingMaterialOption,
     WritingProjectCreate,
     WritingProjectOut,
     WritingRunRequest,
 )
 from app.domain.style_schemas import StyleProfileTrainRequest
+from app.services.input_materials import (
+    InputMaterialError,
+    material_option_payloads,
+    resolve_input_materials,
+)
 from app.services.jobs import JobEngine
+from app.services.pool_memory import PoolMemoryError, PoolMemoryService
 from app.services.writing_studio import MultiAgentWritingService
 
 router = APIRouter(prefix="/api/writing", tags=["writing-studio"])
+
+
+def _project_outputs(
+    db: Session,
+    project: WritingProject,
+) -> tuple[DraftRevision | None, PlatformVariant | None]:
+    output_draft: DraftRevision | None = None
+    drafts = db.scalars(
+        select(DraftRevision)
+        .where(DraftRevision.source_id == project.source_id)
+        .order_by(desc(DraftRevision.version))
+    ).all()
+    for draft in drafts:
+        try:
+            provenance = json.loads(draft.provenance_json or "{}")
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if str(provenance.get("writing_project_id") or "") == project.id:
+            output_draft = draft
+            break
+    if output_draft is None:
+        return None, None
+    variant = db.scalar(
+        select(PlatformVariant)
+        .where(
+            PlatformVariant.base_draft_id == output_draft.id,
+            PlatformVariant.platform == "wechat",
+            PlatformVariant.format == "article",
+        )
+        .order_by(desc(PlatformVariant.updated_at))
+        .limit(1)
+    )
+    return output_draft, variant
 
 
 def project_payload(
@@ -33,9 +82,22 @@ def project_payload(
     service: MultiAgentWritingService,
     project: WritingProject,
 ) -> dict:
+    memory_service = PoolMemoryService(service.settings, service.editorial)
+    memory_snapshot = memory_service.snapshot_for_target(
+        db,
+        target_type="writing_project",
+        target_id=project.id,
+    )
+    summaries = service.source_summaries(db, project)
+    output_draft, wechat_variant = _project_outputs(db, project)
+    runs = service.runs(db, project.id)
+    usage_summary = _project_usage_summary(runs)
     return {
         "id": project.id,
         "source_id": project.source_id,
+        "source_ids": [item["id"] for item in summaries],
+        "source_summaries": summaries,
+        "material_summaries": service.material_summaries(db, project),
         "mode": project.mode,
         "state": project.state,
         "current_stage": project.current_stage,
@@ -45,11 +107,68 @@ def project_payload(
         "style_profile_id": project.style_profile_id,
         "budget_limit_cents": project.budget_limit_cents,
         "spent_estimate_cents": project.spent_estimate_cents,
+        "spent_cost_usd": project.spent_cost_usd,
+        "cost_status": usage_summary["cost_status"],
+        "usage_summary": usage_summary,
         "error": project.error,
+        "output_draft_id": output_draft.id if output_draft else "",
+        "output_draft_version": output_draft.version if output_draft else None,
+        "output_draft_chars": len(output_draft.body) if output_draft else 0,
+        "wechat_variant_id": wechat_variant.id if wechat_variant else "",
+        "wechat_variant_version": wechat_variant.version if wechat_variant else None,
+        "wechat_variant_status": wechat_variant.status if wechat_variant else "",
         "created_at": project.created_at,
         "updated_at": project.updated_at,
         "artifacts": service.artifacts(db, project.id),
-        "runs": service.runs(db, project.id),
+        "runs": runs,
+        "memory_snapshot": memory_service.snapshot_summary(memory_snapshot),
+    }
+
+
+def _project_usage_summary(runs: list[AgentRun]) -> dict:
+    modeled = []
+    for run in runs:
+        try:
+            usage = json.loads(run.usage_json or "{}")
+        except (TypeError, json.JSONDecodeError):
+            usage = {}
+        if not isinstance(usage, dict) or not usage.get("provider"):
+            continue
+        modeled.append(usage)
+    if not modeled:
+        return {
+            "cost_status": "not_used",
+            "cost_usd": 0.0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "image_count": 0,
+            "latency_ms": 0,
+            "retries": 0,
+            "attempts": 0,
+        }
+    known_costs = [float(item["cost_usd"]) for item in modeled if item.get("cost_usd") is not None]
+    if len(known_costs) == len(modeled):
+        kinds = {str(item.get("cost_kind") or "unavailable") for item in modeled}
+        cost_status = (
+            "partial"
+            if "partial" in kinds
+            else kinds.pop()
+            if len(kinds) == 1
+            else "mixed_estimate"
+        )
+    elif known_costs:
+        cost_status = "partial"
+    else:
+        cost_status = "unavailable"
+    return {
+        "cost_status": cost_status,
+        "cost_usd": round(sum(known_costs), 8),
+        "input_tokens": sum(int(item.get("input_tokens") or 0) for item in modeled),
+        "output_tokens": sum(int(item.get("output_tokens") or 0) for item in modeled),
+        "image_count": sum(int(item.get("image_count") or 0) for item in modeled),
+        "latency_ms": sum(int(item.get("latency_ms") or 0) for item in modeled),
+        "retries": sum(int(item.get("retries") or 0) for item in modeled),
+        "attempts": sum(int(item.get("attempts") or 0) for item in modeled),
     }
 
 
@@ -106,9 +225,19 @@ def list_projects(
     service: MultiAgentWritingService = Depends(get_writing_service),
 ) -> list[dict]:
     projects = list(
-        db.scalars(select(WritingProject).order_by(desc(WritingProject.updated_at)).limit(limit)).all()
+        db.scalars(
+            select(WritingProject).order_by(desc(WritingProject.updated_at)).limit(limit)
+        ).all()
     )
     return [project_payload(db, service, project) for project in projects]
+
+
+@router.get("/material-options", response_model=list[WritingMaterialOption])
+def list_material_options(
+    limit: int = Query(default=300, ge=1, le=500),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    return material_option_payloads(db, limit=limit)
 
 
 @router.post("/projects", response_model=WritingProjectOut, status_code=status.HTTP_201_CREATED)
@@ -117,21 +246,28 @@ def create_project(
     db: Session = Depends(get_db),
     service: MultiAgentWritingService = Depends(get_writing_service),
 ) -> dict:
-    source = db.get(SourceItem, body.source_id)
-    if source is None:
-        raise HTTPException(status_code=404, detail="来源不存在")
     try:
+        resolved = resolve_input_materials(
+            db,
+            [
+                *body.material_refs,
+                *(f"source:{source_id}" for source_id in body.supporting_source_ids),
+            ],
+            preferred_source_id=body.source_id,
+        )
         project = service.create_project(
             db,
-            source=source,
+            source=resolved.primary_source,
             mode=body.mode,
             reader=body.reader,
             promise=body.promise,
             main_thesis=body.main_thesis,
             style_profile_id=body.style_profile_id,
             budget_limit_cents=body.budget_limit_cents,
+            supporting_sources=resolved.sources[1:],
+            input_materials=resolved.materials,
         )
-    except ValueError as exc:
+    except (InputMaterialError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     db.commit()
     db.refresh(project)
@@ -176,7 +312,9 @@ def run_project(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.post("/projects/{project_id}/artifacts/{artifact_id}/approve", response_model=WritingProjectOut)
+@router.post(
+    "/projects/{project_id}/artifacts/{artifact_id}/approve", response_model=WritingProjectOut
+)
 def approve_artifact(
     project_id: str,
     artifact_id: str,
@@ -203,6 +341,37 @@ def approve_artifact(
     return project_payload(db, service, project)
 
 
+@router.post(
+    "/projects/{project_id}/titles/select",
+    status_code=status.HTTP_201_CREATED,
+)
+def select_title(
+    project_id: str,
+    body: TitlePreferenceRequest,
+    db: Session = Depends(get_db),
+    service: MultiAgentWritingService = Depends(get_writing_service),
+) -> dict:
+    project = db.get(WritingProject, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="写作项目不存在")
+    try:
+        preference = service.select_title_preference(
+            db,
+            project=project,
+            tournament_artifact_id=body.tournament_artifact_id,
+            candidate_id=body.candidate_id,
+            note=body.note,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    db.commit()
+    return {
+        "id": preference.id,
+        "preference": json.loads(preference.content_json or "{}"),
+        "created_at": preference.created_at,
+    }
+
+
 @router.post("/projects/{project_id}/feedback", status_code=status.HTTP_201_CREATED)
 def add_feedback(
     project_id: str,
@@ -213,14 +382,126 @@ def add_feedback(
     project = db.get(WritingProject, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="写作项目不存在")
-    feedback = service.add_feedback(
-        db,
-        project=project,
-        draft_before_id=body.draft_before_id,
-        draft_after_id=body.draft_after_id,
-        diff=body.diff,
-        feedback_reason=body.feedback_reason,
-        affected_rules=body.affected_rules,
-    )
+    try:
+        feedback = service.add_feedback(
+            db,
+            project=project,
+            draft_before_id=body.draft_before_id,
+            draft_after_id=body.draft_after_id,
+            article_type=body.article_type,
+            feedback_reason=body.feedback_reason,
+            affected_dimensions=[str(item) for item in body.affected_dimensions],
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     db.commit()
     return {"id": feedback.id, "created_at": feedback.created_at}
+
+
+@router.get("/projects/{project_id}/feedback")
+def list_feedback(
+    project_id: str,
+    db: Session = Depends(get_db),
+    memory_service: PoolMemoryService = Depends(get_pool_memory_service),
+) -> list[dict]:
+    if db.get(WritingProject, project_id) is None:
+        raise HTTPException(status_code=404, detail="写作项目不存在")
+    values = list(
+        db.scalars(
+            select(WritingFeedback)
+            .where(WritingFeedback.project_id == project_id)
+            .order_by(desc(WritingFeedback.created_at))
+        ).all()
+    )
+    output: list[dict] = []
+    for item in values:
+        diff = json.loads(item.diff_json or "{}")
+        memory = memory_service.source_memory_status(
+            db,
+            source_kind="writing_feedback",
+            source_id=item.id,
+        )
+        dimensions = json.loads(item.affected_rules_json or "[]")
+        output.append({
+            "id": item.id,
+            "draft_before_id": item.draft_before_id,
+            "draft_after_id": item.draft_after_id,
+            "article_type": str(diff.get("article_type") or ""),
+            "diff": diff,
+            "feedback_reason": item.feedback_reason,
+            "affected_dimensions": dimensions,
+            "affected_rules": dimensions,
+            "approved_to_memory": memory.get("status") == "approved",
+            "pool_memory": memory,
+            "created_at": item.created_at,
+        })
+    return output
+
+
+@router.post(
+    "/projects/{project_id}/feedback/{feedback_id}/memory-candidate",
+    status_code=status.HTTP_201_CREATED,
+)
+async def feedback_memory_candidate(
+    project_id: str,
+    feedback_id: str,
+    body: PoolMemoryTargetCandidateRequest,
+    db: Session = Depends(get_db),
+    service: PoolMemoryService = Depends(get_pool_memory_service),
+) -> dict:
+    feedback = db.get(WritingFeedback, feedback_id)
+    if feedback is None or feedback.project_id != project_id:
+        raise HTTPException(status_code=404, detail="写作反馈不存在")
+    try:
+        candidate = await service.create_candidate(
+            db,
+            source_kind="writing_feedback",
+            source_id=feedback.id,
+            title=body.title,
+            dimensions=[str(item) for item in body.dimensions],
+            scope=body.scope.model_dump(),
+            usage_policy=body.usage_policy,
+            note=body.note,
+        )
+        db.commit()
+        db.refresh(candidate)
+        return {"candidate_id": candidate.id, "state": candidate.state}
+    except PoolMemoryError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post(
+    "/projects/{project_id}/final-memory-candidate",
+    status_code=status.HTTP_201_CREATED,
+)
+async def final_memory_candidate(
+    project_id: str,
+    body: PoolMemoryTargetCandidateRequest,
+    db: Session = Depends(get_db),
+    service: MultiAgentWritingService = Depends(get_writing_service),
+    memory_service: PoolMemoryService = Depends(get_pool_memory_service),
+) -> dict:
+    project = db.get(WritingProject, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="写作项目不存在")
+    artifact = service.latest_artifact(db, project.id, "final_draft")
+    if artifact is None:
+        raise HTTPException(status_code=404, detail="当前项目还没有终稿")
+    try:
+        candidate = await memory_service.create_candidate(
+            db,
+            source_kind="writing_artifact",
+            source_id=artifact.id,
+            title=body.title,
+            dimensions=[str(item) for item in body.dimensions],
+            scope=body.scope.model_dump(),
+            usage_policy=body.usage_policy,
+            note=body.note,
+        )
+        db.commit()
+        db.refresh(candidate)
+        return {"candidate_id": candidate.id, "state": candidate.state}
+    except PoolMemoryError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

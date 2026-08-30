@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
@@ -9,6 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_card_service
+from app.core.config import get_settings
+from app.core.paths import UnsafePathError, resolved_file_within
 from app.db.session import get_db
 from app.domain.models import CardRender, DraftRevision
 from app.domain.schemas import CardGenerateRequest, CardRenderOut
@@ -68,7 +69,12 @@ def card_file(render_id: str, index: int, db: Session = Depends(get_db)) -> File
         raise HTTPException(status_code=500, detail="卡片记录损坏") from exc
     if not isinstance(paths, list) or index < 0 or index >= len(paths):
         raise HTTPException(status_code=404, detail="卡片文件不存在")
-    path = Path(str(paths[index])).resolve()
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail="卡片文件已丢失")
+    try:
+        path = resolved_file_within(
+            str(paths[index]),
+            [get_settings().media_dir, get_settings().export_dir],
+            suffixes={".png"},
+        )
+    except UnsafePathError:
+        raise HTTPException(status_code=404, detail="卡片文件已丢失") from None
     return FileResponse(path, media_type="image/png", filename=path.name)

@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import difflib
 import hashlib
 import json
+import re
 from typing import Any
 
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
+from app.domain.evidence_schemas import EvidenceBundle, EvidenceSectionRequest
 from app.domain.models import DraftRevision, SourceItem
 from app.domain.studio import (
     AgentRun,
@@ -18,15 +21,18 @@ from app.domain.studio import (
     WritingState,
 )
 from app.services.editorial import EditorialService
-
+from app.services.evidence_compiler import EvidenceCompiler
+from app.services.pool_memory import PoolMemoryService
 
 ROLE_SKILLS = {
     "editor_in_chief": "writing.editor",
     "evidence_researcher": "writing.research",
     "outline_architect": "writing.outline",
+    "title_strategist": "writing.writer",
     "writer": "writing.writer",
     "reader_reviewer": "review.reader",
     "fact_reviewer": "review.fact",
+    "claim_extractor": "review.fact",
     "style_reviewer": "review.style",
     "chief_editor": "writing.chief_editor",
     "final_reviser": "writing.final_revision",
@@ -57,6 +63,8 @@ class WritingCore:
         main_thesis: str,
         style_profile_id: str | None,
         budget_limit_cents: int,
+        supporting_sources: list[SourceItem] | None = None,
+        input_materials: list[dict[str, Any]] | None = None,
     ) -> WritingProject:
         if style_profile_id and db.get(StyleProfile, style_profile_id) is None:
             raise ValueError("风格档案不存在")
@@ -73,6 +81,36 @@ class WritingCore:
         )
         db.add(project)
         db.flush()
+        selected = [source, *(supporting_sources or [])]
+        materials = input_materials or [
+            {
+                "ref": f"source:{item.id}",
+                "kind": "source",
+                "id": item.id,
+                "source_id": item.id,
+                "title": self._source_title(item),
+            }
+            for item in selected
+        ]
+        self._store_artifact(
+            db,
+            project=project,
+            artifact_type="source_selection",
+            content={
+                "primary_source_id": source.id,
+                "supporting_source_ids": [item.id for item in selected[1:]],
+                "source_ids": [item.id for item in selected],
+                "material_refs": [str(item.get("ref") or "") for item in materials],
+                "materials": materials,
+                "contract": "mixed-input-materials-v2",
+                "fact_contract": (
+                    "source materials are factual evidence; written versions are derivative writing material "
+                    "whose factual claims must still trace to their underlying sources"
+                ),
+            },
+            role="author",
+            approved=True,
+        )
         return project
 
     def artifacts(self, db: Session, project_id: str) -> list[WritingArtifact]:
@@ -156,12 +194,273 @@ class WritingCore:
         project.error = ""
         return project
 
-    def _source_payload(self, db: Session, project: WritingProject) -> list[dict[str, Any]]:
-        source = db.get(SourceItem, project.source_id)
-        if source is None:
-            raise ValueError("来源不存在")
-        context = self.editorial._context(db, source)
-        return self.editorial._source_blocks(context)
+    def selected_sources(self, db: Session, project: WritingProject) -> list[SourceItem]:
+        selection = self.latest_artifact(
+            db,
+            project.id,
+            "source_selection",
+            approved_only=True,
+        )
+        payload = self._json(selection.content_json, {}) if selection else {}
+        source_ids = payload.get("source_ids") if isinstance(payload, dict) else None
+        if not isinstance(source_ids, list) or not source_ids:
+            source_ids = [project.source_id]
+        ordered_ids = list(dict.fromkeys(str(value) for value in source_ids if value))
+        values = {
+            item.id: item
+            for item in db.scalars(select(SourceItem).where(SourceItem.id.in_(ordered_ids))).all()
+        }
+        sources = [values[source_id] for source_id in ordered_ids if source_id in values]
+        if not sources or sources[0].id != project.source_id:
+            primary = db.get(SourceItem, project.source_id)
+            if primary is None:
+                raise ValueError("来源不存在")
+            sources = [primary, *(item for item in sources if item.id != primary.id)]
+        return sources
+
+    def source_summaries(self, db: Session, project: WritingProject) -> list[dict[str, Any]]:
+        return [
+            {
+                "id": source.id,
+                "role": "primary" if index == 0 else "supporting",
+                "author": source.author_name or source.author_handle,
+                "title": self._source_title(source),
+                "url": source.canonical_url,
+            }
+            for index, source in enumerate(self.selected_sources(db, project))
+        ]
+
+    def material_summaries(self, db: Session, project: WritingProject) -> list[dict[str, Any]]:
+        output: list[dict[str, Any]] = []
+        source_map = {item.id: item for item in self.selected_sources(db, project)}
+        for index, material in enumerate(self._selected_materials(db, project)):
+            kind = str(material.get("kind") or "source")
+            source_id = str(material.get("source_id") or material.get("id") or "")
+            source = source_map.get(source_id)
+            title = str(material.get("title") or (self._source_title(source) if source else "输入材料"))
+            output.append(
+                {
+                    "ref": str(material.get("ref") or ""),
+                    "id": str(material.get("id") or ""),
+                    "source_id": source_id,
+                    "kind": kind,
+                    "role": "primary_input" if index == 0 else "supporting_input",
+                    "title": title,
+                    "author": (source.author_name or source.author_handle) if source else "",
+                    "platform": str(material.get("platform") or (source.platform if source else "")),
+                    "version": material.get("version"),
+                    "status": str(material.get("status") or ""),
+                }
+            )
+        return output
+
+    def _selected_materials(self, db: Session, project: WritingProject) -> list[dict[str, Any]]:
+        selection = self.latest_artifact(
+            db,
+            project.id,
+            "source_selection",
+            approved_only=True,
+        )
+        payload = self._json(selection.content_json, {}) if selection else {}
+        materials = payload.get("materials") if isinstance(payload, dict) else None
+        if isinstance(materials, list) and materials:
+            return [item for item in materials if isinstance(item, dict)]
+        return [
+            {
+                "ref": f"source:{source.id}",
+                "kind": "source",
+                "id": source.id,
+                "source_id": source.id,
+                "title": self._source_title(source),
+            }
+            for source in self.selected_sources(db, project)
+        ]
+
+    @staticmethod
+    def _source_title(source: SourceItem) -> str:
+        structured: dict[str, Any] = {}
+        try:
+            value = json.loads(source.structured_content_json or "{}")
+            if isinstance(value, dict):
+                structured = value
+        except json.JSONDecodeError:
+            pass
+        title = str(structured.get("title") or "").strip()
+        if title:
+            return title[:160]
+        return re.sub(r"\s+", " ", source.text_original or "").strip()[:80]
+
+    @staticmethod
+    def _evidence_section_role(value: str, *, fallback: str = "overview") -> str:
+        lowered = str(value or "").lower()
+        if any(term in lowered for term in ("限制", "边界", "风险", "未知", "不能", "局限")):
+            return "limitations"
+        if any(term in lowered for term in ("对比", "比较", "差异", "取舍", "另一")):
+            return "comparison"
+        if any(term in lowered for term in ("证据", "数据", "数字", "测试", "结果")):
+            return "evidence"
+        if any(term in lowered for term in ("机制", "方法", "过程", "步骤", "原理", "实现")):
+            return "mechanism"
+        if any(term in lowered for term in ("案例", "例子", "场景")):
+            return "example"
+        if any(term in lowered for term in ("结论", "判断", "下一步", "意味着")):
+            return "conclusion"
+        return fallback
+
+    def _evidence_sections(
+        self,
+        project: WritingProject,
+        *,
+        purpose: str,
+        outline: dict[str, Any] | None = None,
+    ) -> list[EvidenceSectionRequest]:
+        thesis = " ".join(
+            value.strip()
+            for value in (project.main_thesis, project.promise, project.reader)
+            if str(value or "").strip()
+        ) or "来源中的核心事实、方法、证据和限制"
+        outline_sections = outline.get("sections") if isinstance(outline, dict) else None
+        if isinstance(outline_sections, list) and outline_sections:
+            requests: list[EvidenceSectionRequest] = []
+            for index, raw in enumerate(outline_sections[:12], start=1):
+                if not isinstance(raw, dict):
+                    continue
+                heading = str(raw.get("heading") or raw.get("title") or f"第 {index} 节")
+                details = " ".join(
+                    str(raw.get(key) or "")
+                    for key in ("purpose", "reader_question", "key_point")
+                ).strip()
+                requests.append(
+                    EvidenceSectionRequest(
+                        section_id=f"outline-{index:02d}",
+                        heading=heading,
+                        query=f"{thesis} {heading} {details}".strip(),
+                        role=self._evidence_section_role(f"{heading} {details}"),
+                        max_chunks=5,
+                        max_chars=4200,
+                    )
+                )
+            if requests:
+                return requests
+
+        if purpose == "evidence_pack":
+            specs = (
+                ("facts", "已确认事实", "事实 来源 发生了什么", "overview"),
+                ("mechanism", "方法与机制", "方法 机制 过程 如何实现", "mechanism"),
+                ("numbers", "数字与测试", "数字 数据 测试 样本 局部结果", "evidence"),
+                ("examples", "案例与可用细节", "案例 例子 具体 场景", "example"),
+                ("limits", "限制与未知", "限制 条件 反例 风险 未知 不能扩大", "limitations"),
+            )
+        elif purpose in {"draft", "final_revision"}:
+            specs = (
+                ("opening", "开头与阅读价值", "做成了什么 为什么重要", "opening"),
+                ("mechanism", "核心机制", "方法 过程 原理 实现", "mechanism"),
+                ("evidence", "关键证据", "数据 测试 结果 来源归属", "evidence"),
+                ("limits", "限制与取舍", "限制 边界 反例 条件 风险", "limitations"),
+                ("ending", "结论与下一步", "意味着什么 判断 下一步", "conclusion"),
+            )
+        else:
+            specs = (
+                ("overview", "主线与事实", "核心事实 主线 发生了什么", "overview"),
+                ("evidence", "证据与细节", "数字 测试 例子 来源", "evidence"),
+                ("limits", "边界与缺口", "限制 未知 风险 不能写什么", "limitations"),
+            )
+        return [
+            EvidenceSectionRequest(
+                section_id=section_id,
+                heading=heading,
+                query=f"{thesis} {query}",
+                role=role,
+                max_chunks=5,
+                max_chars=4200,
+            )
+            for section_id, heading, query, role in specs
+        ]
+
+    def _compile_evidence(
+        self,
+        db: Session,
+        project: WritingProject,
+        *,
+        purpose: str,
+        outline: dict[str, Any] | None = None,
+    ) -> EvidenceBundle:
+        roots = self.selected_sources(db, project)
+        context: list[SourceItem] = []
+        seen: set[str] = set()
+        for root in roots:
+            for item in self.editorial._context(db, root):
+                if item.id in seen:
+                    continue
+                seen.add(item.id)
+                context.append(item)
+        return EvidenceCompiler(self.settings).compile_sources(
+            context,
+            self._evidence_sections(project, purpose=purpose, outline=outline),
+            primary_source_id=roots[0].id,
+            selected_source_ids=[item.id for item in roots],
+            materials=self._selected_materials(db, project),
+        )
+
+    def _source_payload(
+        self,
+        db: Session,
+        project: WritingProject,
+        *,
+        purpose: str = "overview",
+        outline: dict[str, Any] | None = None,
+    ) -> dict[str, object]:
+        return self._compile_evidence(
+            db,
+            project,
+            purpose=purpose,
+            outline=outline,
+        ).prompt_payload()
+
+    @staticmethod
+    def _attach_evidence_trace(
+        artifact: WritingArtifact,
+        bundle: EvidenceBundle,
+    ) -> WritingArtifact:
+        try:
+            payload = json.loads(artifact.content_json or "{}")
+        except json.JSONDecodeError:
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        payload["evidence_retrieval"] = bundle.prompt_payload()
+        serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        artifact.content_json = serialized
+        artifact.content_hash = hashlib.sha256(serialized.encode()).hexdigest()
+        return artifact
+
+    @staticmethod
+    def _attach_claim_trace(
+        artifact: WritingArtifact,
+        *,
+        final_claims_artifact: WritingArtifact,
+        matrix_artifact: WritingArtifact,
+        matrix: dict[str, Any],
+    ) -> WritingArtifact:
+        try:
+            payload = json.loads(artifact.content_json or "{}")
+        except json.JSONDecodeError:
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        payload["claim_evidence_gate"] = {
+            "final_claims_artifact_id": final_claims_artifact.id,
+            "matrix_artifact_id": matrix_artifact.id,
+            "checker_version": matrix.get("checker_version"),
+            "completion_allowed": bool(matrix.get("completion_allowed")),
+            "critical_unsupported_claims": int(matrix.get("critical_unsupported_claims") or 0),
+            "major_unsupported_claims": int(matrix.get("major_unsupported_claims") or 0),
+            "unauthorized_major_expansions": int(matrix.get("unauthorized_major_expansions") or 0),
+        }
+        serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        artifact.content_json = serialized
+        artifact.content_hash = hashlib.sha256(serialized.encode()).hexdigest()
+        return artifact
 
     def _style_payload(self, db: Session, project: WritingProject) -> dict[str, Any]:
         if not project.style_profile_id:
@@ -194,6 +493,45 @@ class WritingCore:
         for artifact in self.artifacts(db, project.id):
             result[artifact.artifact_type] = self._json(artifact.content_json, {})
         return result
+
+    def _memory_snapshot(self, db: Session, project: WritingProject):
+        return PoolMemoryService(self.settings, self.editorial).snapshot_for_target(
+            db,
+            target_type="writing_project",
+            target_id=project.id,
+        )
+
+    def _memory_payload(
+        self,
+        db: Session,
+        project: WritingProject,
+        *,
+        role: str,
+        allow_pending: bool = True,
+    ) -> dict[str, Any]:
+        service = PoolMemoryService(self.settings, self.editorial)
+        return service.prompt_payload(
+            self._memory_snapshot(db, project),
+            role=role,
+            allow_pending=allow_pending,
+        )
+
+    def _mark_memory_applied(
+        self,
+        db: Session,
+        project: WritingProject,
+        *,
+        role: str,
+        stage: str,
+    ) -> None:
+        snapshot = self._memory_snapshot(db, project)
+        if snapshot is None:
+            return
+        PoolMemoryService(self.settings, self.editorial).mark_snapshot_applied(
+            db,
+            snapshot,
+            roles=[(role, stage)],
+        )
 
     def _store_artifact(
         self,
@@ -247,7 +585,11 @@ class WritingCore:
             raise ValueError("来源不存在")
         content = self._json(artifact.content_json, {})
         context = self.editorial._context(db, source)
-        sanitized = self.editorial._sanitize_generated(
+        # The default editorial service is specialized for the 4,000-character
+        # short-draft editor. Deep writing feeds the 50,000-character WeChat
+        # workbench, so reuse only the base normalization and keep the full body.
+        sanitized = EditorialService._sanitize_generated(
+            self.editorial,
             {
                 "title": content.get("title"),
                 "body": content.get("body"),
@@ -262,7 +604,10 @@ class WritingCore:
             version=self.editorial._next_version(db, source.id),
             style="studio",
             title=sanitized["title"][:80],
-            body=sanitized["body"][:4000],
+            # Deep writing is now a WeChat longform sub-flow. Preserve the full
+            # reviewed article so the platform handoff cannot silently collapse
+            # a 4,000+ character draft before the final WeChat stage.
+            body=sanitized["body"][:50000],
             tags=sanitized["tags"][:500],
             claims_json=json.dumps(sanitized["claims"], ensure_ascii=False),
             provenance_json=json.dumps(
@@ -270,8 +615,18 @@ class WritingCore:
                     "generator": "multi-agent-writing-studio",
                     "writing_project_id": project.id,
                     "final_artifact_id": artifact.id,
-                    "roles": list(ROLE_SKILLS),
+                    "roles": list(
+                        dict.fromkeys(
+                            run.role for run in self.runs(db, project.id) if run.output_artifact_id
+                        )
+                    ),
                     "style_profile_id": project.style_profile_id,
+                    "input_material_refs": [
+                        str(item.get("ref") or "") for item in self._selected_materials(db, project)
+                    ],
+                    "evidence_retrieval": content.get("evidence_retrieval") or {},
+                    "claim_evidence_gate": content.get("claim_evidence_gate") or {},
+                    **self._memory_provenance(db, project),
                 },
                 ensure_ascii=False,
             ),
@@ -281,24 +636,99 @@ class WritingCore:
         db.flush()
         return draft
 
+    def _memory_provenance(self, db: Session, project: WritingProject) -> dict[str, Any]:
+        summary = PoolMemoryService(self.settings, self.editorial).snapshot_summary(
+            self._memory_snapshot(db, project)
+        )
+        return {
+            "memory_snapshot_id": summary["snapshot_id"],
+            "memory_snapshot_hash": summary["snapshot_hash"],
+            "memory_ids": summary["memory_ids"],
+            "memory_applied": summary["applied"],
+            "memory_status": summary["status"],
+        }
+
     def add_feedback(
         self,
         db: Session,
         *,
         project: WritingProject,
-        draft_before_id: str | None,
-        draft_after_id: str | None,
-        diff: dict[str, Any],
+        draft_before_id: str,
+        draft_after_id: str,
+        article_type: str,
         feedback_reason: str,
-        affected_rules: list[str],
+        affected_dimensions: list[str],
     ) -> WritingFeedback:
+        before = db.get(DraftRevision, draft_before_id)
+        after = db.get(DraftRevision, draft_after_id)
+        if before is None or after is None:
+            raise ValueError("模型原稿或用户终稿不存在")
+        if before.id == after.id:
+            raise ValueError("模型原稿和用户终稿不能是同一版本")
+        if before.source_id != project.source_id or after.source_id != project.source_id:
+            raise ValueError("反馈版本不属于当前写作项目的来源")
+        if before.created_by not in {"model", "model-polish", "multi-agent"}:
+            raise ValueError("修改前版本必须是模型或多 Agent 生成稿")
+        if after.created_by != "human":
+            raise ValueError("修改后版本必须是用户明确保存的人工版本")
+        if after.version <= before.version:
+            raise ValueError("用户终稿版本必须晚于模型原稿")
+        before_provenance = self._json(before.provenance_json, {})
+        after_provenance = self._json(after.provenance_json, {})
+        if str(before_provenance.get("writing_project_id") or "") != project.id:
+            raise ValueError("修改前版本不是当前写作项目的模型输出")
+        if str(after_provenance.get("parent_draft_id") or "") != before.id:
+            raise ValueError("用户终稿必须由所选模型原稿直接编辑保存")
+
+        def snapshot(draft: DraftRevision) -> dict[str, Any]:
+            serialized = json.dumps(
+                {"title": draft.title, "body": draft.body, "tags": draft.tags},
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+            return {
+                "id": draft.id,
+                "version": draft.version,
+                "created_by": draft.created_by,
+                "title": draft.title,
+                "body": draft.body,
+                "tags": draft.tags,
+                "sha256": hashlib.sha256(serialized.encode()).hexdigest(),
+            }
+
+        before_lines = before.body.splitlines(keepends=True)
+        after_lines = after.body.splitlines(keepends=True)
+        unified = "".join(
+            difflib.unified_diff(
+                before_lines,
+                after_lines,
+                fromfile=f"model-draft-v{before.version}",
+                tofile=f"user-final-v{after.version}",
+                n=3,
+            )
+        )
+        diff = {
+            "schema_version": 1,
+            "generator": "server_difflib_v1",
+            "article_type": article_type.strip(),
+            "model_draft": snapshot(before),
+            "user_final": snapshot(after),
+            "changes": {
+                "title_changed": before.title != after.title,
+                "tags_changed": before.tags != after.tags,
+                "body_character_delta": len(after.body) - len(before.body),
+                "body_unified_diff": unified,
+            },
+            "affected_dimensions": affected_dimensions,
+            "memory_status_at_creation": "not_submitted",
+        }
         feedback = WritingFeedback(
             project_id=project.id,
             draft_before_id=draft_before_id,
             draft_after_id=draft_after_id,
             diff_json=json.dumps(diff, ensure_ascii=False),
             feedback_reason=feedback_reason.strip(),
-            affected_rules_json=json.dumps(affected_rules, ensure_ascii=False),
+            affected_rules_json=json.dumps(affected_dimensions, ensure_ascii=False),
         )
         db.add(feedback)
         db.flush()
@@ -342,21 +772,84 @@ class WritingCore:
                 "transitions": [],
                 "forbidden_moves": ["逐段翻译", "审计式边界清单"],
             }
-        if role in {"writer", "final_reviser"}:
+        if role == "title_strategist":
+            topic = re.sub(
+                r"\s+",
+                "",
+                project.main_thesis or project.promise or "这项进展",
+            )[:18]
+            promise = project.promise or project.main_thesis or "讲清来源支持的核心进展"
+            templates = [
+                ("result", f"{topic}，最终解决了什么问题"),
+                ("result", f"从{topic}得到的两个确定结果"),
+                ("conflict", f"{topic}的价值，不在最热闹的部分"),
+                ("conflict", f"看似更快的{topic}，真正代价在哪里"),
+                ("counterintuitive", f"关于{topic}，直觉可能把方向带反"),
+                ("counterintuitive", f"{topic}越复杂，越要先删掉什么"),
+                ("scene", f"当{topic}进入真实工作流之后"),
+                ("scene", f"一次完整使用，暴露了{topic}的边界"),
+                ("question", f"{topic}到底改变了哪一步"),
+                ("question", f"为什么{topic}值得重新拆一遍"),
+                ("number", f"拆解{topic}的三个关键层次"),
+                ("number", f"理解{topic}，先回答四个问题"),
+                ("judgment", f"{topic}真正重要的是可验证，而非声量"),
+                ("judgment", f"我对{topic}的判断：先看边界，再谈结果"),
+            ]
             return {
+                "candidates": [
+                    {
+                        "candidate_id": f"fallback-title-{index:02d}",
+                        "title": title[:80],
+                        "mechanism": mechanism,
+                        "reader_promise": promise[:500],
+                        "evidence_refs": [],
+                    }
+                    for index, (mechanism, title) in enumerate(templates, start=1)
+                ]
+            }
+        if role in {"writer", "final_reviser"}:
+            payload: dict[str, Any] = {
                 "title": "需要配置模型后生成终稿",
                 "body": "当前写作项目已经建立，但多 Agent 成稿需要配置兼容模型。",
                 "tags": ["内容创作", "X平台观察", "AI写作", "本地工具"],
-                "claims": [],
-                "applied_changes": [],
+                "claims": [
+                    {
+                        "claim_id": "fallback-claim",
+                        "statement": "多 Agent 成稿需要配置兼容模型",
+                        "location": {"quote": "多 Agent 成稿需要配置兼容模型"},
+                        "claim_type": "capability",
+                        "importance": "critical",
+                        "evidence_refs": [],
+                        "evidence_quote": "",
+                    }
+                ],
             }
+            if role == "final_reviser":
+                payload["applied_changes"] = []
+            return payload
         if role.endswith("reviewer"):
-            return {"verdict": "needs_human_review", "minimal_fixes": ["未配置模型"]}
-        return {
-            "must_fix": ["未配置模型，不能自动完成主编审稿"],
-            "should_fix": [],
-            "reject_suggestions": [],
-            "author_decisions": [],
-            "revision_instructions": [],
-            "release_readiness": "blocked",
-        }
+            return {"verdict": "blocked", "issues": [], "strong_parts": []}
+        if role == "chief_editor":
+            return {
+                "decisions": [],
+                "release_readiness": "blocked",
+                "rationale": "未配置模型，不能自动完成主编审稿",
+            }
+        if role == "claim_extractor":
+            return {
+                "claims": [
+                    {
+                        "claim_id": "final-fallback-claim",
+                        "statement": "多 Agent 成稿需要配置兼容模型",
+                        "exact_quote": "多 Agent 成稿需要配置兼容模型",
+                        "location": {"quote": "多 Agent 成稿需要配置兼容模型"},
+                        "claim_type": "capability",
+                        "importance": "critical",
+                        "evidence_refs": [],
+                        "evidence_quote": "",
+                        "origin_claim_id": "fallback-claim",
+                        "approved_issue_ids": [],
+                    }
+                ]
+            }
+        raise ValueError(f"没有角色 {role} 的确定性降级输出")

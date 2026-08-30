@@ -35,7 +35,7 @@ def wait_for_job(client: TestClient, job_id: str, timeout: float = 10.0) -> dict
         response = client.get(f"/api/jobs/{job_id}")
         assert response.status_code == 200, response.text
         latest = response.json()
-        if latest["state"] in {"succeeded", "failed"}:
+        if latest["state"] in {"succeeded", "failed", "dead_letter"}:
             return latest
         time.sleep(0.05)
     return latest
@@ -64,6 +64,9 @@ def test_signal_monitor_and_multi_agent_writing_studio(
     import app.main as main_module
 
     importlib.reload(db_session)
+    from app.db.schema import upgrade_database
+
+    upgrade_database(db_session.settings.database_url)
     importlib.reload(main_module)
 
     class DummyProvider:
@@ -238,25 +241,35 @@ def test_signal_monitor_and_multi_agent_writing_studio(
         assert run_job["state"] == "succeeded", run_job
 
         project = client.get(f"/api/writing/projects/{project_id}").json()
-        assert project["state"] == "completed"
+        assert project["state"] == "claims_blocked"
+        assert project["current_stage"] == "claim_evidence_gate"
         artifact_types = {item["artifact_type"] for item in project["artifacts"]}
         assert {
             "editorial_brief",
             "evidence_pack",
             "outline",
+            "title_candidates",
+            "title_tournament",
             "draft",
             "reader_review",
             "fact_review",
             "style_review",
             "revision_plan",
             "final_draft",
+            "final_claims",
+            "claim_evidence_matrix",
         } <= artifact_types
-        assert len(project["runs"]) == 9
+        assert len(project["runs"]) == 11
+        assert all(item["status"] == "degraded" for item in project["runs"])
+        matrix = next(
+            item
+            for item in project["artifacts"]
+            if item["artifact_type"] == "claim_evidence_matrix"
+        )
+        assert json.loads(matrix["content_json"])["completion_allowed"] is False
 
         drafts = client.get(f"/api/sources/{source_id}/drafts").json()
-        assert drafts[0]["created_by"] == "multi-agent"
-        provenance = json.loads(drafts[0]["provenance_json"])
-        assert provenance["generator"] == "multi-agent-writing-studio"
+        assert drafts == []
 
         studio_project = client.post(
             "/api/writing/projects",
@@ -282,9 +295,10 @@ def test_signal_monitor_and_multi_agent_writing_studio(
         assert approved.json()["state"] == "researching"
 
         health = client.get("/health").json()
-        assert health["version"] == "0.11.0"
+        assert health["version"] == "0.12.0"
         assert health["intelligence_pipeline"] == "monitor-score-l1-l2"
         assert "three-reviews" in health["writing_pipeline"]
+        assert health["writing_claim_gate"] is True
         assert health["platform_pipeline"] == (
             "reviewable-artifacts-shared-evidence-platform-variants"
         )

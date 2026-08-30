@@ -9,7 +9,20 @@ from app.domain.models import SourceItem, SourceRelation
 
 
 def connected_source_ids(db: Session, source_id: str, *, max_nodes: int = 500) -> list[str]:
-    """Return a bounded connected source graph in stable breadth-first order."""
+    """Return a bounded connected source graph in stable breadth-first order.
+
+    Corpus batch edges are intentionally one-way and one-level. A batch anchor
+    may see only the detailed sources frozen into that batch. Real sources do
+    not traverse back into synthetic anchors, and batch sources are not queued
+    for recursive traversal. This prevents old drafts from leaking into later
+    batches when a source is reused.
+    """
+    start = db.get(SourceItem, source_id)
+    is_batch_anchor = bool(
+        start is not None
+        and start.provider == "corpus_pool"
+        and start.content_kind == "corpus_batch"
+    )
     ordered = [source_id]
     seen = {source_id}
     queue: deque[str] = deque([source_id])
@@ -27,6 +40,19 @@ def connected_source_ids(db: Session, source_id: str, *, max_nodes: int = 500) -
             .order_by(SourceRelation.position, SourceRelation.id)
         ).all()
         for relation in relations:
+            if relation.relation_type == "corpus_batch":
+                if not (
+                    is_batch_anchor
+                    and current == source_id
+                    and relation.from_source_id == source_id
+                ):
+                    continue
+                neighbor = relation.to_source_id
+                if neighbor not in seen:
+                    seen.add(neighbor)
+                    ordered.append(neighbor)
+                continue
+
             neighbor = (
                 relation.to_source_id
                 if relation.from_source_id == current

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import html
 import json
+import re
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -13,23 +14,26 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
-from app.domain.models import DraftRevision, SourceItem
+from app.domain.models import DraftRevision, SourceItem, new_id
 from app.domain.platforms import PlatformVariant, PlatformVariantState
 from app.domain.review_artifacts import ReviewArtifact, ReviewArtifactState
 from app.services.editorial import EditorialService
 from app.services.light_content import (
+    RECIPE_GUIDES,
+    RECIPE_LABELS,
     LightContentError,
     LightContentService,
     LightRenderValidation,
-    RECIPE_GUIDES,
-    RECIPE_LABELS,
+    poster_copy_issues,
 )
 from app.services.light_visual_renderer import (
-    LightVisualRenderer,
     VISUAL_STYLE_LABELS,
+    LightVisualRenderer,
 )
+from app.services.pool_memory import PoolMemoryService
 from app.services.publication_safety import strip_internal_markers
 from app.services.skills import binding_for
+from app.services.visual_brief import VisualBriefError, VisualBriefService
 
 
 class LightContentLabService:
@@ -44,6 +48,7 @@ class LightContentLabService:
         self.editorial = editorial
         self.legacy = LightContentService(settings, editorial)
         self.renderer = LightVisualRenderer()
+        self.visual_briefs = VisualBriefService(settings, editorial)
 
     async def create_variant(
         self,
@@ -67,10 +72,11 @@ class LightContentLabService:
             raise LightContentError("不支持的轻内容配方")
         if quality_mode not in {"fast", "studio"}:
             raise LightContentError("质量模式必须是 fast 或 studio")
+        variant_id = new_id("variant")
         count = min(max(int(image_count), 3), 6)
         resolved_style = self.renderer.resolve_style(visual_style, recipe)
-        corpus = self.list_corpus(db, recipe=recipe, limit=8)
         source_text = draft.body if draft and draft.body.strip() else source.text_original
+        evidence_scope = self._source_evidence_scope(source, source_text)
         title_binding = binding_for(db, "wechat.title_summary", self.settings.model_name)
         visual_binding = binding_for(db, "visual.art_direction", self.settings.model_name)
         model_ready = bool(
@@ -79,6 +85,64 @@ class LightContentLabService:
             and self.settings.model_base_url
             and (title_binding.model_name or self.settings.model_name)
         )
+        memory_service = PoolMemoryService(self.settings, self.editorial)
+        previous_meta = self._json_object(previous_variant.metadata_json) if previous_variant else {}
+        previous_snapshot = memory_service.snapshot(
+            db,
+            str(previous_meta.get("memory_snapshot_id") or ""),
+        )
+        if previous_variant is not None and previous_snapshot is not None:
+            memory_snapshot = memory_service.clone_snapshot(
+                db,
+                previous_snapshot,
+                target_type="platform_variant",
+                target_id=variant_id,
+                model_configured=model_ready,
+                model_name=title_binding.model_name or self.settings.model_name,
+            )
+        else:
+            memory_snapshot = memory_service.create_snapshot(
+                db,
+                target_type="platform_variant",
+                target_id=variant_id,
+                query={
+                    "platform": "wechat",
+                    "format": "light_series",
+                    "article_type": recipe,
+                    "topics": [seasonal_topic] if seasonal_topic else [],
+                    "audience": audience,
+                    "recipe": recipe,
+                    "visual_route": resolved_style,
+                    "source_text": source_text[:30000],
+                    "limit": 8,
+                    "max_chars": 6000,
+                    "legacy_none": previous_variant is not None,
+                },
+                model_configured=model_ready,
+                model_name=title_binding.model_name or self.settings.model_name,
+            )
+        memory_prompts = {
+            "copy": memory_service.prompt_payload(
+                memory_snapshot,
+                role="writer",
+                allow_pending=True,
+            )["text"],
+            "reader": memory_service.prompt_payload(
+                memory_snapshot,
+                role="reader_reviewer",
+                allow_pending=True,
+            )["text"],
+            "fact": memory_service.prompt_payload(
+                memory_snapshot,
+                role="culture_reviewer",
+                allow_pending=True,
+            )["text"],
+            "visual": memory_service.prompt_payload(
+                memory_snapshot,
+                role="visual_director",
+                allow_pending=True,
+            )["text"],
+        }
 
         pipeline: dict[str, Any] | None = None
         if model_ready:
@@ -92,7 +156,8 @@ class LightContentLabService:
                 visual_style=resolved_style,
                 quality_mode=quality_mode,
                 feedback=feedback,
-                corpus=corpus,
+                memory_prompts=memory_prompts,
+                evidence_scope=evidence_scope,
                 previous_variant=previous_variant,
                 model_name=title_binding.model_name or self.settings.model_name,
                 reasoning_effort=title_binding.reasoning_effort,
@@ -111,6 +176,15 @@ class LightContentLabService:
             generator = "light-lab-multi-agent-fallback"
         else:
             generator = "light-lab-multi-agent-model"
+            roles = [
+                ("editor_in_chief", "light_strategy"),
+                ("writer", "light_candidates"),
+                ("reader_reviewer", "light_audience_review"),
+                ("chief_editor", "light_final"),
+            ]
+            if quality_mode == "studio":
+                roles.append(("visual_director", "light_visual_direction"))
+            memory_service.mark_snapshot_applied(db, memory_snapshot, roles=roles)
 
         final = self.legacy._normalize_output(
             pipeline["final"],
@@ -119,19 +193,89 @@ class LightContentLabService:
             image_count=count,
             seasonal_topic=seasonal_topic,
         )
-        final["posters"] = self._apply_visual_direction(
-            final["posters"],
-            pipeline.get("visual_direction") or {},
-            resolved_style,
-        )
+        candidate_list = pipeline.get("candidates")
+        candidate_list = candidate_list if isinstance(candidate_list, list) else []
+        try:
+            selected_index = int(pipeline.get("selected_candidate_index") or 0)
+        except (TypeError, ValueError):
+            selected_index = 0
+        selected_index = min(max(selected_index, 0), max(len(candidate_list) - 1, 0))
+        chief_issues = poster_copy_issues(final["posters"])
+        selected_issues: list[str] = []
+        repair_source = "chief_editor"
+        if candidate_list and isinstance(candidate_list[selected_index], dict):
+            selected = self.legacy._normalize_output(
+                candidate_list[selected_index],
+                source=source,
+                recipe=recipe,
+                image_count=count,
+                seasonal_topic=seasonal_topic,
+            )
+            selected_issues = poster_copy_issues(selected["posters"])
+            if chief_issues and not selected_issues:
+                final["posters"] = selected["posters"]
+                repair_source = "selected_candidate"
+        if poster_copy_issues(final["posters"]):
+            fallback = self.legacy._fallback_copy(
+                source=source,
+                draft=draft,
+                recipe=recipe,
+                image_count=count,
+                seasonal_topic=seasonal_topic,
+                audience=audience,
+            )
+            final["posters"] = fallback["posters"]
+            repair_source = "structured_fallback"
+        final_issues = poster_copy_issues(final["posters"])
+        poster_copy_quality = {
+            "passed": not final_issues,
+            "chief_editor_issues": chief_issues,
+            "selected_candidate_issues": selected_issues,
+            "repair_source": repair_source,
+            "final_issues": final_issues,
+            "contract": "all page phrases and notes are distinct; no N.note equals N+1.phrase",
+        }
+        self._ensure_visual_evidence(final["posters"], evidence_scope)
+        visual_brief_bundle = None
+        if self.settings.visual_brief_mode == "production":
+            strategy = pipeline.get("strategy")
+            strategy = strategy if isinstance(strategy, dict) else {}
+            article_thesis = str(
+                strategy.get("content_thesis") or final.get("title") or source.title
+            ).strip()
+            try:
+                visual_brief_bundle = await self.visual_briefs.build(
+                    article_thesis=article_thesis,
+                    posters=final["posters"],
+                    audience=audience,
+                    visual_style=resolved_style,
+                    content_recipe=recipe,
+                    model_name=visual_binding.model_name or self.settings.model_name,
+                    reasoning_effort=visual_binding.reasoning_effort,
+                    use_model=bool(model_ready and quality_mode == "studio"),
+                    visual_memory=memory_prompts.get("visual", ""),
+                )
+            except VisualBriefError as exc:
+                raise LightContentError(f"视觉简报冻结失败：{exc}") from exc
+            final["posters"] = self.visual_briefs.apply_bundle(
+                final["posters"],
+                visual_brief_bundle,
+            )
+        else:
+            final["posters"] = self._apply_visual_direction(
+                final["posters"],
+                pipeline.get("visual_direction") or {},
+                resolved_style,
+                recipe,
+            )
         iteration_round = 1
         if previous_variant is not None:
-            previous_meta = self._json_object(previous_variant.metadata_json)
             iteration_round = int(previous_meta.get("iteration_round") or 1) + 1
+        memory_summary = memory_service.snapshot_summary(memory_snapshot)
         metadata = {
             "generator": generator,
             "content_mode": "light_series",
-            "pipeline_version": "light-lab-v12",
+            "pipeline_version": "light-lab-v14",
             "recipe": recipe,
             "recipe_label": RECIPE_LABELS[recipe],
             "audience": audience.strip(),
@@ -147,19 +291,44 @@ class LightContentLabService:
             "candidates": pipeline.get("candidates") or [],
             "reviews": pipeline.get("reviews") or {},
             "quality_score": float(pipeline.get("quality_score") or 0),
-            "selected_candidate_index": int(pipeline.get("selected_candidate_index") or 0),
+            "selected_candidate_index": selected_index,
             "chief_editor_note": str(pipeline.get("chief_editor_note") or ""),
             "revision_summary": str(pipeline.get("revision_summary") or ""),
             "auto_revision_triggered": bool(pipeline.get("auto_revision_triggered")),
+            "evidence_scope": evidence_scope,
+            "poster_copy_quality": poster_copy_quality,
             "poster_specs": final["posters"],
-            "corpus_item_ids": [str(item.get("id") or "") for item in corpus if item.get("id")],
+            "visual_brief_mode": self.settings.visual_brief_mode,
+            "visual_bible": (
+                visual_brief_bundle.visual_bible.model_dump(mode="json")
+                if visual_brief_bundle is not None
+                else {}
+            ),
+            "visual_brief": (
+                visual_brief_bundle.model_dump(mode="json")
+                if visual_brief_bundle is not None
+                else {"mode": "legacy"}
+            ),
+            "visual_distinctness": (
+                visual_brief_bundle.distinctness.model_dump(mode="json")
+                if visual_brief_bundle is not None
+                else {}
+            ),
+            "corpus_item_ids": memory_summary["memory_ids"],
+            "memory_snapshot_id": memory_summary["snapshot_id"],
+            "memory_snapshot_hash": memory_summary["snapshot_hash"],
+            "memory_ids": memory_summary["memory_ids"],
+            "memory_applied": memory_summary["applied"],
+            "memory_status": memory_summary["status"],
             "human_approved": False,
             "source_skill": {
                 "repository": "LiamGvchi/gc-minimal-zine-poster",
-                "skill_name": "gc-minimal-zine-poster-v0-1",
+                "skill_name": "gc-minimal-zine-poster-v0-3",
+                "commit": "342b5c11d6fa9be261841ec722c12a683a9fa5e9",
                 "license": "MIT",
                 "integration_mode": "native-adaptation",
             },
+            "visual_prompt_mode": self.settings.minimal_zine_prompt_mode,
             "safety": {
                 "medical_claims_forbidden": recipe in {"mature_life", "seasonal"},
                 "human_review_required": True,
@@ -167,6 +336,7 @@ class LightContentLabService:
             },
         }
         variant = PlatformVariant(
+            id=variant_id,
             source_id=source.id,
             base_draft_id=draft.id if draft else None,
             platform="wechat",
@@ -190,7 +360,7 @@ class LightContentLabService:
                         "model": visual_binding.model_name or self.settings.model_name,
                         "reasoning_effort": visual_binding.reasoning_effort,
                     },
-                    "gc-minimal-zine-poster-v0-1": {
+                    "gc-minimal-zine-poster-v0-3": {
                         "enabled": True,
                         "integration_mode": "native-adaptation",
                     },
@@ -266,16 +436,77 @@ class LightContentLabService:
             image_count=len(metadata.get("poster_specs") or []) or 4,
             seasonal_topic=str(metadata.get("seasonal_topic") or ""),
         )
-        normalized["posters"] = self._apply_visual_direction(
+        evidence_scope = metadata.get("evidence_scope")
+        self._ensure_visual_evidence(
             normalized["posters"],
-            raw.get("visual_direction") if isinstance(raw.get("visual_direction"), dict) else {},
-            str(metadata.get("visual_style") or "minimal_zine"),
+            evidence_scope if isinstance(evidence_scope, dict) else {},
         )
+        copy_issues = poster_copy_issues(normalized["posters"])
+        if copy_issues:
+            raise LightContentError(
+                "该候选的逐页文案未通过独立性检查：存在跨页复用或说明被当成下一页短句。"
+                "请改选其他候选或带反馈重新生成。"
+            )
+        visual_brief_bundle = None
+        if str(metadata.get("visual_brief_mode") or self.settings.visual_brief_mode) == "production":
+            strategy = metadata.get("strategy")
+            strategy = strategy if isinstance(strategy, dict) else {}
+            try:
+                visual_brief_bundle = self.visual_briefs.build_deterministic(
+                    article_thesis=str(
+                        strategy.get("content_thesis") or normalized["title"]
+                    ),
+                    posters=normalized["posters"],
+                    visual_style=str(metadata.get("visual_style") or "minimal_zine"),
+                    content_recipe=str(metadata.get("recipe") or "short_commentary"),
+                )
+            except VisualBriefError as exc:
+                raise LightContentError(f"候选视觉简报冻结失败：{exc}") from exc
+            normalized["posters"] = self.visual_briefs.apply_bundle(
+                normalized["posters"],
+                visual_brief_bundle,
+            )
+        else:
+            normalized["posters"] = self._apply_visual_direction(
+                normalized["posters"],
+                raw.get("visual_direction") if isinstance(raw.get("visual_direction"), dict) else {},
+                str(metadata.get("visual_style") or "minimal_zine"),
+                str(metadata.get("recipe") or "short_commentary"),
+            )
         revised_meta = dict(metadata)
         revised_meta.update(
             {
+                "pipeline_version": "light-lab-v14",
                 "selected_candidate_index": candidate_index,
                 "poster_specs": normalized["posters"],
+                "visual_brief_mode": str(
+                    metadata.get("visual_brief_mode") or self.settings.visual_brief_mode
+                ),
+                "visual_bible": (
+                    visual_brief_bundle.visual_bible.model_dump(mode="json")
+                    if visual_brief_bundle is not None
+                    else metadata.get("visual_bible") or {}
+                ),
+                "visual_brief": (
+                    visual_brief_bundle.model_dump(mode="json")
+                    if visual_brief_bundle is not None
+                    else metadata.get("visual_brief") or {"mode": "legacy"}
+                ),
+                "visual_distinctness": (
+                    visual_brief_bundle.distinctness.model_dump(mode="json")
+                    if visual_brief_bundle is not None
+                    else metadata.get("visual_distinctness") or {}
+                ),
+                "poster_copy_quality": {
+                    "passed": True,
+                    "chief_editor_issues": [],
+                    "selected_candidate_issues": [],
+                    "repair_source": "human_selected_candidate",
+                    "final_issues": [],
+                    "contract": (
+                        "all page phrases and notes are distinct; no N.note equals N+1.phrase"
+                    ),
+                },
                 "human_approved": False,
                 "selection_changed_by": "human",
             }
@@ -520,18 +751,27 @@ class LightContentLabService:
         visual_style: str,
         quality_mode: str,
         feedback: str,
-        corpus: list[dict[str, Any]],
+        memory_prompts: dict[str, str],
+        evidence_scope: dict[str, Any],
         previous_variant: PlatformVariant | None,
         model_name: str,
         reasoning_effort: str,
     ) -> dict[str, Any] | None:
-        corpus_text = self._corpus_prompt(corpus)
         previous_text = ""
         if previous_variant is not None:
             previous_text = (
                 f"\n上一版标题：{previous_variant.title}\n"
                 f"上一版正文：{previous_variant.body_markdown[:2200]}\n"
             )
+        source_limit = 18000 if evidence_scope.get("input_type") == "corpus_batch" else 12000
+        source_material = source_text[:source_limit]
+        detailed_count = int(evidence_scope.get("detailed_source_count") or 0)
+        evidence_rule = (
+            f"这是冻结语料池批次：全池语义记忆覆盖 {int(evidence_scope.get('pool_source_count') or 0)} 条来源，"
+            f"并附 {detailed_count} 条详细来源。全池记忆负责发现角度；具体判断须落到详细来源。"
+            if evidence_scope.get("input_type") == "corpus_batch"
+            else "这是单一来源输入；所有判断不得超出当前来源。"
+        )
         common = f"""
 内容配方：{RECIPE_LABELS[recipe]}
 配方边界：{RECIPE_GUIDES[recipe]}
@@ -541,13 +781,16 @@ class LightContentLabService:
 图片数量：{image_count}
 视觉方向：{VISUAL_STYLE_LABELS[visual_style]}
 用户修改意见：{feedback or '无'}
+证据范围：{evidence_rule}
+证据范围记录：{json.dumps(evidence_scope, ensure_ascii=False)}
 {previous_text}
 来源材料：
-{source_text[:12000]}
-
-授权或人工批准语料（只学习节奏、结构和判断方式，禁止照抄句子）：
-{corpus_text}
+{source_material}
 """.strip()
+        copy_common = f"{common}\n\n当前任务相关文案记忆：\n{memory_prompts.get('copy', '')}"
+        reader_common = f"{common}\n\n当前任务相关读者关系记忆：\n{memory_prompts.get('reader', '')}"
+        fact_common = f"{common}\n\n事实边界：\n{memory_prompts.get('fact', '')}"
+        visual_common = f"{common}\n\n仅限视觉维度的个人记忆：\n{memory_prompts.get('visual', '')}"
         try:
             strategy = await self._agent(
                 role="轻内容选题策划",
@@ -555,7 +798,7 @@ class LightContentLabService:
                     "你是中文公众号轻内容策划。先判断来源与配方是否匹配，再决定一个明确的情绪任务、"
                     "现实矛盾、事实边界和三种不同角度。拒绝空泛鸡汤、标题党和对中老年读者的俯视。"
                 ),
-                prompt=f"""{common}\n\n只输出 JSON：
+                prompt=f"""{copy_common}\n\n只输出 JSON：
 {{"content_thesis":"一句核心判断","emotional_job":"读者读完获得什么",
 "source_fit":"为什么适合/不适合这个配方","taboos":["禁区"],
 "evidence_boundaries":["不能超出来源的结论"],
@@ -570,15 +813,20 @@ class LightContentLabService:
                     "你是中文轻内容主笔。一次写三份明显不同的候选，不要同义改写。每份必须具体、"
                     "像真实作者说话，并且标题、正文和图上短句属于同一个主题。"
                 ),
-                prompt=f"""{common}\n\n策划结果：
+                prompt=f"""{copy_common}\n\n策划结果：
 {json.dumps(strategy, ensure_ascii=False)}
 
-生成 3 个候选。正文 120-500 字，2-5 个短段；每张图一句 6-24 字主句和最多 36 字小注。
+生成 3 个候选。正文 120-500 字，2-5 个短段；每个候选必须恰好有 {image_count} 张图，
+每张图一句 6-24 字主句和最多 36 字小注。每页只讲一个独立观点或生活现场，主句与小注共同完成本页，
+不能把正文连续句子机械切成分页。任意两页的主句、小注都不能复用或近似改写；尤其禁止“第 N 页小注＝第 N+1 页主句”。
+每页填写 evidence_basis 和 source_refs；source_refs 使用“详细来源 3”“全池记忆 7”这类可核对序号。
+{f'各页优先使用至少 {min(image_count, detailed_count)} 条不同的详细来源或证据线索。' if detailed_count else '各页必须来自不同的证据线索。'}
 只输出 JSON：
 {{"candidates":[{{"angle":"候选角度","title":"12-28字","subtitle":"一句副标题",
 "summary":"60-120字","body_markdown":"短正文","tags":["标签"],
 "posters":[{{"phrase":"短句","note":"小注","visual_metaphor":"可画物件或场景",
-"photo_direction":"照片/画面要求","layout":"构图提示","accent":"#RRGGBB","mood":"情绪"}}]}}]}}""",
+"photo_direction":"照片/画面要求","layout":"构图提示","accent":"#RRGGBB","mood":"情绪",
+"evidence_basis":"本页依据的具体材料","source_refs":["详细来源 1"]}}]}}]}}""",
                 model_name=model_name,
                 reasoning_effort=reasoning_effort,
                 temperature=0.68,
@@ -594,7 +842,7 @@ class LightContentLabService:
                         "你只做目标读者审稿，不改稿。逐份检查是否有真实共鸣、是否说人话、是否尊重读者、"
                         "是否值得转发；识别鸡汤、说教、空话和驴头不对马嘴。"
                     ),
-                    prompt=self._review_prompt(common, strategy, candidates, "audience"),
+                    prompt=self._review_prompt(reader_common, strategy, candidates, "audience"),
                     model_name=model_name,
                     reasoning_effort=reasoning_effort,
                     temperature=0.15,
@@ -605,7 +853,7 @@ class LightContentLabService:
                         "你只做事实、文化与时令审校，不改稿。检查来源一致性、节气和饮食表述、医学承诺、"
                         "刻板印象、虚构细节和廉价古风。"
                     ),
-                    prompt=self._review_prompt(common, strategy, candidates, "culture"),
+                    prompt=self._review_prompt(fact_common, strategy, candidates, "culture"),
                     model_name=model_name,
                     reasoning_effort=reasoning_effort,
                     temperature=0.1,
@@ -619,10 +867,11 @@ class LightContentLabService:
                             "你是视觉导演。让三份候选真正形成不同图组，不要所有页面都是米色纸、小方块和同一构图。"
                             "为每个候选指定风格、照片策略、物件、版式、色彩和页间节奏。"
                         ),
-                        prompt=f"""{common}\n\n候选：{json.dumps(candidates, ensure_ascii=False)}
+                        prompt=f"""{visual_common}\n\n候选：{json.dumps(candidates, ensure_ascii=False)}
 只输出 JSON：{{"candidate_directions":[{{"candidate_index":0,
 "visual_style":"minimal_zine|photo_editorial|classical_ink|dark_contemplative|seasonal_folk|old_newspaper",
-"why":"为什么适配","poster_directions":[{{"page":1,"layout":"","visual_metaphor":"","photo_direction":"","accent":"#RRGGBB"}}]}}]}}""",
+"why":"为什么适配","series_motif":"整组反复出现的同一物件或视觉母题",
+"poster_directions":[{{"page":1,"layout":"","visual_metaphor":"同一母题在本页的变化","photo_direction":"","accent":"#RRGGBB"}}]}}]}}""",
                         model_name=model_name,
                         reasoning_effort=reasoning_effort,
                         temperature=0.35,
@@ -645,8 +894,9 @@ class LightContentLabService:
                 system=(
                     "你是最终总编。依据两路独立审稿选择最合适的候选，并只做一次必要修订。"
                     "不能把三份候选拼成一篇；不能为了金句牺牲来源一致性。"
+                    "逐页文案必须是独立观点，禁止把上一页小注复用为下一页主句。"
                 ),
-                prompt=f"""{common}\n\n策划：{json.dumps(strategy, ensure_ascii=False)}
+                prompt=f"""{copy_common}\n\n策划：{json.dumps(strategy, ensure_ascii=False)}
 候选：{json.dumps(candidates, ensure_ascii=False)}
 读者审稿：{json.dumps(audience_review, ensure_ascii=False)}
 文化事实审校：{json.dumps(culture_review, ensure_ascii=False)}
@@ -654,10 +904,13 @@ class LightContentLabService:
 视觉导演：{json.dumps(visual_review, ensure_ascii=False)}
 
 输出最终稿。若候选已经足够好只做轻微修订；分数低于 7.5 必须修复关键问题。
+最终稿必须恰好有 {image_count} 页；所有主句和小注彼此不同且不近似，note 只解释同一页，绝不预告下一页 phrase。
+保留或补齐每页 evidence_basis 与 source_refs，确保不同页面使用不同来源或证据线索。
 只输出 JSON：{{"selected_index":0,"chief_editor_note":"选择原因",
 "revision_summary":"改了什么","final":{{"title":"","subtitle":"","summary":"",
 "body_markdown":"","tags":[""],"posters":[{{"phrase":"","note":"","visual_metaphor":"",
-"photo_direction":"","layout":"","accent":"#RRGGBB","mood":""}}]}}}}""",
+"photo_direction":"","layout":"","accent":"#RRGGBB","mood":"",
+"evidence_basis":"","source_refs":[""]}}]}}}}""",
                 model_name=model_name,
                 reasoning_effort=reasoning_effort,
                 temperature=0.28,
@@ -833,8 +1086,12 @@ class LightContentLabService:
         posters: list[dict[str, Any]],
         direction: dict[str, Any],
         fallback_style: str,
+        recipe: str,
     ) -> list[dict[str, Any]]:
-        style = self.renderer.resolve_style(str(direction.get("visual_style") or fallback_style), "comfort")
+        # The author's route selection is frozen.  The visual-director model may
+        # refine layout and metaphor, but it must not silently switch renderers.
+        style = self.renderer.resolve_style(fallback_style, recipe)
+        series_motif = str(direction.get("series_motif") or "").strip()
         page_directions = direction.get("poster_directions")
         page_map: dict[int, dict[str, Any]] = {}
         if isinstance(page_directions, list):
@@ -852,9 +1109,88 @@ class LightContentLabService:
             for key in ("layout", "visual_metaphor", "photo_direction", "accent", "mood"):
                 if addition.get(key):
                     merged[key] = addition[key]
-            merged["visual_style"] = str(addition.get("visual_style") or style)
+            if style == "minimal_zine":
+                if not series_motif:
+                    series_motif = str(merged.get("visual_metaphor") or "同一件日常物件").strip()
+                variation = str(merged.get("visual_metaphor") or "").strip()
+                merged["visual_metaphor"] = (
+                    series_motif
+                    if not variation or variation == series_motif
+                    else f"{series_motif}；本页变化：{variation}"
+                )[:240]
+                merged["series_motif"] = series_motif[:160]
+            merged["visual_style"] = style
             output.append(merged)
         return output
+
+    @staticmethod
+    def _source_evidence_scope(source: SourceItem, source_text: str) -> dict[str, Any]:
+        try:
+            structured = json.loads(source.structured_content_json or "{}")
+        except json.JSONDecodeError:
+            structured = {}
+        if not isinstance(structured, dict):
+            structured = {}
+        batch_ids = structured.get("batch_source_ids")
+        detailed_ids = (
+            [str(value) for value in batch_ids if str(value).strip()]
+            if isinstance(batch_ids, list)
+            else []
+        )
+        source_count_match = re.search(r"来源数[：:]\s*(\d+)", source_text)
+        corpus_chars_match = re.search(r"语料字符[：:]\s*(\d+)", source_text)
+        is_batch = (
+            source.content_kind == "corpus_batch"
+            or structured.get("document_type") == "corpus_batch"
+        )
+        if is_batch:
+            return {
+                "input_type": "corpus_batch",
+                "input_source_id": source.id,
+                "pool_id": str(structured.get("pool_id") or ""),
+                "batch_id": str(structured.get("batch_id") or source.external_id or ""),
+                "pool_source_count": int(source_count_match.group(1)) if source_count_match else 0,
+                "pool_corpus_chars": int(corpus_chars_match.group(1)) if corpus_chars_match else 0,
+                "detailed_source_count": len(detailed_ids),
+                "detailed_source_ids": detailed_ids,
+                "full_pool_memory_included": "【全池语义记忆】" in source_text,
+                "submitted_chars": min(len(source_text), 18000),
+                "contract": (
+                    "full-pool semantic memory for angles plus frozen detailed sources for claims"
+                ),
+            }
+        return {
+            "input_type": "single_source",
+            "input_source_id": source.id,
+            "detailed_source_count": 1,
+            "detailed_source_ids": [source.id],
+            "submitted_chars": min(len(source_text), 12000),
+            "contract": "current source defines the evidence boundary",
+        }
+
+    @staticmethod
+    def _ensure_visual_evidence(
+        posters: list[dict[str, Any]],
+        evidence_scope: dict[str, Any],
+    ) -> None:
+        raw_ids = evidence_scope.get("detailed_source_ids")
+        source_ids = (
+            [str(value).strip() for value in raw_ids if str(value).strip()]
+            if isinstance(raw_ids, list)
+            else []
+        )
+        fallback_id = str(evidence_scope.get("input_source_id") or "").strip()
+        if not source_ids and fallback_id:
+            source_ids = [fallback_id]
+        for index, poster in enumerate(posters):
+            raw_refs = poster.get("source_refs")
+            refs = (
+                [str(value).strip() for value in raw_refs if str(value).strip()]
+                if isinstance(raw_refs, list)
+                else []
+            )
+            if not refs and source_ids:
+                poster["source_refs"] = [source_ids[index % len(source_ids)]]
 
     @staticmethod
     def _corpus_prompt(corpus: list[dict[str, Any]]) -> str:
@@ -885,7 +1221,13 @@ class LightContentLabService:
                     "quality_score": metadata.get("quality_score"),
                     "chief_editor_note": metadata.get("chief_editor_note"),
                     "revision_summary": metadata.get("revision_summary"),
+                    "evidence_scope": metadata.get("evidence_scope"),
+                    "poster_copy_quality": metadata.get("poster_copy_quality"),
                     "corpus_item_ids": metadata.get("corpus_item_ids"),
+                    "memory_snapshot_id": metadata.get("memory_snapshot_id"),
+                    "memory_snapshot_hash": metadata.get("memory_snapshot_hash"),
+                    "memory_ids": metadata.get("memory_ids"),
+                    "memory_applied": metadata.get("memory_applied"),
                 },
                 ensure_ascii=False,
             ),

@@ -1,0 +1,17 @@
+{
+  "name": "x2red-web-quality",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "lint:js": "eslint apps/api/app/static/api-client.js apps/api/app/static/creative-store.js apps/api/app/static/writing-view.js apps/api/app/static/visual-view.js apps/api/app/static/candidate-view.js apps/api/app/static/prompt-view.js apps/api/app/static/publish-view.js apps/api/app/static/creative-workflow-v18.js"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.8.1",
+    "eslint-plugin-jsdoc": "^63.0.0",
+    "globals": "^16.4.0"
+  }
+}

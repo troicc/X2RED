@@ -4,21 +4,23 @@ import json
 import re
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_platform_service
+from app.api.deps import get_platform_service, get_pool_memory_service
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.domain.models import DraftRevision, SourceItem
+from app.domain.image_candidate_schemas import utc_timestamp
 from app.domain.platform_schemas import (
     LightContentApproval,
     LightContentCandidateSelect,
     LightContentIterateRequest,
     LightContentVariantCreate,
     LightCorpusCreate,
+    MinimalZineStoryboardRevisionRequest,
     PlatformCatalogOut,
     PlatformRenderRequest,
     PlatformVariantOut,
@@ -27,13 +29,18 @@ from app.domain.platform_schemas import (
     WeChatVariantCreate,
 )
 from app.domain.platforms import PlatformVariant
-from app.services.light_content import LightContentError
+from app.domain.pool_memory_schemas import PoolMemoryTargetCandidateRequest
+from app.services.input_materials import InputMaterialError, resolve_input_materials
+from app.services.light_content import LightContentError, poster_copy_issues
 from app.services.light_content_fit import assess_source_fit
 from app.services.light_content_lab import LightContentLabService
 from app.services.light_visual_renderer import VISUAL_STYLE_LABELS
+from app.services.minimal_zine_native import storyboard_model_input_changed
 from app.services.platform_studio import PlatformStudioError, PlatformStudioService
+from app.services.pool_memory import PoolMemoryError, PoolMemoryService
 from app.services.skill_packs import pack_payloads
 from app.services.skills import ensure_bindings
+from app.services.visual_brief import VisualBriefError
 from app.services.wechat_themes import list_theme_payloads
 
 router = APIRouter(prefix="/api/platforms", tags=["platform-studio"])
@@ -59,33 +66,28 @@ def _json_object(value: str) -> dict:
 
 
 def _light_copy_segments(title: str, summary: str, body: str, count: int) -> list[tuple[str, str]]:
-    cleaned_title = re.sub(r"\s+", " ", title).strip()[:36]
-    sentences = [
-        re.sub(r"\s+", " ", item).strip()
-        for item in re.split(r"(?<=[。！？!?])|\n+", body)
-        if re.sub(r"\s+", " ", item).strip()
-    ]
-    summary_text = re.sub(r"\s+", " ", summary).strip()
-    phrases = [cleaned_title] if cleaned_title else []
-    for sentence in sentences:
-        candidate = sentence.rstrip("。！？!?")[:36]
-        if candidate and candidate not in phrases:
-            phrases.append(candidate)
+    """Build a safe emergency storyboard only when a legacy variant has none.
+
+    Normal article edits never call this data to overwrite an existing storyboard.
+    Notes remain blank because adjacent body sentences are not page-level evidence and
+    previously produced the exact N.note == N+1.phrase splice reported by users.
+    """
+
+    raw_candidates = [title, summary, *re.split(r"(?<=[。！？!?])|\n+", body)]
+    phrases: list[str] = []
+    keys: set[str] = set()
+    for value in raw_candidates:
+        candidate = re.sub(r"\s+", " ", str(value or "")).strip().rstrip("。！？!?")[:36]
+        key = re.sub(r"[^0-9a-zA-Z\u4e00-\u9fff]+", "", candidate).casefold()
+        if not key or key in keys:
+            continue
+        phrases.append(candidate)
+        keys.add(key)
         if len(phrases) >= count:
             break
-    if summary_text and len(phrases) < count:
-        phrases.append(summary_text.rstrip("。！？!?")[:36])
     while len(phrases) < count:
-        phrases.append(phrases[-1] if phrases else "把这一页说清楚")
-
-    segments: list[tuple[str, str]] = []
-    for index, phrase in enumerate(phrases[:count]):
-        note_source = sentences[index] if index < len(sentences) else summary_text
-        note = note_source.rstrip("。！？!?")[:48]
-        if note == phrase:
-            note = ""
-        segments.append((phrase, note))
-    return segments
+        phrases.append(f"第 {len(phrases) + 1} 页短句待确认")
+    return [(phrase, "") for phrase in phrases[:count]]
 
 
 def _sync_light_storyboard(
@@ -95,11 +97,13 @@ def _sync_light_storyboard(
     metadata = _json_object(revised.metadata_json)
     specs_raw = metadata.get("poster_specs")
     specs = [dict(item) for item in specs_raw if isinstance(item, dict)] if isinstance(specs_raw, list) else []
-    count = min(max(len(specs), 3), 6)
-    segments = _light_copy_segments(revised.title, revised.summary, revised.body_markdown, count)
+    count = min(max(len(specs) or int(metadata.get("image_count") or 4), 3), 6)
     if not specs:
+        segments = _light_copy_segments(revised.title, revised.summary, revised.body_markdown, count)
         specs = [
             {
+                "phrase": phrase,
+                "note": note,
                 "visual_metaphor": "真实生活中的单一物件或场景",
                 "photo_direction": "画面必须与文字中的具体场景一致",
                 "layout": "editorial",
@@ -107,22 +111,23 @@ def _sync_light_storyboard(
                 "mood": "quiet",
                 "visual_style": metadata.get("visual_style") or "minimal_zine",
             }
-            for _ in range(count)
+            for phrase, note in segments
         ]
-    for index in range(count):
-        spec = specs[index] if index < len(specs) else dict(specs[-1])
-        phrase, note = segments[index]
-        spec["phrase"] = phrase
-        spec["note"] = note
-        spec.pop("final_prompt", None)
-        if index < len(specs):
-            specs[index] = spec
-        else:
-            specs.append(spec)
+    specs = specs[:count]
+    quality_issues = poster_copy_issues(specs)
     metadata.update(
         {
             "parent_variant_id": current.id,
-            "poster_specs": specs[:count],
+            "poster_specs": specs,
+            "storyboard_copy_sync": {
+                "mode": "preserved-after-article-edit",
+                "status": "review_required" if quality_issues else "preserved",
+                "copy_changed": False,
+                "quality_issues": quality_issues,
+                "message": (
+                    "正文保存不会静默改写逐页短句与说明；请在视觉分镜中单独确认。"
+                ),
+            },
             "human_edited": True,
             "human_approved": False,
             "render_engine": "",
@@ -132,6 +137,55 @@ def _sync_light_storyboard(
     revised.metadata_json = json.dumps(metadata, ensure_ascii=False)
     revised.output_paths_json = "{}"
     revised.body_html = ""
+
+
+def _storyboard_page_changed(previous: dict, current: dict) -> bool:
+    fields = ("phrase", "note", "focus_x", "focus_y", "zoom")
+    return any(previous.get(field) != current.get(field) for field in fields)
+
+
+def _carry_storyboard_trace(
+    previous: dict,
+    current: dict,
+) -> None:
+    for key in (
+        "final_prompt",
+        "visual_prompt_spec",
+        "native_zine_recipe",
+        "native_zine_interpretation",
+        "model_input_fingerprint",
+        "raw_anchor_fingerprint",
+        "raw_anchor_source_variant_id",
+        "selected_image_candidate_id",
+        "image_candidate_review",
+        "text_rendering",
+        "model_text_forbidden",
+    ):
+        if key in previous:
+            current[key] = previous[key]
+
+
+def _drop_storyboard_trace(current: dict) -> None:
+    for key in (
+        "final_prompt",
+        "visual_prompt_spec",
+        "native_zine_recipe",
+        "native_zine_interpretation",
+        "model_input_fingerprint",
+        "raw_anchor_fingerprint",
+        "raw_anchor_source_variant_id",
+        "selected_image_candidate_id",
+        "image_candidate_review",
+        "text_rendering",
+        "model_text_forbidden",
+    ):
+        current.pop(key, None)
+
+
+def _carry_storyboard_copy_provenance(previous: dict, current: dict) -> None:
+    for key in ("evidence_basis", "source_refs"):
+        if key in previous:
+            current[key] = previous[key]
 
 
 @router.get("/catalog", response_model=PlatformCatalogOut)
@@ -207,9 +261,18 @@ async def create_wechat_variant(
     db: Session = Depends(get_db),
     service: PlatformStudioService = Depends(get_platform_service),
 ) -> PlatformVariant:
-    source = db.get(SourceItem, body.source_id)
-    if source is None:
-        raise HTTPException(status_code=404, detail="来源不存在")
+    try:
+        resolved = resolve_input_materials(
+            db,
+            [
+                *body.material_refs,
+                *(f"source:{source_id}" for source_id in body.supporting_source_ids),
+            ],
+            preferred_source_id=body.source_id,
+        )
+    except InputMaterialError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    source = resolved.primary_source
     draft: DraftRevision | None = None
     if body.draft_id:
         draft = db.get(DraftRevision, body.draft_id)
@@ -231,6 +294,8 @@ async def create_wechat_variant(
             include_citations=body.include_citations,
             include_illustration_plan=body.include_illustration_plan,
             author=body.author,
+            supporting_sources=resolved.sources[1:],
+            input_materials=resolved.materials,
         )
     except PlatformStudioError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -359,6 +424,197 @@ def select_wechat_light_candidate(
     return revised
 
 
+@router.post(
+    "/wechat/light/variants/{variant_id}/storyboard",
+    response_model=PlatformVariantOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def revise_wechat_light_storyboard(
+    variant_id: str,
+    body: MinimalZineStoryboardRevisionRequest,
+    db: Session = Depends(get_db),
+    service: PlatformStudioService = Depends(get_platform_service),
+) -> PlatformVariant:
+    """Freeze a page-level storyboard as a new PlatformVariant revision.
+
+    The source variant remains untouched.  Parent artifact linkage is retained only
+    for render-time, read-only inheritance; the new child starts with no output refs.
+    """
+
+    current = _variant(db, variant_id)
+    if current.platform != "wechat" or current.format != "light_series":
+        raise HTTPException(status_code=400, detail="当前版本不是公众号轻内容图组")
+    current_metadata = _json_object(current.metadata_json)
+    current_specs_raw = current_metadata.get("poster_specs")
+    current_specs = (
+        [dict(item) for item in current_specs_raw if isinstance(item, dict)]
+        if isinstance(current_specs_raw, list)
+        else []
+    )
+    page_count = len(current_specs)
+    if not 3 <= page_count <= 6:
+        raise HTTPException(status_code=400, detail="当前轻内容故事板必须包含 3 到 6 页")
+    submitted_numbers = [page.page for page in body.pages]
+    expected_numbers = list(range(1, page_count + 1))
+    if sorted(submitted_numbers) != expected_numbers:
+        raise HTTPException(
+            status_code=400,
+            detail=f"故事板页码必须唯一并完整覆盖 1 到 {page_count} 页",
+        )
+
+    revised = service.revise_variant(
+        db,
+        current,
+        title=current.title,
+        subtitle=current.subtitle,
+        summary=current.summary,
+        body_markdown=current.body_markdown,
+        tags=current.tags,
+        theme=current.theme,
+    )
+    metadata = _json_object(revised.metadata_json)
+    replacement_specs: list[dict] = []
+    model_changed_pages: list[int] = []
+    local_changed_pages: list[int] = []
+    visual_brief_mode = str(current_metadata.get("visual_brief_mode") or "legacy")
+    configured_mode = str(
+        current_metadata.get("visual_prompt_mode")
+        or get_settings().minimal_zine_prompt_mode
+    )
+    if any(
+        item.get("raw_anchor_fingerprint") and not item.get("visual_prompt_spec")
+        for item in current_specs
+    ):
+        configured_mode = "legacy"
+    semantic_context = {
+        "article_thesis": current_metadata.get("strategy", {}).get("content_thesis")
+        if isinstance(current_metadata.get("strategy"), dict)
+        else "",
+        "visual_bible": current_metadata.get("visual_bible") or {},
+        "audience": current_metadata.get("audience") or "",
+    }
+    for submitted in sorted(body.pages, key=lambda page: page.page):
+        page = submitted.page
+        previous = current_specs[page - 1]
+        replacement = submitted.model_dump()
+        replacement["visual_style"] = str(
+            previous.get("visual_style")
+            or current_metadata.get("visual_style")
+            or "minimal_zine"
+        )
+        _carry_storyboard_copy_provenance(previous, replacement)
+        if visual_brief_mode == "production":
+            raw_brief = replacement.get("page_visual_brief")
+            if not isinstance(raw_brief, dict):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"第 {page} 页缺少冻结 PageVisualBrief",
+                )
+            previous_brief = previous.get("page_visual_brief")
+            if isinstance(previous_brief, dict):
+                raw_brief["evidence_refs"] = previous_brief.get("evidence_refs") or previous.get(
+                    "source_refs"
+                ) or ["当前来源"]
+            replacement["page_visual_brief"] = raw_brief
+            replacement["visual_bible"] = current_metadata.get("visual_bible") or {}
+        replacement_specs.append(replacement)
+
+    copy_issues = poster_copy_issues(replacement_specs)
+    if copy_issues:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "分镜文案存在跨页重复：上一页说明不能复用为下一页短句，"
+                "各页短句与说明也不能彼此近似重复。请逐页写成独立观点。"
+            ),
+        )
+
+    if visual_brief_mode == "production":
+        strategy = current_metadata.get("strategy")
+        strategy = strategy if isinstance(strategy, dict) else {}
+        try:
+            frozen_bundle, replacement_specs = service.visual_briefs.refreeze_after_human_edit(
+                previous_bundle=current_metadata.get("visual_brief") or {},
+                posters=replacement_specs,
+                article_thesis=str(
+                    strategy.get("content_thesis") or current.summary or current.title
+                ),
+            )
+        except VisualBriefError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        metadata["visual_bible"] = frozen_bundle.visual_bible.model_dump(mode="json")
+        metadata["visual_brief"] = frozen_bundle.model_dump(mode="json")
+        metadata["visual_distinctness"] = frozen_bundle.distinctness.model_dump(
+            mode="json"
+        )
+
+    for page, (previous, replacement) in enumerate(
+        zip(current_specs, replacement_specs, strict=True),
+        start=1,
+    ):
+        model_changed = storyboard_model_input_changed(
+            previous,
+            replacement,
+            feature_mode=configured_mode,  # type: ignore[arg-type]
+            semantic_context=semantic_context,
+        )
+        local_changed = _storyboard_page_changed(previous, replacement)
+        if model_changed:
+            model_changed_pages.append(page)
+            _drop_storyboard_trace(replacement)
+        else:
+            # Copy-only or crop-only revisions can keep the exact image prompt.
+            _carry_storyboard_trace(previous, replacement)
+        if local_changed or model_changed:
+            local_changed_pages.append(page)
+            replacement.pop("final_composition_fingerprint", None)
+            replacement.pop("compositor_version", None)
+            replacement.pop("composition_diagnostics", None)
+
+    metadata.update(
+        {
+            "parent_variant_id": current.id,
+            "poster_specs": replacement_specs,
+            "storyboard_revision": {
+                "parent_variant_id": current.id,
+                "model_input_changed_pages": model_changed_pages,
+                "local_composition_changed_pages": local_changed_pages,
+            },
+            "human_edited": True,
+            "human_approved": False,
+            "render_engine": "",
+            "validation": {},
+        }
+    )
+    lifecycle = metadata.get("image_candidate_lifecycle")
+    if model_changed_pages and isinstance(lifecycle, dict):
+        lifecycle_pages = lifecycle.get("pages")
+        if isinstance(lifecycle_pages, dict):
+            for changed_page in model_changed_pages:
+                lifecycle_pages.pop(str(changed_page), None)
+        audit_events = lifecycle.get("audit_events")
+        if isinstance(audit_events, list):
+            audit_events.extend(
+                {
+                    "event": "candidate_invalidated",
+                    "page": changed_page,
+                    "candidate_id": "",
+                    "detail": "冻结 PageVisualBrief 变化，旧图片候选不再有效",
+                    "at": utc_timestamp(),
+                }
+                for changed_page in model_changed_pages
+            )
+        metadata["image_candidate_lifecycle"] = lifecycle
+    revised.metadata_json = json.dumps(metadata, ensure_ascii=False)
+    revised.output_paths_json = "{}"
+    revised.status = "draft"
+    revised.error = ""
+    revised.body_html = ""
+    db.commit()
+    db.refresh(revised)
+    return revised
+
+
 @router.post("/wechat/light/variants/{variant_id}/approve")
 def approve_wechat_light_variant(
     variant_id: str,
@@ -421,6 +677,105 @@ def create_wechat_light_corpus(
 @router.get("/variants/{variant_id}", response_model=PlatformVariantOut)
 def get_variant(variant_id: str, db: Session = Depends(get_db)) -> PlatformVariant:
     return _variant(db, variant_id)
+
+
+@router.post("/variants/{variant_id}/repair-incomplete", response_model=PlatformVariantOut)
+async def repair_incomplete_variant(
+    variant_id: str,
+    db: Session = Depends(get_db),
+    service: PlatformStudioService = Depends(get_platform_service),
+) -> PlatformVariant:
+    variant = _variant(db, variant_id)
+    try:
+        repaired = await service.repair_incomplete_variant(db, variant)
+    except PlatformStudioError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    db.commit()
+    db.refresh(repaired)
+    return repaired
+
+
+@router.post(
+    "/variants/{variant_id}/visuals/{slot_id}",
+    response_model=PlatformVariantOut,
+)
+async def upload_variant_visual(
+    variant_id: str,
+    slot_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    service: PlatformStudioService = Depends(get_platform_service),
+) -> PlatformVariant:
+    variant = _variant(db, variant_id)
+    try:
+        payload = await file.read(12 * 1024 * 1024 + 1)
+        service.attach_visual_asset(
+            db,
+            variant,
+            slot_id=slot_id,
+            payload=payload,
+        )
+        db.commit()
+        db.refresh(variant)
+        return variant
+    except PlatformStudioError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        await file.close()
+
+
+@router.post(
+    "/variants/{variant_id}/memory-candidate",
+    status_code=status.HTTP_201_CREATED,
+)
+async def variant_memory_candidate(
+    variant_id: str,
+    body: PoolMemoryTargetCandidateRequest,
+    db: Session = Depends(get_db),
+    service: PoolMemoryService = Depends(get_pool_memory_service),
+) -> dict:
+    variant = _variant(db, variant_id)
+    try:
+        candidate = await service.create_candidate(
+            db,
+            source_kind="platform_variant",
+            source_id=variant.id,
+            title=body.title,
+            dimensions=[str(item) for item in body.dimensions],
+            scope=body.scope.model_dump(),
+            usage_policy=body.usage_policy,
+            note=body.note,
+        )
+        db.commit()
+        db.refresh(candidate)
+        return {"candidate_id": candidate.id, "state": candidate.state}
+    except PoolMemoryError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/variants/{variant_id}/memory-usages")
+def variant_memory_usages(
+    variant_id: str,
+    db: Session = Depends(get_db),
+    service: PoolMemoryService = Depends(get_pool_memory_service),
+) -> dict:
+    variant = _variant(db, variant_id)
+    metadata = _json_object(variant.metadata_json)
+    snapshot = service.snapshot(db, str(metadata.get("memory_snapshot_id") or ""))
+    if snapshot is None:
+        return {
+            "variant_id": variant.id,
+            "snapshot": service.snapshot_summary(None),
+            "usages": [],
+        }
+    return {
+        "variant_id": variant.id,
+        "snapshot": service.snapshot_summary(snapshot),
+        "usages": service.list_usages(db, target_id=snapshot.target_id, limit=200),
+    }
 
 
 @router.put("/variants/{variant_id}", response_model=PlatformVariantOut)
@@ -492,7 +847,11 @@ def render_variant(
 @router.get("/variants/{variant_id}/preview")
 def preview_variant(variant_id: str, db: Session = Depends(get_db)) -> FileResponse:
     path = _variant_file(db, variant_id, "preview")
-    return FileResponse(path, media_type="text/html; charset=utf-8")
+    return FileResponse(
+        path,
+        media_type="text/html; charset=utf-8",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
 
 
 @router.get("/variants/{variant_id}/files/{file_key}")
@@ -507,9 +866,17 @@ def download_variant_file(
         ".md": "text/markdown; charset=utf-8",
         ".json": "application/json",
         ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
         ".zip": "application/zip",
     }.get(path.suffix.lower(), "application/octet-stream")
-    return FileResponse(path, media_type=media_type, filename=path.name)
+    return FileResponse(
+        path,
+        media_type=media_type,
+        filename=path.name,
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
 
 
 def _variant_file(db: Session, variant_id: str, file_key: str) -> Path:

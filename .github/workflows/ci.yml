@@ -2,16 +2,31 @@ name: CI
 
 on:
   push:
-    branches: [main, "agent/**"]
+    branches: [main]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A PR branch push already emits pull_request.synchronize.  Do not also run the
+# push workflow for agent/** branches, and discard work for superseded commits.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    # The UI1 gate runs the full API suite before installing Chromium and
+    # exercising the browser workflow. Keep enough headroom for cold runners.
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12", "3.13"]
+        # Keep the supported minimum as the PR gate.  Full compatibility runs on
+        # main and explicit manual checks, where the extra minutes are intentional.
+        python-version: ${{ fromJSON(github.event_name == 'pull_request' && '["3.12"]' || '["3.12","3.13"]') }}
     env:
       X2RED_DATABASE_URL: sqlite:///./ci-migration.db
       X2RED_MEDIA_DIR: ./ci-data/assets
@@ -20,34 +35,99 @@ jobs:
       X2RED_BROWSER_PROFILE_DIR: ./ci-data/profile
       X2RED_NATIVE_SKILL_DIR: ./ci-data/native-skills
       X2RED_SCHEDULER_ENABLED: "false"
+      # Pull requests must remain fully deterministic and must never reach a
+      # paid provider, even if repository-level variables are configured.
+      X2RED_MODEL_BASE_URL: ""
+      X2RED_MODEL_API_KEY: ""
+      X2RED_MODEL_NAME: ""
+      X2RED_IMAGE_BASE_URL: ""
+      X2RED_IMAGE_API_KEY: ""
+      X2RED_IMAGE_MODEL: ""
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
       - run: python -m pip install -e '.[dev]'
+      - if: matrix.python-version == '3.12'
+        run: npm ci
       - run: python -m compileall -q apps/api/app
+      - run: python -m py_compile scripts/run-mediacrawler.py scripts/run-prompt-eval.py scripts/build-visual-contact-sheet.py scripts/nightly-model-canary.py
+      - run: sh -n scripts/start.sh scripts/setup-mediacrawler.sh
       - run: x2red migrate
+      - if: matrix.python-version == '3.12'
+        name: Migration empty and prior-snapshot gate
+        run: pytest -q apps/api/tests/test_ops1_migrations.py
+      - if: matrix.python-version == '3.12'
+        name: Python type gate
+        run: mypy apps/api/app/core/config.py apps/api/app/core/security.py apps/api/app/core/http_security.py apps/api/app/core/paths.py apps/api/app/db/schema.py apps/api/app/services/model_client.py apps/api/app/services/jobs.py
+      - if: matrix.python-version == '3.12'
+        name: Python dependency audit
+        run: pip-audit --local --skip-editable
+      - if: matrix.python-version == '3.12'
+        name: High-confidence SAST gate
+        run: bandit -q -r apps/api/app -lll -iii
+      - if: matrix.python-version == '3.12'
+        name: JavaScript dependency audit
+        run: npm audit --audit-level=high
+      - if: matrix.python-version == '3.12'
+        name: ESLint and JSDoc gate
+        run: npm run lint:js
+      - if: matrix.python-version == '3.12'
+        name: Deterministic prompt evaluation
+        run: python scripts/run-prompt-eval.py --output ci-artifacts/prompt-eval.json
       - run: node --check apps/api/app/static/app.js
       - run: node --check apps/api/app/static/studio-v07.js
       - run: node --check apps/api/app/static/studio-ux-v072.js
       - run: node --check apps/api/app/static/style-v07.js
-      - run: node --check apps/api/app/static/studio-navigation-v071.js
       - run: node --check apps/api/app/static/platform-v08.js
       - run: node --check apps/api/app/static/card-skill-v08.js
       - run: node --check apps/api/app/static/review-v09.js
       - run: node --check apps/api/app/static/review-bridge-v09.js
-      - run: node --check apps/api/app/static/light-content-v10.js
-      - run: node --check apps/api/app/static/light-content-lab-v12.js
       - run: node --check apps/api/app/static/signal-to-studio-v10.js
       - run: node --check apps/api/app/static/materials-v11.js
+      - run: node --check apps/api/app/static/corpus-pools-v13.js
+      - run: node --check apps/api/app/static/product-shell-v15.js
+      - run: node --check apps/api/app/static/light-content-v15.js
       - run: node --check apps/api/app/static/native-skills-v11.js
+      - run: node --check apps/api/app/static/product-ui-v17.js
+      - run: node --check apps/api/app/static/api-client.js
+      - run: node --check apps/api/app/static/creative-store.js
+      - run: node --check apps/api/app/static/writing-view.js
+      - run: node --check apps/api/app/static/visual-view.js
+      - run: node --check apps/api/app/static/candidate-view.js
+      - run: node --check apps/api/app/static/prompt-view.js
+      - run: node --check apps/api/app/static/publish-view.js
+      - run: node --check apps/api/app/static/creative-workflow-v18.js
       - run: node --check apps/api/extensions/wechat-publisher-assistant/popup.js
       - run: node --check apps/api/extensions/wechat-publisher-assistant/content.js
       - run: node --check apps/api/extensions/wechat-publisher-assistant/page-bridge.js
       - run: node apps/api/extensions/wechat-publisher-assistant/content.test.mjs
-      - run: pytest -q
+      - if: matrix.python-version == '3.12'
+        name: Tests and coverage gate
+        run: pytest -q --cov=app --cov-report=term-missing --cov-report=xml:coverage.xml --cov-fail-under=70
+      - if: matrix.python-version != '3.12'
+        run: pytest -q
+      - if: matrix.python-version == '3.12'
+        run: python -m playwright install --with-deps chromium
+      - if: matrix.python-version == '3.12'
+        run: python scripts/ui1_playwright_e2e.py --evidence-dir ci-artifacts/ui1
+      - if: matrix.python-version == '3.12'
+        run: python scripts/build-visual-contact-sheet.py --source-dir ci-artifacts/ui1 --output ci-artifacts/ui1/visual-contact-sheet.png
+      - if: always() && matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ops1-quality-evidence-${{ github.sha }}
+          path: |
+            coverage.xml
+            ci-artifacts/
+          if-no-files-found: warn
+          retention-days: 14
       # FastAPI requires Depends(...) defaults. E701/E702 only enforce line
       # layout; compileall and tests remain the semantic gate for these services.
       - run: ruff check apps/api --select E,F,I,B,UP --ignore E501,E701,E702,UP035,UP042,B008,I001

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -9,6 +11,7 @@ class StyleProfileTrainRequest(BaseModel):
     original_samples: list[str] = Field(min_length=3, max_length=20)
     held_out_samples: list[str] = Field(default_factory=list, max_length=10)
     author_feedback: list[str] = Field(default_factory=list, max_length=50)
+    confirm_original_or_authorized: Literal[True]
 
     @field_validator("name", "description")
     @classmethod

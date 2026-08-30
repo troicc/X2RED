@@ -3,8 +3,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.domain.visual_brief_schemas import PageVisualBrief
 
 WechatTheme = Literal[
     "auto",
@@ -32,10 +33,145 @@ LightVisualStyle = Literal[
     "old_newspaper",
 ]
 LightQualityMode = Literal["fast", "studio"]
+MinimalZineLayout = Literal[
+    "center-fragment",
+    "lower-fragment",
+    "lower-left-float",
+    "upper-right-block",
+    "dual-panel",
+    "irregular-cutout",
+    "type-led",
+    "dot-orbit",
+    "single-specimen",
+    "diagonal-notes",
+    "edge-counterweight",
+]
+MinimalZineAnchor = Literal[
+    "tiny-faded-photo",
+    "torn-paper-clipping",
+    "flat-silhouette",
+    "solid-color-block",
+    "old-printed-illustration",
+    "object-specimen",
+    "translucent-geometric-overlay",
+    "abstract-texture-window",
+]
+MinimalZineTexture = Literal[
+    "xerox-softness",
+    "risograph-grain",
+    "letterpress-ink-bleed",
+    "halftone-degradation",
+    "film-grain-photo",
+    "scan-noise-paper-fibers",
+    "aged-paper-mottling",
+    "soft-motion-blur",
+]
+
+
+class MinimalZineStoryboardPage(BaseModel):
+    """A full, user-controlled page contract for an immutable storyboard revision."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    page: int = Field(ge=1, le=6)
+    article_thesis: str = Field(default="", max_length=1200)
+    section_title: str = Field(default="", max_length=300)
+    page_visual_role: Literal[
+        "cover",
+        "scene",
+        "explanation",
+        "evidence",
+        "comparison",
+        "process",
+        "limitation",
+        "transition",
+        "conclusion",
+    ] = "scene"
+    phrase: str = Field(min_length=1, max_length=80)
+    note: str = Field(max_length=180)
+    evidence_summary: str = Field(default="", max_length=1600)
+    emotion: str = Field(default="", max_length=300)
+    current_page_concept: str = Field(default="", max_length=800)
+    visual_bible: dict[str, Any] = Field(default_factory=dict)
+    page_visual_brief: PageVisualBrief | None = None
+    visual_metaphor: str = Field(min_length=1, max_length=240)
+    layout: MinimalZineLayout
+    anchor: MinimalZineAnchor
+    accent: str = Field(min_length=1, max_length=32)
+    texture: MinimalZineTexture
+    mood: str = Field(min_length=1, max_length=80)
+    focus_x: float = Field(ge=0.0, le=1.0)
+    focus_y: float = Field(ge=0.0, le=1.0)
+    zoom: float = Field(ge=0.65, le=2.0)
+
+    @field_validator(
+        "article_thesis",
+        "section_title",
+        "phrase",
+        "note",
+        "evidence_summary",
+        "emotion",
+        "current_page_concept",
+        "visual_metaphor",
+        "mood",
+    )
+    @classmethod
+    def clean_storyboard_text(cls, value: str) -> str:
+        return " ".join(value.split())
+
+    @field_validator("accent")
+    @classmethod
+    def validate_accent(cls, value: str) -> str:
+        cleaned = value.strip().lower().replace("_", "-").replace(" ", "-")
+        names = {
+            "blue",
+            "cobalt",
+            "ultramarine",
+            "cyan",
+            "violet",
+            "magenta",
+            "magenta-pink",
+            "yellow",
+            "lemon-yellow",
+            "green",
+            "pear-green",
+            "orange",
+            "red",
+            "tomato-red",
+            "vermilion",
+        }
+        if cleaned in names or (
+            len(cleaned) == 7
+            and cleaned.startswith("#")
+            and all(char in "0123456789abcdef" for char in cleaned[1:])
+        ):
+            return cleaned
+        raise ValueError("accent 必须是支持的强调色名称或 #RRGGBB")
+
+    @model_validator(mode="after")
+    def brief_matches_page(self) -> MinimalZineStoryboardPage:
+        if self.page_visual_brief is not None and self.page_visual_brief.page != self.page:
+            raise ValueError("页面视觉简报页码必须与故事板页码一致")
+        return self
+
+
+class MinimalZineStoryboardRevisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pages: list[MinimalZineStoryboardPage] = Field(min_length=3, max_length=6)
+
+    @model_validator(mode="after")
+    def unique_pages(self) -> MinimalZineStoryboardRevisionRequest:
+        page_numbers = [page.page for page in self.pages]
+        if len(set(page_numbers)) != len(page_numbers):
+            raise ValueError("故事板页码不能重复")
+        return self
 
 
 class WeChatVariantCreate(BaseModel):
     source_id: str
+    supporting_source_ids: list[str] = Field(default_factory=list, max_length=12)
+    material_refs: list[str] = Field(default_factory=list, max_length=32)
     draft_id: str | None = None
     theme: WechatTheme = "auto"
     mode: Literal["adapt", "preserve"] = "adapt"

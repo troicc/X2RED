@@ -45,6 +45,11 @@ class JobOut(BaseModel):
     dedupe_key: str
     available_at: datetime
     locked_by: str
+    lease_expires_at: datetime | None
+    heartbeat_at: datetime | None
+    last_worker_id: str
+    last_error_code: str
+    dead_lettered_at: datetime | None
     created_at: datetime
     updated_at: datetime
     started_at: datetime | None
@@ -74,6 +79,7 @@ class SourceListItem(BaseModel):
 
     id: str
     provider: str
+    platform: str
     external_id: str
     canonical_url: str
     author_handle: str
@@ -82,6 +88,7 @@ class SourceListItem(BaseModel):
     text_original: str
     content_kind: str
     workspace_state: str
+    workbench_state: WorkspaceStateValue = "active"
     created_at: datetime | None
     captured_at: datetime
     archived_at: datetime | None
@@ -98,6 +105,13 @@ class SourceDetail(SourceListItem):
     metrics_json: str
     assets: list[AssetOut] = Field(default_factory=list)
     related: list[SourceListItem] = Field(default_factory=list)
+
+
+class ManualSourceCreateRequest(BaseModel):
+    title: str = Field(default="", max_length=200)
+    author_name: str = Field(default="", max_length=160)
+    canonical_url: str = Field(default="", max_length=2000)
+    text_original: str = Field(min_length=20, max_length=200000)
 
 
 class SourceNoteUpdateRequest(BaseModel):
@@ -149,7 +163,7 @@ class DraftGenerateRequest(BaseModel):
 
 class DraftUpdateRequest(BaseModel):
     title: str = Field(max_length=80)
-    body: str = Field(max_length=4000)
+    body: str = Field(max_length=50000)
     tags: str = Field(default="", max_length=500)
 
 
@@ -258,3 +272,99 @@ class PublishTaskOut(BaseModel):
     package_path: str
     result_url: str
     error: str
+
+
+class PublishAuditEventOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    task_id: str | None
+    draft_id: str | None
+    action: str
+    outcome: str
+    actor: str
+    detail_json: str
+    created_at: datetime
+
+
+class CorpusPoolCreateRequest(BaseModel):
+    source_ids: list[str] = Field(min_length=1, max_length=500)
+    name: str = Field(default="", max_length=160)
+    description: str = Field(default="", max_length=4000)
+    batch_size: int = Field(default=6, ge=1, le=12)
+
+
+class CorpusPoolUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, max_length=160)
+    description: str | None = Field(default=None, max_length=4000)
+    batch_size: int | None = Field(default=None, ge=1, le=12)
+    state: Literal["active", "archived"] | None = None
+    unlock_name: bool = False
+
+
+class CorpusPoolSourcesRequest(BaseModel):
+    source_ids: list[str] = Field(min_length=1, max_length=500)
+
+
+class CorpusPoolBatchRequest(BaseModel):
+    batch_size: int | None = Field(default=None, ge=1, le=12)
+    focus: str = Field(default="", max_length=500)
+
+
+class CorpusPoolGenerateRequest(CorpusPoolBatchRequest):
+    style: Literal["news", "explain", "opinion"] = "explain"
+
+
+class CorpusPoolOut(BaseModel):
+    id: str
+    name: str
+    name_locked: bool
+    description: str
+    state: str
+    batch_size: int
+    topic_keywords: list[str] = Field(default_factory=list)
+    profile_text: str
+    source_count: int
+    total_chars: int
+    revision: int
+    created_at: datetime
+    updated_at: datetime
+    last_compiled_at: datetime | None
+
+
+class CorpusPoolMemberOut(BaseModel):
+    id: str
+    pool_id: str
+    source_id: str
+    summary: str
+    keywords: list[str] = Field(default_factory=list)
+    used_count: int
+    last_used_at: datetime | None
+    added_at: datetime
+    source: SourceListItem
+
+
+class CorpusBatchOut(BaseModel):
+    id: str
+    pool_id: str
+    sequence: int
+    focus: str
+    source_ids: list[str] = Field(default_factory=list)
+    sources: list[SourceListItem] = Field(default_factory=list)
+    source_fingerprint: str
+    profile_revision: int
+    anchor_source_id: str | None
+    draft_id: str
+    created_at: datetime | None
+    draft: DraftOut | None = None
+
+
+class CorpusPoolDetail(CorpusPoolOut):
+    members: list[CorpusPoolMemberOut] = Field(default_factory=list)
+    batches: list[CorpusBatchOut] = Field(default_factory=list)
+
+
+class CorpusPoolDraftResult(BaseModel):
+    pool: CorpusPoolOut
+    batch: CorpusBatchOut
+    draft: DraftOut

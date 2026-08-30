@@ -20,6 +20,7 @@ def test_review_edit_render_and_wechat_publisher_flow(
     monkeypatch.setenv("X2RED_EXPORT_DIR", str(tmp_path / "exports"))
     monkeypatch.setenv("X2RED_BROWSER_PROFILE_DIR", str(tmp_path / "profiles"))
     monkeypatch.setenv("X2RED_SCHEDULER_ENABLED", "false")
+    monkeypatch.setenv("X2RED_TYPOGRAPHY_RECIPE_MODE", "legacy")
     monkeypatch.delenv("X2RED_MODEL_BASE_URL", raising=False)
     monkeypatch.delenv("X2RED_MODEL_NAME", raising=False)
     monkeypatch.delenv("X2RED_MODEL_API_KEY", raising=False)
@@ -32,6 +33,9 @@ def test_review_edit_render_and_wechat_publisher_flow(
     import app.main as main_module
 
     importlib.reload(db_session)
+    from app.db.schema import upgrade_database
+
+    upgrade_database(db_session.settings.database_url)
     importlib.reload(main_module)
 
     from app.domain.models import DraftRevision, SourceItem
@@ -273,7 +277,7 @@ def test_review_edit_render_and_wechat_publisher_flow(
         assert any(item["state"] == "superseded" for item in artifacts)
 
         health = client.get("/health").json()
-        assert health["version"] == "0.11.0"
+        assert health["version"] == "0.12.0"
         assert health["review_pipeline"] == (
             "storyboard-module-tree-cover-brief-versioned-approval"
         )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from pathlib import Path
@@ -26,6 +27,9 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     import app.main as main_module
 
     importlib.reload(db_session)
+    from app.db.schema import upgrade_database
+
+    upgrade_database(db_session.settings.database_url)
     importlib.reload(main_module)
 
     class DummyProvider:
@@ -164,7 +168,7 @@ def wait_for_job(client: TestClient, job_id: str) -> dict:
         current = client.get(f"/api/jobs/{job_id}")
         assert current.status_code == 200
         job = current.json()
-        if job["state"] in {"succeeded", "failed"}:
+        if job["state"] in {"succeeded", "failed", "dead_letter"}:
             return job
         time.sleep(0.05)
     return job
@@ -351,6 +355,15 @@ def test_end_to_end_editorial_workflow(client: TestClient, tmp_path: Path) -> No
     assert payload["card_render_id"] == card_render["id"]
     assert len(payload["assets"]) >= 2
     assert all(Path(path).is_file() for path in payload["assets"])
+    audit = client.get(f"/api/publish/{task['id']}/audit")
+    assert audit.status_code == 200, audit.text
+    events = audit.json()
+    assert [(item["action"], item["outcome"]) for item in events] == [
+        ("prepare_package", "succeeded")
+    ]
+    assert json.loads(events[0]["detail_json"])["payload_sha256"] == hashlib.sha256(
+        package_path.read_bytes()
+    ).hexdigest()
 
 
 def test_rejects_non_x_url(client: TestClient) -> None:

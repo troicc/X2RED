@@ -18,6 +18,9 @@ def test_writing_project_freezes_style_profile_version(
     monkeypatch.setenv("X2RED_EXPORT_DIR", str(tmp_path / "exports"))
     monkeypatch.setenv("X2RED_BROWSER_PROFILE_DIR", str(tmp_path / "profiles"))
     monkeypatch.setenv("X2RED_SCHEDULER_ENABLED", "false")
+    # This test isolates immutable style snapshots. W2's explicit legacy mode
+    # preserves the pre-claim-gate fallback path while marking every run degraded.
+    monkeypatch.setenv("X2RED_WRITING_SCHEMA_MODE", "legacy")
     monkeypatch.delenv("X2RED_MODEL_BASE_URL", raising=False)
     monkeypatch.delenv("X2RED_MODEL_NAME", raising=False)
     monkeypatch.delenv("X2RED_MODEL_API_KEY", raising=False)
@@ -30,6 +33,9 @@ def test_writing_project_freezes_style_profile_version(
     import app.main as main_module
 
     importlib.reload(db_session)
+    from app.db.schema import upgrade_database
+
+    upgrade_database(db_session.settings.database_url)
     importlib.reload(main_module)
 
     from app.domain.models import SourceItem
@@ -60,7 +66,10 @@ def test_writing_project_freezes_style_profile_version(
                     ensure_ascii=False,
                 ),
                 forbidden_json=json.dumps(["总的来说"], ensure_ascii=False),
-                samples_json="{}",
+                samples_json=json.dumps(
+                    {"original_samples": ["这是一篇不应整包进入 Agent Prompt 的完整原创样本。"]},
+                    ensure_ascii=False,
+                ),
                 version=1,
             )
             db.add_all([source, profile])
@@ -89,6 +98,8 @@ def test_writing_project_freezes_style_profile_version(
             assert snapshot.style_profile_version == 1
             assert frozen_payload["rules"]["paragraph_habits"] == ["先结果后机制"]
             assert frozen_payload["forbidden"] == ["总的来说"]
+            assert frozen_payload["sample_bundle"]["content_injected"] is False
+            assert "完整原创样本" not in snapshot.snapshot_json
 
             profile = db.get(StyleProfile, profile_id)
             assert profile is not None
@@ -117,15 +128,20 @@ def test_writing_project_freezes_style_profile_version(
         )
         assert run.status_code == 202, run.text
 
-        # Structured fallback completes the same nine-role chain without a model.
+        # Legacy compatibility may finish without a model, but its runs are
+        # explicitly degraded and never represented as validated model output.
         import time
 
         for _ in range(200):
             job = client.get(f"/api/jobs/{run.json()['id']}").json()
-            if job["state"] in {"succeeded", "failed"}:
+            if job["state"] in {"succeeded", "failed", "dead_letter"}:
                 break
             time.sleep(0.05)
         assert job["state"] == "succeeded", job
+
+        project_payload = client.get(f"/api/writing/projects/{project_id}").json()
+        assert project_payload["state"] == "completed"
+        assert all(item["status"] == "degraded" for item in project_payload["runs"])
 
         drafts = client.get(f"/api/sources/{source_id}/drafts").json()
         assert drafts

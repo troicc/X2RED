@@ -35,7 +35,7 @@ class ReviewFlowService:
         self.card_service = card_service
         self.platform_service = platform_service
         self.visual_service = ReviewVisualService(settings)
-        self.cover_renderer = WeChatCoverRenderer()
+        self.cover_renderer = WeChatCoverRenderer(settings)
 
     def list_artifacts(
         self,
@@ -709,7 +709,7 @@ class ReviewFlowService:
 
     @staticmethod
     def _extract_emphasis(value: str) -> str:
-        match = re.search(r"\d+(?:\.\d+)?\s*(?:倍|%|ms|s|秒|分钟|万|亿)", value, flags=re.I)
+        match = re.search(r"\d+(?:\.\d+)?\s*(?:倍|%|ms|s|秒|分钟|万|亿)", value, flags=re.IGNORECASE)
         return match.group(0).replace(" ", "") if match else ""
 
     @staticmethod

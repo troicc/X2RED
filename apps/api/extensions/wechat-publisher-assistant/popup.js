@@ -5,7 +5,17 @@ const fillButton = document.getElementById("fill");
 const copyTitleButton = document.getElementById("copy-title");
 const copyBodyButton = document.getElementById("copy-body");
 const refreshButton = document.getElementById("refresh");
+const tokenInput = document.getElementById("api-token");
+const saveTokenButton = document.getElementById("save-token");
 const payloadCache = new Map();
+const tokenStore = chrome.storage.session;
+let apiToken = "";
+const tokenReady = tokenStore.get("x2redApiToken")
+  .then((stored) => {
+    apiToken = String(stored.x2redApiToken || "");
+    tokenInput.value = apiToken;
+  })
+  .catch(() => {});
 
 function status(text, kind = "") {
   statusBox.textContent = text;
@@ -13,7 +23,9 @@ function status(text, kind = "") {
 }
 
 async function api(path) {
-  const response = await fetch(`${BASE}${path}`);
+  await tokenReady;
+  const headers = apiToken ? { Authorization: `Bearer ${apiToken}` } : {};
+  const response = await fetch(`${BASE}${path}`, { headers });
   if (!response.ok) {
     let detail = `HTTP ${response.status}`;
     try { detail = (await response.json()).detail || detail; } catch {}
@@ -178,5 +190,13 @@ refreshButton.addEventListener("click", () => {
   payloadCache.clear();
   void loadVariants();
 });
+saveTokenButton.addEventListener("click", async () => {
+  apiToken = tokenInput.value.trim();
+  if (apiToken) await tokenStore.set({ x2redApiToken: apiToken });
+  else await tokenStore.remove("x2redApiToken");
+  payloadCache.clear();
+  status(apiToken ? "令牌已保存到当前浏览器会话。" : "令牌已清除。", "ok");
+  await loadVariants();
+});
 variantSelect.addEventListener("change", () => status("已切换版本。可自动写入，也可分别复制标题和富文本正文。"));
-loadVariants();
+void tokenReady.then(loadVariants);

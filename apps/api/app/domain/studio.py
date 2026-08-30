@@ -44,6 +44,7 @@ class WritingState(str, enum.Enum):
     reviewing = "reviewing"
     awaiting_revision_approval = "awaiting_revision_approval"
     revising = "revising"
+    claims_blocked = "claims_blocked"
     completed = "completed"
     canceled = "canceled"
     failed = "failed"
@@ -53,6 +54,7 @@ class AgentRunStatus(str, enum.Enum):
     pending = "pending"
     running = "running"
     succeeded = "succeeded"
+    degraded = "degraded"
     failed = "failed"
     cached = "cached"
 
@@ -188,6 +190,7 @@ class WritingProject(Base):
     style_profile_id: Mapped[str | None] = mapped_column(ForeignKey("style_profiles.id", ondelete="SET NULL"), nullable=True, index=True)
     budget_limit_cents: Mapped[int] = mapped_column(Integer, default=100)
     spent_estimate_cents: Mapped[int] = mapped_column(Integer, default=0)
+    spent_cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
     error: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

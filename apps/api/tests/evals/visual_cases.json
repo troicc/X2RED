@@ -1,0 +1,870 @@
+{
+  "schema_version": 1,
+  "baseline_id": "x2red-c0-9073a4b-visual",
+  "baseline_commit": "9073a4bc8a71a76dbf6762d7fc64a425eb3c99fe",
+  "captured_at": "2026-08-09T12:00:00+08:00",
+  "fixture_policy": "全部页面均使用仓库内合成主题；不提交真实用户图片，只冻结当前旧版 Prompt、recipe 控件、Skill pin 和已知缺陷。",
+  "rubric_path": "apps/api/tests/evals/rubrics/visual_rubric.json",
+  "cases": [
+    {
+      "id": "visual-retrieval-01-cover",
+      "article_summary": "解释长材料尾部证据为什么会被固定字符截断遗漏，以及章节检索如何改善覆盖。",
+      "article_thesis": "证据预算应围绕章节问题分配，而不是围绕来源长度平均分配。",
+      "section_title": "尾部证据为什么消失",
+      "page_visual_role": "cover",
+      "phrase": "重要证据，常常不在开头",
+      "note": "封面建立“深处仍有关键线索”的问题感。",
+      "evidence_summary": "合成材料把决定性限制放在最后一段，固定截断没有保留它。",
+      "storyboard": {
+        "page": 1,
+        "total_pages": 4,
+        "visual_metaphor": "a narrow archive drawer with one bright tab protruding from its deepest end",
+        "layout": "center-fragment",
+        "anchor": "object-specimen",
+        "accent": "cobalt",
+        "texture": "xerox-softness",
+        "mood": "analytical",
+        "focus_x": 0.5,
+        "focus_y": 0.45,
+        "zoom": 1.0
+      },
+      "raw_prompt": "Create one sparse, non-literal editorial visual symbol for this idea: a narrow archive drawer with one bright tab protruding from its deepest end. Express it as one object-specimen with a xerox-softness material treatment and a analytical mood. Render only the visual object and paper texture; do not render the idea as words.",
+      "final_prompt": "Tall vertical 3:5 full-frame aged-paper editorial plate, no border and no mockup; 70%-90% perceived quiet paper, one sparse 8%-25% visual cluster positioned as center-fragment, with the bottom 30 percent blank as one clean continuous paper zone for local type. Keep that zone as the same continuous paper surface: no panel, frame, card, cream box, caption plate or hard-edged overlay.\n\nOne object-specimen interprets a narrow archive drawer with one bright tab protruding from its deepest end; treat it with xerox-softness and restrained old-print material process. Use this imageable detail only as visual guidance: Create one sparse, non-literal editorial visual symbol for this idea: a narrow archive drawer with one bright tab protruding from its deepest end. Express it as one object-specimen with a xerox-softness material treatment and a analytical mood. Render only the visual object and paper texture; do not render the idea as words..\n\nNo model typography: X2RED adds Chinese locally after generation. Use one fully saturated cobalt as the clear high-chroma anchor, about 0.8%-2.5% of the full canvas, never washed out; paper and grayscale support remain subdued. NO TEXT, NO CHINESE CHARACTERS, NO LATIN LETTERS, NO NUMBERS, NO LOGO, NO WATERMARK, NO SIGNATURE, NO BADGE, NO UI, NO LABEL.\n\nFlat orthographic scanned-paper mood: analytical, diffuse light, matte absorbent paper, low-to-medium contrast and no 3D depth. Avoid full-bleed scenes, commercial hierarchy, product ads, CTA, glossy mockups, cinematic lighting, neon, cute cartoon, fashion drama, dense scrapbook, many colors and readable generated text.",
+      "compiler": {
+        "service_path": "apps/api/app/services/minimal_zine_native.py",
+        "entrypoint": "MinimalZineNativeService.prepare_web_handoff -> _four_paragraph_prompt",
+        "compiler_mode": "legacy_web_handoff",
+        "skill_name": "gc-minimal-zine-poster-v0-1",
+        "skill_commit": "4cb0396ad4e834019f753b37e1c4f415f5e02026",
+        "compositor_version": "minimal-zine-local-type-v6"
+      },
+      "model_input_fingerprint": "37d48aa10a5de360345555f85fb3c79cb6c0abe31241c4a147d30cad1279aa03",
+      "prompt_fingerprint": "09d90a33b5af6d8ec64b58296a32a042e9d62b240a60c317f79770ef96a926d5",
+      "image_reference": {
+        "policy": "none",
+        "value": ""
+      },
+      "known_issues": [
+        "旧 Prompt 不包含文章主旨、短句、说明或证据摘要",
+        "负面禁令占比过高"
+      ]
+    },
+    {
+      "id": "visual-retrieval-02-process",
+      "article_summary": "解释长材料尾部证据为什么会被固定字符截断遗漏，以及章节检索如何改善覆盖。",
+      "article_thesis": "证据预算应围绕章节问题分配，而不是围绕来源长度平均分配。",
+      "section_title": "先切成有地址的片段",
+      "page_visual_role": "process",
+      "phrase": "每个片段，都要能回到原处",
+      "note": "展示语义 chunk 与来源位置的关系，而不是泛化成数据流。",
+      "evidence_summary": "每个合成片段保存来源、标题和在原材料中的位置。",
+      "storyboard": {
+        "page": 2,
+        "total_pages": 4,
+        "visual_metaphor": "four torn index cards linked by one thin archival thread",
+        "layout": "lower-fragment",
+        "anchor": "torn-paper-clipping",
+        "accent": "vermilion",
+        "texture": "risograph-grain",
+        "mood": "methodical",
+        "focus_x": 0.48,
+        "focus_y": 0.62,
+        "zoom": 1.05
+      },
+      "raw_prompt": "Create one sparse, non-literal editorial visual symbol for this idea: four torn index cards linked by one thin archival thread. Express it as one torn-paper-clipping with a risograph-grain material treatment and a methodical mood. Render only the visual object and paper texture; do not render the idea as words.",
+      "final_prompt": "Tall vertical 3:5 full-frame aged-paper editorial plate, no border and no mockup; 70%-90% perceived quiet paper, one sparse 8%-25% visual cluster positioned as lower-fragment, with a quiet upper paper zone spanning roughly the top 28 percent for local type. Keep that zone as the same continuous paper surface: no panel, frame, card, cream box, caption plate or hard-edged overlay.\n\nOne torn-paper-clipping interprets four torn index cards linked by one thin archival thread; treat it with risograph-grain and restrained old-print material process. Use this imageable detail only as visual guidance: Create one sparse, non-literal editorial visual symbol for this idea: four torn index cards linked by one thin archival thread. Express it as one torn-paper-clipping with a risograph-grain material treatment and a methodical mood. Render only the visual object and paper texture; do not render the idea as words..\n\nNo model typography: X2RED adds Chinese locally after generation. Use one fully saturated vermilion as the clear high-chroma anchor, about 0.8%-2.5% of the full canvas, never washed out; paper and grayscale support remain subdued. NO TEXT, NO CHINESE CHARACTERS, NO LATIN LETTERS, NO NUMBERS, NO LOGO, NO WATERMARK, NO SIGNATURE, NO BADGE, NO UI, NO LABEL.\n\nFlat orthographic scanned-paper mood: methodical, diffuse light, matte absorbent paper, low-to-medium contrast and no 3D depth. Avoid full-bleed scenes, commercial hierarchy, product ads, CTA, glossy mockups, cinematic lighting, neon, cute cartoon, fashion drama, dense scrapbook, many colors and readable generated text.",
+      "compiler": {
+        "service_path": "apps/api/app/services/minimal_zine_native.py",
+        "entrypoint": "MinimalZineNativeService.prepare_web_handoff -> _four_paragraph_prompt",
+        "compiler_mode": "legacy_web_handoff",
+        "skill_name": "gc-minimal-zine-poster-v0-1",
+        "skill_commit": "4cb0396ad4e834019f753b37e1c4f415f5e02026",
+        "compositor_version": "minimal-zine-local-type-v6"
+      },
+      "model_input_fingerprint": "90334e8b1165974788dffd4e942c4bb199607a9eac1c81013b48879cb09348cb",
+      "prompt_fingerprint": "510f03aa333f2d606fdea843c806ffc51abdb47ce438274f692ad6be1fce7f7e",
+      "image_reference": {
+        "policy": "none",
+        "value": ""
+      },
+      "known_issues": [
+        "页面职责不会进入旧 fingerprint",
+        "上游 Skill recipe 没有被结构化保存"
+      ]
+    },
+    {
+      "id": "visual-retrieval-03-comparison",
+      "article_summary": "解释长材料尾部证据为什么会被固定字符截断遗漏，以及章节检索如何改善覆盖。",
+      "article_thesis": "证据预算应围绕章节问题分配，而不是围绕来源长度平均分配。",
+      "section_title": "平均切片与章节召回",
+      "page_visual_role": "comparison",
+      "phrase": "不是每份材料，各拿同样一刀",
+      "note": "对比平均分配与按问题分配，不暗示不存在的性能数字。",
+      "evidence_summary": "合成对照只证明尾部限制能被章节召回，不提供召回率。",
+      "storyboard": {
+        "page": 3,
+        "total_pages": 4,
+        "visual_metaphor": "two unequal paper stacks balanced by one small precise brass weight",
+        "layout": "dual-panel",
+        "anchor": "old-printed-illustration",
+        "accent": "lemon-yellow",
+        "texture": "letterpress-ink-bleed",
+        "mood": "comparative",
+        "focus_x": 0.5,
+        "focus_y": 0.5,
+        "zoom": 1.0
+      },
+      "raw_prompt": "Create one sparse, non-literal editorial visual symbol for this idea: two unequal paper stacks balanced by one small precise brass weight. Express it as one old-printed-illustration with a letterpress-ink-bleed material treatment and a comparative mood. Render only the visual object and paper texture; do not render the idea as words.",
+      "final_prompt": "Tall vertical 3:5 full-frame aged-paper editorial plate, no border and no mockup; 70%-90% perceived quiet paper, one sparse 8%-25% visual cluster positioned as dual-panel, with a clean lower-center paper band for local Chinese for local type. Keep that zone as the same continuous paper surface: no panel, frame, card, cream box, caption plate or hard-edged overlay.\n\nOne old-printed-illustration interprets two unequal paper stacks balanced by one small precise brass weight; treat it with letterpress-ink-bleed and restrained old-print material process. Use this imageable detail only as visual guidance: Create one sparse, non-literal editorial visual symbol for this idea: two unequal paper stacks balanced by one small precise brass weight. Express it as one old-printed-illustration with a letterpress-ink-bleed material treatment and a comparative mood. Render only the visual object and paper texture; do not render the idea as words..\n\nNo model typography: X2RED adds Chinese locally after generation. Use one fully saturated lemon-yellow as the clear high-chroma anchor, about 0.8%-2.5% of the full canvas, never washed out; paper and grayscale support remain subdued. NO TEXT, NO CHINESE CHARACTERS, NO LATIN LETTERS, NO NUMBERS, NO LOGO, NO WATERMARK, NO SIGNATURE, NO BADGE, NO UI, NO LABEL.\n\nFlat orthographic scanned-paper mood: comparative, diffuse light, matte absorbent paper, low-to-medium contrast and no 3D depth. Avoid full-bleed scenes, commercial hierarchy, product ads, CTA, glossy mockups, cinematic lighting, neon, cute cartoon, fashion drama, dense scrapbook, many colors and readable generated text.",
+      "compiler": {
+        "service_path": "apps/api/app/services/minimal_zine_native.py",
+        "entrypoint": "MinimalZineNativeService.prepare_web_handoff -> _four_paragraph_prompt",
+        "compiler_mode": "legacy_web_handoff",
+        "skill_name": "gc-minimal-zine-poster-v0-1",
+        "skill_commit": "4cb0396ad4e834019f753b37e1c4f415f5e02026",
+        "compositor_version": "minimal-zine-local-type-v6"
+      },
+      "model_input_fingerprint": "1f13cb1aa111ff0efea4057bd34ef241691a2b86f552d86f833fd8f0d45d5db8",
+      "prompt_fingerprint": "9696308dcf4cde97100596b348db4e8af652b907d457db72b471efdb15dfd13f",
+      "image_reference": {
+        "policy": "none",
+        "value": ""
+      },
+      "known_issues": [
+        "旧 Prompt 不知道这是比较页",
+        "视觉语义主要依赖单一 metaphor 字段"
+      ]
+    },
+    {
+      "id": "visual-retrieval-04-conclusion",
+      "article_summary": "解释长材料尾部证据为什么会被固定字符截断遗漏，以及章节检索如何改善覆盖。",
+      "article_thesis": "证据预算应围绕章节问题分配，而不是围绕来源长度平均分配。",
+      "section_title": "让每一节说清证据在哪",
+      "page_visual_role": "conclusion",
+      "phrase": "写下结论，也写下它从哪来",
+      "note": "结尾强调可追溯，不使用庆祝式抽象符号。",
+      "evidence_summary": "目标合同要求每节列出实际使用的 source_id:chunk_id。",
+      "storyboard": {
+        "page": 4,
+        "total_pages": 4,
+        "visual_metaphor": "a small map legend connecting three punched coordinates on rough paper",
+        "layout": "upper-right-block",
+        "anchor": "flat-silhouette",
+        "accent": "pear-green",
+        "texture": "scan-noise-paper-fibers",
+        "mood": "resolved",
+        "focus_x": 0.68,
+        "focus_y": 0.42,
+        "zoom": 1.0
+      },
+      "raw_prompt": "Create one sparse, non-literal editorial visual symbol for this idea: a small map legend connecting three punched coordinates on rough paper. Express it as one flat-silhouette with a scan-noise-paper-fibers material treatment and a resolved mood. Render only the visual object and paper texture; do not render the idea as words.",
+      "final_prompt": "Tall vertical 3:5 full-frame aged-paper editorial plate, no border and no mockup; 70%-90% perceived quiet paper, one sparse 8%-25% visual cluster positioned as upper-right-block, with a clean lower-left paper block for local Chinese for local type. Keep that zone as the same continuous paper surface: no panel, frame, card, cream box, caption plate or hard-edged overlay.\n\nOne flat-silhouette interprets a small map legend connecting three punched coordinates on rough paper; treat it with scan-noise-paper-fibers and restrained old-print material process. Use this imageable detail only as visual guidance: Create one sparse, non-literal editorial visual symbol for this idea: a small map legend connecting three punched coordinates on rough paper. Express it as one flat-silhouette with a scan-noise-paper-fibers material treatment and a resolved mood. Render only the visual object and paper texture; do not render the idea as words..\n\nNo model typography: X2RED adds Chinese locally after generation. Use one fully saturated pear-green as the clear high-chroma anchor, about 0.8%-2.5% of the full canvas, never washed out; paper and grayscale support remain subdued. NO TEXT, NO CHINESE CHARACTERS, NO LATIN LETTERS, NO NUMBERS, NO LOGO, NO WATERMARK, NO SIGNATURE, NO BADGE, NO UI, NO LABEL.\n\nFlat orthographic scanned-paper mood: resolved, diffuse light, matte absorbent paper, low-to-medium contrast and no 3D depth. Avoid full-bleed scenes, commercial hierarchy, product ads, CTA, glossy mockups, cinematic lighting, neon, cute cartoon, fashion drama, dense scrapbook, many colors and readable generated text.",
+      "compiler": {
+        "service_path": "apps/api/app/services/minimal_zine_native.py",
+        "entrypoint": "MinimalZineNativeService.prepare_web_handoff -> _four_paragraph_prompt",
+        "compiler_mode": "legacy_web_handoff",
+        "skill_name": "gc-minimal-zine-poster-v0-1",
+        "skill_commit": "4cb0396ad4e834019f753b37e1c4f415f5e02026",
+        "compositor_version": "minimal-zine-local-type-v6"
+      },
+      "model_input_fingerprint": "0cb4a60f28677955647a85ab0d33551ebc7eaa311770f95750f39481e22b8e32",
+      "prompt_fingerprint": "d5f60fb9cb9088657990c35e6a3d1a683e835b79e21eeaa9442303c82dd101c4",
+      "image_reference": {
+        "policy": "none",
+        "value": ""
+      },
+      "known_issues": [
+        "结论职责不进入 compiler",
+        "Prompt 没有相邻页面概念"
+      ]
+    },
+    {
+      "id": "visual-local-first-01-cover",
+      "article_summary": "介绍本地优先创作系统如何保存来源、版本、视觉工件和发布决定。",
+      "article_thesis": "本地优先是关键工件与决定可审计，而不是把完全离线当作口号。",
+      "section_title": "什么才值得留在本地",
+      "page_visual_role": "cover",
+      "phrase": "把决定权，留在看得见的地方",
+      "note": "封面表现可保管、可取出的工件，而不是云朵与锁的陈词滥调。",
+      "evidence_summary": "合成流程将来源、版本和发布包保存在本地可审计边界。",
+      "storyboard": {
+        "page": 1,
+        "total_pages": 4,
+        "visual_metaphor": "a compact wooden archive box holding one removable sealed paper packet",
+        "layout": "single-specimen",
+        "anchor": "object-specimen",
+        "accent": "tomato-red",
+        "texture": "aged-paper-mottling",
+        "mood": "grounded",
+        "focus_x": 0.52,
+        "focus_y": 0.48,
+        "zoom": 1.0
+      },
+      "raw_prompt": "Create one sparse, non-literal editorial visual symbol for this idea: a compact wooden archive box holding one removable sealed paper packet. Express it as one object-specimen with a aged-paper-mottling material treatment and a grounded mood. Render only the visual object and paper texture; do not render the idea as words.",
+      "final_prompt": "Tall vertical 3:5 full-frame aged-paper editorial plate, no border and no mockup; 70%-90% perceived quiet paper, one sparse 8%-25% visual cluster positioned as single-specimen, with a clean lower-right specimen-label paper zone for local Chinese for local type. Keep that zone as the same continuous paper surface: no panel, frame, card, cream box, caption plate or hard-edged overlay.\n\nOne object-specimen interprets a compact wooden archive box holding one removable sealed paper packet; treat it with aged-paper-mottling and restrained old-print material process. Use this imageable detail only as visual guidance: Create one sparse, non-literal editorial visual symbol for this idea: a compact wooden archive box holding one removable sealed paper packet. Express it as one object-specimen with a aged-paper-mottling material treatment and a grounded mood. Render only the visual object and paper texture; do not render the idea as words..\n\nNo model typography: X2RED adds Chinese locally after generation. Use one fully saturated tomato-red as the clear high-chroma anchor, about 0.8%-2.5% of the full canvas, never washed out; paper and grayscale support remain subdued. NO TEXT, NO CHINESE CHARACTERS, NO LATIN LETTERS, NO NUMBERS, NO LOGO, NO WATERMARK, NO SIGNATURE, NO BADGE, NO UI, NO LABEL.\n\nFlat orthographic scanned-paper mood: grounded, diffuse light, matte absorbent paper, low-to-medium contrast and no 3D depth. Avoid full-bleed scenes, commercial hierarchy, product ads, CTA, glossy mockups, cinematic lighting, neon, cute cartoon, fashion drama, dense scrapbook, many colors and readable generated text.",
+      "compiler": {
+        "service_path": "apps/api/app/services/minimal_zine_native.py",
+        "entrypoint": "MinimalZineNativeService.prepare_web_handoff -> _four_paragraph_prompt",
+        "compiler_mode": "legacy_web_handoff",
+        "skill_name": "gc-minimal-zine-poster-v0-1",
+        "skill_commit": "4cb0396ad4e834019f753b37e1c4f415f5e02026",
+        "compositor_version": "minimal-zine-local-type-v6"
+      },
+      "model_input_fingerprint": "d253a2dd1f2088d0600a5eeef664457f3c2466df09f1a9391b29f06a38ceabe7",
+      "prompt_fingerprint": "5f5242e039e51cc658c2f28125e3ba1bfe1d6a012491356d1673c0565eddee73",
+      "image_reference": {
+        "policy": "none",
+        "value": ""
+      },
+      "known_issues": [
+        "旧 Prompt 不接收项目级视觉身份",
+        "系列一致性只能靠重复控件猜测"
+      ]
+    },
+    {
+      "id": "visual-local-first-02-process",
+      "article_summary": "介绍本地优先创作系统如何保存来源、版本、视觉工件和发布决定。",
+      "article_thesis": "本地优先是关键工件与决定可审计，而不是把完全离线当作口号。",
+      "section_title": "从来源到冻结批次",
+      "page_visual_role": "process",
+      "phrase": "每次出发，都先冻结行李",
+      "note": "表现来源经过多个明确工位成为冻结批次。",
+      "evidence_summary": "语料池送入工作台时冻结来源集合、版本和 provenance。",
+      "storyboard": {
+        "page": 2,
+        "total_pages": 4,
+        "visual_metaphor": "three paper trays connected by a single red binding thread and one sealed bundle",
+        "layout": "irregular-cutout",
+        "anchor": "torn-paper-clipping",
+        "accent": "vermilion",
+        "texture": "halftone-degradation",
+        "mood": "procedural",
+        "focus_x": 0.45,
+        "focus_y": 0.55,
+        "zoom": 1.0
+      },
+      "raw_prompt": "Create one sparse, non-literal editorial visual symbol for this idea: three paper trays connected by a single red binding thread and one sealed bundle. Express it as one torn-paper-clipping with a halftone-degradation material treatment and a procedural mood. Render only the visual object and paper texture; do not render the idea as words.",
+      "final_prompt": "Tall vertical 3:5 full-frame aged-paper editorial plate, no border and no mockup; 70%-90% perceived quiet paper, one sparse 8%-25% visual cluster positioned as irregular-cutout, with a clean lower-right paper column for local Chinese for local type. Keep that zone as the same continuous paper surface: no panel, frame, card, cream box, caption plate or hard-edged overlay.\n\nOne torn-paper-clipping interprets three paper trays connected by a single red binding thread and one sealed bundle; treat it with halftone-degradation and restrained old-print material process. Use this imageable detail only as visual guidance: Create one sparse, non-literal editorial visual symbol for this idea: three paper trays connected by a single red binding thread and one sealed bundle. Express it as one torn-paper-clipping with a halftone-degradation material treatment and a procedural mood. Render only the visual object and paper texture; do not render the idea as words..\n\nNo model typography: X2RED adds Chinese locally after generation. Use one fully saturated vermilion as the clear high-chroma anchor, about 0.8%-2.5% of the full canvas, never washed out; paper and grayscale support remain subdued. NO TEXT, NO CHINESE CHARACTERS, NO LATIN LETTERS, NO NUMBERS, NO LOGO, NO WATERMARK, NO SIGNATURE, NO BADGE, NO UI, NO LABEL.\n\nFlat orthographic scanned-paper mood: procedural, diffuse light, matte absorbent paper, low-to-medium contrast and no 3D depth. Avoid full-bleed scenes, commercial hierarchy, product ads, CTA, glossy mockups, cinematic lighting, neon, cute cartoon, fashion drama, dense scrapbook, many colors and readable generated text.",
+      "compiler": {
+        "service_path": "apps/api/app/services/minimal_zine_native.py",
+        "entrypoint": "MinimalZineNativeService.prepare_web_handoff -> _four_paragraph_prompt",
+        "compiler_mode": "legacy_web_handoff",
+        "skill_name": "gc-minimal-zine-poster-v0-1",
+        "skill_commit": "4cb0396ad4e834019f753b37e1c4f415f5e02026",
+        "compositor_version": "minimal-zine-local-type-v6"
+      },
+      "model_input_fingerprint": "01e5ca41595fb76347439e45fb813fb12b6afb944c34a5ae9834d2e0c27c1155",
+      "prompt_fingerprint": "e3b0c4c6fd00c4f66f468de54605ee2d862a48990c5b350bd4b48b32d756e887",
+      "image_reference": {
+        "policy": "none",
+        "value": ""
+      },
+      "known_issues": [
+        "流程关系没有结构化 action_or_relation",
+        "Prompt 仍可能退化成装饰拼贴"
+      ]
+    },
+    {
+      "id": "visual-local-first-03-limitation",
+      "article_summary": "介绍本地优先创作系统如何保存来源、版本、视觉工件和发布决定。",
+      "article_thesis": "本地优先是关键工件与决定可审计，而不是把完全离线当作口号。",
+      "section_title": "本地优先不等于完全离线",
+      "page_visual_role": "limitation",
+      "phrase": "断开连接，记录仍然在",
+      "note": "限制页要区分远端能力与本地记录，不制造万能安全感。",
+      "evidence_summary": "外部模型仍可参与，但来源与版本不能只存在于远端会话。",
+      "storyboard": {
+        "page": 3,
+        "total_pages": 4,
+        "visual_metaphor": "an unplugged braided cable resting beside an intact stack of bound paper files",
+        "layout": "lower-left-float",
+        "anchor": "tiny-faded-photo",
+        "accent": "cyan",
+        "texture": "film-grain-photo",
+        "mood": "cautious",
+        "focus_x": 0.35,
+        "focus_y": 0.64,
+        "zoom": 1.1
+      },
+      "raw_prompt": "Create one sparse, non-literal editorial visual symbol for this idea: an unplugged braided cable resting beside an intact stack of bound paper files. Express it as one tiny-faded-photo with a film-grain-photo material treatment and a cautious mood. Render only the visual object and paper texture; do not render the idea as words.",
+      "final_prompt": "Tall vertical 3:5 full-frame aged-paper editorial plate, no border and no mockup; 70%-90% perceived quiet paper, one sparse 8%-25% visual cluster positioned as lower-left-float, with a quiet upper-right vertical paper zone for local Chinese for local type. Keep that zone as the same continuous paper surface: no panel, frame, card, cream box, caption plate or hard-edged overlay.\n\nOne tiny-faded-photo interprets an unplugged braided cable resting beside an intact stack of bound paper files; treat it with film-grain-photo and restrained old-print material process. Use this imageable detail only as visual guidance: Create one sparse, non-literal editorial visual symbol for this idea: an unplugged braided cable resting beside an intact stack of bound paper files. Express it as one tiny-faded-photo with a film-grain-photo material treatment and a cautious mood. Render only the visual object and paper texture; do not render the idea as words..\n\nNo model typography: X2RED adds Chinese locally after generation. Use one fully saturated cyan as the clear high-chroma anchor, about 0.8%-2.5% of the full canvas, never washed out; paper and grayscale support remain subdued. NO TEXT, NO CHINESE CHARACTERS, NO LATIN LETTERS, NO NUMBERS, NO LOGO, NO WATERMARK, NO SIGNATURE, NO BADGE, NO UI, NO LABEL.\n\nFlat orthographic scanned-paper mood: cautious, diffuse light, matte absorbent paper, low-to-medium contrast and no 3D depth. Avoid full-bleed scenes, commercial hierarchy, product ads, CTA, glossy mockups, cinematic lighting, neon, cute cartoon, fashion drama, dense scrapbook, many colors and readable generated text.",
+      "compiler": {
+        "service_path": "apps/api/app/services/minimal_zine_native.py",
+        "entrypoint": "MinimalZineNativeService.prepare_web_handoff -> _four_paragraph_prompt",
+        "compiler_mode": "legacy_web_handoff",
+        "skill_name": "gc-minimal-zine-poster-v0-1",
+        "skill_commit": "4cb0396ad4e834019f753b37e1c4f415f5e02026",
+        "compositor_version": "minimal-zine-local-type-v6"
+      },
+      "model_input_fingerprint": "95f1d1006ae7118c59835e101843d4d54f8d9d1f6dfb04b7d4aacad03b4b0aec",
+      "prompt_fingerprint": "86cfd3f10f28453d02c8dbaa74f595a66388b38266f31315014618efc7a93d1d",
+      "image_reference": {
+        "policy": "none",
+        "value": ""
+      },
+      "known_issues": [
+        "限制条件不会改变 Prompt 约束",
+        "旧模式没有 must_preserve 字段"
+      ]
+    },
+    {
+      "id": "visual-local-first-04-conclusion",
+      "article_summary": "介绍本地优先创作系统如何保存来源、版本、视觉工件和发布决定。",
+      "article_thesis": "本地优先是关键工件与决定可审计，而不是把完全离线当作口号。",
+      "section_title": "最终发布由人确认",
+      "page_visual_role": "conclusion",
+      "phrase": "最后一步，不交给自动化",
+      "note": "表现人工批准停在封包之前，不出现真实印章文字。",
+      "evidence_summary": "系统只准备发布包，不点击最终发布按钮。",
+      "storyboard": {
+        "page": 4,
+        "total_pages": 4,
+        "visual_metaphor": "a human hand hovering a blank rubber stamp above one sealed editorial packet",
+        "layout": "upper-right-block",
+        "anchor": "old-printed-illustration",
+        "accent": "magenta-pink",
+        "texture": "letterpress-ink-bleed",
+        "mood": "deliberate",
+        "focus_x": 0.7,
+        "focus_y": 0.38,
+        "zoom": 1.0
+      },
+      "raw_prompt": "Create one sparse, non-literal editorial visual symbol for this idea: a human hand hovering a blank rubber stamp above one sealed editorial packet. Express it as one old-printed-illustration with a letterpress-ink-bleed material treatment and a deliberate mood. Render only the visual object and paper texture; do not render the idea as words.",
+      "final_prompt": "Tall vertical 3:5 full-frame aged-paper editorial plate, no border and no mockup; 70%-90% perceived quiet paper, one sparse 8%-25% visual cluster positioned as upper-right-block, with a clean lower-left paper block for local Chinese for local type. Keep that zone as the same continuous paper surface: no panel, frame, card, cream box, caption plate or hard-edged overlay.\n\nOne old-printed-illustration interprets a human hand hovering a blank rubber stamp above one sealed editorial packet; treat it with letterpress-ink-bleed and restrained old-print material process. Use this imageable detail only as visual guidance: Create one sparse, non-literal editorial visual symbol for this idea: a human hand hovering a blank rubber stamp above one sealed editorial packet. Express it as one old-printed-illustration with a letterpress-ink-bleed material treatment and a deliberate mood. Render only the visual object and paper texture; do not render the idea as words..\n\nNo model typography: X2RED adds Chinese locally after generation. Use one fully saturated magenta-pink as the clear high-chroma anchor, about 0.8%-2.5% of the full canvas, never washed out; paper and grayscale support remain subdued. NO TEXT, NO CHINESE CHARACTERS, NO LATIN LETTERS, NO NUMBERS, NO LOGO, NO WATERMARK, NO SIGNATURE, NO BADGE, NO UI, NO LABEL.\n\nFlat orthographic scanned-paper mood: deliberate, diffuse light, matte absorbent paper, low-to-medium contrast and no 3D depth. Avoid full-bleed scenes, commercial hierarchy, product ads, CTA, glossy mockups, cinematic lighting, neon, cute cartoon, fashion drama, dense scrapbook, many colors and readable generated text.",
+      "compiler": {
+        "service_path": "apps/api/app/services/minimal_zine_native.py",
+        "entrypoint": "MinimalZineNativeService.prepare_web_handoff -> _four_paragraph_prompt",
+        "compiler_mode": "legacy_web_handoff",
+        "skill_name": "gc-minimal-zine-poster-v0-1",
+        "skill_commit": "4cb0396ad4e834019f753b37e1c4f415f5e02026",
+        "compositor_version": "minimal-zine-local-type-v6"
+      },
+      "model_input_fingerprint": "29203d99e6fb9f6c9b3dcf20bf233ab2fa08dfd18d14a9cfa1f35641331a9e01",
+      "prompt_fingerprint": "65467359b29d261e0f5ce5308017476c2dc0393e8a7562c6f6cced9df46f21a0",
+      "image_reference": {
+        "policy": "none",
+        "value": ""
+      },
+      "known_issues": [
+        "article thesis 不进入旧 Prompt",
+        "结尾页与封面没有系列级联系"
+      ]
+    },
+    {
+      "id": "visual-prompt-01-cover",
+      "article_summary": "追踪 Minimal Zine Prompt 从分镜、Skill compiler 到网页 handoff 与 API render 的路径。",
+      "article_thesis": "同一页的网页与 API 路径应共享结构化 recipe 和完整指纹。",
+      "section_title": "一页 Prompt 的两条路径",
+      "page_visual_role": "cover",
+      "phrase": "同一页，不该有两套视觉决定",
+      "note": "封面显示同一核心物件被两层透明轨迹包围。",
+      "evidence_summary": "当前网页 handoff 不调用完整文本 compiler，API 路径又会本地重算 recipe。",
+      "storyboard": {
+        "page": 1,
+        "total_pages": 4,
+        "visual_metaphor": "one small seed object enclosed by two misaligned translucent tracing sheets",
+        "layout": "dot-orbit",
+        "anchor": "translucent-geometric-overlay",
+        "accent": "ultramarine",
+        "texture": "scan-noise-paper-fibers",
+        "mood": "diagnostic",
+        "focus_x": 0.5,
+        "focus_y": 0.5,
+        "zoom": 1.0
+      },
+      "raw_prompt": "Create one sparse, non-literal editorial visual symbol for this idea: one small seed object enclosed by two misaligned translucent tracing sheets. Express it as one translucent-geometric-overlay with a scan-noise-paper-fibers material treatment and a diagnostic mood. Render only the visual object and paper texture; do not render the idea as words.",
+      "final_prompt": "Tall vertical 3:5 full-frame aged-paper editorial plate, no border and no mockup; 70%-90% perceived quiet paper, one sparse 8%-25% visual cluster positioned as dot-orbit, with a quiet lower paper caption field outside the dot orbit for local type. Keep that zone as the same continuous paper surface: no panel, frame, card, cream box, caption plate or hard-edged overlay.\n\nOne translucent-geometric-overlay interprets one small seed object enclosed by two misaligned translucent tracing sheets; treat it with scan-noise-paper-fibers and restrained old-print material process. Use this imageable detail only as visual guidance: Create one sparse, non-literal editorial visual symbol for this idea: one small seed object enclosed by two misaligned translucent tracing sheets. Express it as one translucent-geometric-overlay with a scan-noise-paper-fibers material treatment and a diagnostic mood. Render only the visual object and paper texture; do not render the idea as words..\n\nNo model typography: X2RED adds Chinese locally after generation. Use one fully saturated ultramarine as the clear high-chroma anchor, about 0.8%-2.5% of the full canvas, never washed out; paper and grayscale support remain subdued. NO TEXT, NO CHINESE CHARACTERS, NO LATIN LETTERS, NO NUMBERS, NO LOGO, NO WATERMARK, NO SIGNATURE, NO BADGE, NO UI, NO LABEL.\n\nFlat orthographic scanned-paper mood: diagnostic, diffuse light, matte absorbent paper, low-to-medium contrast and no 3D depth. Avoid full-bleed scenes, commercial hierarchy, product ads, CTA, glossy mockups, cinematic lighting, neon, cute cartoon, fashion drama, dense scrapbook, many colors and readable generated text.",
+      "compiler": {
+        "service_path": "apps/api/app/services/minimal_zine_native.py",
+        "entrypoint": "MinimalZineNativeService.prepare_web_handoff -> _four_paragraph_prompt",
+        "compiler_mode": "legacy_web_handoff",
+        "skill_name": "gc-minimal-zine-poster-v0-1",
+        "skill_commit": "4cb0396ad4e834019f753b37e1c4f415f5e02026",
+        "compositor_version": "minimal-zine-local-type-v6"
+      },
+      "model_input_fingerprint": "d81a7c2f0372813f49f0a1307d79dc91e466f9e775ddf038a9b570b17f88fb06",
+      "prompt_fingerprint": "3fe53bf4e9249f44e5f22ff352540122d1902eb1292190508578d04d0deecc8a",
+      "image_reference": {
+        "policy": "none",
+        "value": ""
+      },
+      "known_issues": [
+        "网页与 API 路径的 compiler 语义不等价",
+        "当前 trace 没有 compiler version"
+      ]
+    },
+    {
+      "id": "visual-prompt-02-evidence",
+      "article_summary": "追踪 Minimal Zine Prompt 从分镜、Skill compiler 到网页 handoff 与 API render 的路径。",
+      "article_thesis": "同一页的网页与 API 路径应共享结构化 recipe 和完整指纹。",
+      "section_title": "指纹漏掉了什么",
+      "page_visual_role": "evidence",
+      "phrase": "短句变了，旧锚点却可能还有效",
+      "note": "展示多个内容变化只留下一个未变化的旧封印。",
+      "evidence_summary": "当前 model_input_fingerprint 只覆盖 metaphor、layout、anchor、accent、texture 和 mood。",
+      "storyboard": {
+        "page": 2,
+        "total_pages": 4,
+        "visual_metaphor": "three altered paper slips placed beneath one unchanged round wax seal",
+        "layout": "center-fragment",
+        "anchor": "object-specimen",
+        "accent": "tomato-red",
+        "texture": "xerox-softness",
+        "mood": "forensic",
+        "focus_x": 0.5,
+        "focus_y": 0.52,
+        "zoom": 1.0
+      },
+      "raw_prompt": "Create one sparse, non-literal editorial visual symbol for this idea: three altered paper slips placed beneath one unchanged round wax seal. Express it as one object-specimen with a xerox-softness material treatment and a forensic mood. Render only the visual object and paper texture; do not render the idea as words.",
+      "final_prompt": "Tall vertical 3:5 full-frame aged-paper editorial plate, no border and no mockup; 70%-90% perceived quiet paper, one sparse 8%-25% visual cluster positioned as center-fragment, with the bottom 30 percent blank as one clean continuous paper zone for local type. Keep that zone as the same continuous paper surface: no panel, frame, card, cream box, caption plate or hard-edged overlay.\n\nOne object-specimen interprets three altered paper slips placed beneath one unchanged round wax seal; treat it with xerox-softness and restrained old-print material process. Use this imageable detail only as visual guidance: Create one sparse, non-literal editorial visual symbol for this idea: three altered paper slips placed beneath one unchanged round wax seal. Express it as one object-specimen with a xerox-softness material treatment and a forensic mood. Render only the visual object and paper texture; do not render the idea as words..\n\nNo model typography: X2RED adds Chinese locally after generation. Use one fully saturated tomato-red as the clear high-chroma anchor, about 0.8%-2.5% of the full canvas, never washed out; paper and grayscale support remain subdued. NO TEXT, NO CHINESE CHARACTERS, NO LATIN LETTERS, NO NUMBERS, NO LOGO, NO WATERMARK, NO SIGNATURE, NO BADGE, NO UI, NO LABEL.\n\nFlat orthographic scanned-paper mood: forensic, diffuse light, matte absorbent paper, low-to-medium contrast and no 3D depth. Avoid full-bleed scenes, commercial hierarchy, product ads, CTA, glossy mockups, cinematic lighting, neon, cute cartoon, fashion drama, dense scrapbook, many colors and readable generated text.",
+      "compiler": {
+        "service_path": "apps/api/app/services/minimal_zine_native.py",
+        "entrypoint": "MinimalZineNativeService.prepare_web_handoff -> _four_paragraph_prompt",
+        "compiler_mode": "legacy_web_handoff",
+        "skill_name": "gc-minimal-zine-poster-v0-1",
+        "skill_commit": "4cb0396ad4e834019f753b37e1c4f415f5e02026",
+        "compositor_version": "minimal-zine-local-type-v6"
+      },
+      "model_input_fingerprint": "99e7692ae45be1aa408e2110f25a70da1a0d4401b01ad004fcf15763f2fbd387",
+      "prompt_fingerprint": "1979c6343c5fb20eb78763f071bcef75ff749c0b811d1aa92de67bb195af230a",
+      "image_reference": {
+        "policy": "none",
+        "value": ""
+      },
+      "known_issues": [
+        "phrase、note、evidence 和 page role 不进入旧指纹",
+        "容易复用语义已经过期的 Prompt"
+      ]
+    },
+    {
+      "id": "visual-prompt-03-limitation",
+      "article_summary": "追踪 Minimal Zine Prompt 从分镜、Skill compiler 到网页 handoff 与 API render 的路径。",
+      "article_thesis": "同一页的网页与 API 路径应共享结构化 recipe 和完整指纹。",
+      "section_title": "recipe 被再次压平",
+      "page_visual_role": "limitation",
+      "phrase": "上游给出配方，本地又换了一次",
+      "note": "表现丰富折页被压成统一矩形，指出信息损失。",
+      "evidence_summary": "当前 API compiler 读取模型结果后仍使用 _recipe_for(spec) 覆盖返回 recipe。",
+      "storyboard": {
+        "page": 3,
+        "total_pages": 4,
+        "visual_metaphor": "a richly folded paper construction pressed flat beneath one rigid blank rectangle",
+        "layout": "dual-panel",
+        "anchor": "solid-color-block",
+        "accent": "orange",
+        "texture": "halftone-degradation",
+        "mood": "constrained",
+        "focus_x": 0.5,
+        "focus_y": 0.52,
+        "zoom": 1.0
+      },
+      "raw_prompt": "Create one sparse, non-literal editorial visual symbol for this idea: a richly folded paper construction pressed flat beneath one rigid blank rectangle. Express it as one solid-color-block with a halftone-degradation material treatment and a constrained mood. Render only the visual object and paper texture; do not render the idea as words.",
+      "final_prompt": "Tall vertical 3:5 full-frame aged-paper editorial plate, no border and no mockup; 70%-90% perceived quiet paper, one sparse 8%-25% visual cluster positioned as dual-panel, with a clean lower-center paper band for local Chinese for local type. Keep that zone as the same continuous paper surface: no panel, frame, card, cream box, caption plate or hard-edged overlay.\n\nOne solid-color-block interprets a richly folded paper construction pressed flat beneath one rigid blank rectangle; treat it with halftone-degradation and restrained old-print material process. Use this imageable detail only as visual guidance: Create one sparse, non-literal editorial visual symbol for this idea: a richly folded paper construction pressed flat beneath one rigid blank rectangle. Express it as one solid-color-block with a halftone-degradation material treatment and a constrained mood. Render only the visual object and paper texture; do not render the idea as words..\n\nNo model typography: X2RED adds Chinese locally after generation. Use one fully saturated orange as the clear high-chroma anchor, about 0.8%-2.5% of the full canvas, never washed out; paper and grayscale support remain subdued. NO TEXT, NO CHINESE CHARACTERS, NO LATIN LETTERS, NO NUMBERS, NO LOGO, NO WATERMARK, NO SIGNATURE, NO BADGE, NO UI, NO LABEL.\n\nFlat orthographic scanned-paper mood: constrained, diffuse light, matte absorbent paper, low-to-medium contrast and no 3D depth. Avoid full-bleed scenes, commercial hierarchy, product ads, CTA, glossy mockups, cinematic lighting, neon, cute cartoon, fashion drama, dense scrapbook, many colors and readable generated text.",
+      "compiler": {
+        "service_path": "apps/api/app/services/minimal_zine_native.py",
+        "entrypoint": "MinimalZineNativeService.prepare_web_handoff -> _four_paragraph_prompt",
+        "compiler_mode": "legacy_web_handoff",
+        "skill_name": "gc-minimal-zine-poster-v0-1",
+        "skill_commit": "4cb0396ad4e834019f753b37e1c4f415f5e02026",
+        "compositor_version": "minimal-zine-local-type-v6"
+      },
+      "model_input_fingerprint": "2990f9d1041f3a51a64d62a87220e07505ee21d648e233e8fa2991c9425c5318",
+      "prompt_fingerprint": "c9887b1a4d535def163f19c70cb4c5765bab448dfb1dc4eaf69c14e43b05b7f8",
+      "image_reference": {
+        "policy": "none",
+        "value": ""
+      },
+      "known_issues": [
+        "上游 recipe 无法重放",
+        "fallback 与正常成功没有结构化区分"
+      ]
+    },
+    {
+      "id": "visual-prompt-04-conclusion",
+      "article_summary": "追踪 Minimal Zine Prompt 从分镜、Skill compiler 到网页 handoff 与 API render 的路径。",
+      "article_thesis": "同一页的网页与 API 路径应共享结构化 recipe 和完整指纹。",
+      "section_title": "结构化保存每次视觉决定",
+      "page_visual_role": "conclusion",
+      "phrase": "Prompt 不是一段字，是一组决定",
+      "note": "结尾用可分离的实体配方部件表达结构化保存。",
+      "evidence_summary": "目标需要保存 skill、compiler、recipe、source fingerprint 和 prompt fingerprint。",
+      "storyboard": {
+        "page": 4,
+        "total_pages": 4,
+        "visual_metaphor": "six small material swatches clipped into one orderly archival fan",
+        "layout": "lower-fragment",
+        "anchor": "old-printed-illustration",
+        "accent": "pear-green",
+        "texture": "risograph-grain",
+        "mood": "organized",
+        "focus_x": 0.48,
+        "focus_y": 0.66,
+        "zoom": 1.0
+      },
+      "raw_prompt": "Create one sparse, non-literal editorial visual symbol for this idea: six small material swatches clipped into one orderly archival fan. Express it as one old-printed-illustration with a risograph-grain material treatment and a organized mood. Render only the visual object and paper texture; do not render the idea as words.",
+      "final_prompt": "Tall vertical 3:5 full-frame aged-paper editorial plate, no border and no mockup; 70%-90% perceived quiet paper, one sparse 8%-25% visual cluster positioned as lower-fragment, with a quiet upper paper zone spanning roughly the top 28 percent for local type. Keep that zone as the same continuous paper surface: no panel, frame, card, cream box, caption plate or hard-edged overlay.\n\nOne old-printed-illustration interprets six small material swatches clipped into one orderly archival fan; treat it with risograph-grain and restrained old-print material process. Use this imageable detail only as visual guidance: Create one sparse, non-literal editorial visual symbol for this idea: six small material swatches clipped into one orderly archival fan. Express it as one old-printed-illustration with a risograph-grain material treatment and a organized mood. Render only the visual object and paper texture; do not render the idea as words..\n\nNo model typography: X2RED adds Chinese locally after generation. Use one fully saturated pear-green as the clear high-chroma anchor, about 0.8%-2.5% of the full canvas, never washed out; paper and grayscale support remain subdued. NO TEXT, NO CHINESE CHARACTERS, NO LATIN LETTERS, NO NUMBERS, NO LOGO, NO WATERMARK, NO SIGNATURE, NO BADGE, NO UI, NO LABEL.\n\nFlat orthographic scanned-paper mood: organized, diffuse light, matte absorbent paper, low-to-medium contrast and no 3D depth. Avoid full-bleed scenes, commercial hierarchy, product ads, CTA, glossy mockups, cinematic lighting, neon, cute cartoon, fashion drama, dense scrapbook, many colors and readable generated text.",
+      "compiler": {
+        "service_path": "apps/api/app/services/minimal_zine_native.py",
+        "entrypoint": "MinimalZineNativeService.prepare_web_handoff -> _four_paragraph_prompt",
+        "compiler_mode": "legacy_web_handoff",
+        "skill_name": "gc-minimal-zine-poster-v0-1",
+        "skill_commit": "4cb0396ad4e834019f753b37e1c4f415f5e02026",
+        "compositor_version": "minimal-zine-local-type-v6"
+      },
+      "model_input_fingerprint": "e3fb5ffc5c5fdeb7a444242dff58fb13d78da6699a2d9129d0ce62e78d77b3b0",
+      "prompt_fingerprint": "be5a93501cb94f0f8b7dd3fd868c6df1b981edddb5f3e2c53c55a71e00428f62",
+      "image_reference": {
+        "policy": "none",
+        "value": ""
+      },
+      "known_issues": [
+        "旧输出只有非正式 recipe 字典",
+        "没有 warnings 与 compiler mode"
+      ]
+    },
+    {
+      "id": "visual-firewall-01-cover",
+      "article_summary": "解释写作偏好如何影响表达，又如何被当前证据边界阻止补充历史事实。",
+      "article_thesis": "记忆只决定怎么写，当前 evidence pack 决定能写什么。",
+      "section_title": "两种记忆，两条边界",
+      "page_visual_role": "cover",
+      "phrase": "风格可以流动，事实必须落地",
+      "note": "用不同材质表达风格与事实，但不使用大脑或防火墙俗套。",
+      "evidence_summary": "合成测试把事实角色与风格记忆隔离，只允许当前来源支持主张。",
+      "storyboard": {
+        "page": 1,
+        "total_pages": 4,
+        "visual_metaphor": "a soft fabric ribbon passing beside a row of heavy pinned stone samples",
+        "layout": "irregular-cutout",
+        "anchor": "tiny-faded-photo",
+        "accent": "violet",
+        "texture": "film-grain-photo",
+        "mood": "disciplined",
+        "focus_x": 0.46,
+        "focus_y": 0.5,
+        "zoom": 1.05
+      },
+      "raw_prompt": "Create one sparse, non-literal editorial visual symbol for this idea: a soft fabric ribbon passing beside a row of heavy pinned stone samples. Express it as one tiny-faded-photo with a film-grain-photo material treatment and a disciplined mood. Render only the visual object and paper texture; do not render the idea as words.",
+      "final_prompt": "Tall vertical 3:5 full-frame aged-paper editorial plate, no border and no mockup; 70%-90% perceived quiet paper, one sparse 8%-25% visual cluster positioned as irregular-cutout, with a clean lower-right paper column for local Chinese for local type. Keep that zone as the same continuous paper surface: no panel, frame, card, cream box, caption plate or hard-edged overlay.\n\nOne tiny-faded-photo interprets a soft fabric ribbon passing beside a row of heavy pinned stone samples; treat it with film-grain-photo and restrained old-print material process. Use this imageable detail only as visual guidance: Create one sparse, non-literal editorial visual symbol for this idea: a soft fabric ribbon passing beside a row of heavy pinned stone samples. Express it as one tiny-faded-photo with a film-grain-photo material treatment and a disciplined mood. Render only the visual object and paper texture; do not render the idea as words..\n\nNo model typography: X2RED adds Chinese locally after generation. Use one fully saturated violet as the clear high-chroma anchor, about 0.8%-2.5% of the full canvas, never washed out; paper and grayscale support remain subdued. NO TEXT, NO CHINESE CHARACTERS, NO LATIN LETTERS, NO NUMBERS, NO LOGO, NO WATERMARK, NO SIGNATURE, NO BADGE, NO UI, NO LABEL.\n\nFlat orthographic scanned-paper mood: disciplined, diffuse light, matte absorbent paper, low-to-medium contrast and no 3D depth. Avoid full-bleed scenes, commercial hierarchy, product ads, CTA, glossy mockups, cinematic lighting, neon, cute cartoon, fashion drama, dense scrapbook, many colors and readable generated text.",
+      "compiler": {
+        "service_path": "apps/api/app/services/minimal_zine_native.py",
+        "entrypoint": "MinimalZineNativeService.prepare_web_handoff -> _four_paragraph_prompt",
+        "compiler_mode": "legacy_web_handoff",
+        "skill_name": "gc-minimal-zine-poster-v0-1",
+        "skill_commit": "4cb0396ad4e834019f753b37e1c4f415f5e02026",
+        "compositor_version": "minimal-zine-local-type-v6"
+      },
+      "model_input_fingerprint": "1b866a2d7b7113cf66daa996265447eac25a2f1e4232dbd7653eed048ccc3156",
+      "prompt_fingerprint": "0b5da4eb0df0854b980709b90b030d60812c10eee816ebd852c6b496cf3d4a84",
+      "image_reference": {
+        "policy": "none",
+        "value": ""
+      },
+      "known_issues": [
+        "Prompt 只看到 metaphor，无法理解两类记忆的论证关系",
+        "缺少 article thesis"
+      ]
+    },
+    {
+      "id": "visual-firewall-02-evidence",
+      "article_summary": "解释写作偏好如何影响表达，又如何被当前证据边界阻止补充历史事实。",
+      "article_thesis": "记忆只决定怎么写，当前 evidence pack 决定能写什么。",
+      "section_title": "主张要钉在当前来源上",
+      "page_visual_role": "evidence",
+      "phrase": "每个事实，都有当前坐标",
+      "note": "表现当前文档上的证据钉点，避免抽象数据库图标。",
+      "evidence_summary": "每个重大事实必须关联当前任务 evidence ref。",
+      "storyboard": {
+        "page": 2,
+        "total_pages": 4,
+        "visual_metaphor": "three fresh paper fragments fixed by one bright pin to a current evidence board",
+        "layout": "upper-right-block",
+        "anchor": "torn-paper-clipping",
+        "accent": "cobalt",
+        "texture": "letterpress-ink-bleed",
+        "mood": "verifiable",
+        "focus_x": 0.68,
+        "focus_y": 0.4,
+        "zoom": 1.0
+      },
+      "raw_prompt": "Create one sparse, non-literal editorial visual symbol for this idea: three fresh paper fragments fixed by one bright pin to a current evidence board. Express it as one torn-paper-clipping with a letterpress-ink-bleed material treatment and a verifiable mood. Render only the visual object and paper texture; do not render the idea as words.",
+      "final_prompt": "Tall vertical 3:5 full-frame aged-paper editorial plate, no border and no mockup; 70%-90% perceived quiet paper, one sparse 8%-25% visual cluster positioned as upper-right-block, with a clean lower-left paper block for local Chinese for local type. Keep that zone as the same continuous paper surface: no panel, frame, card, cream box, caption plate or hard-edged overlay.\n\nOne torn-paper-clipping interprets three fresh paper fragments fixed by one bright pin to a current evidence board; treat it with letterpress-ink-bleed and restrained old-print material process. Use this imageable detail only as visual guidance: Create one sparse, non-literal editorial visual symbol for this idea: three fresh paper fragments fixed by one bright pin to a current evidence board. Express it as one torn-paper-clipping with a letterpress-ink-bleed material treatment and a verifiable mood. Render only the visual object and paper texture; do not render the idea as words..\n\nNo model typography: X2RED adds Chinese locally after generation. Use one fully saturated cobalt as the clear high-chroma anchor, about 0.8%-2.5% of the full canvas, never washed out; paper and grayscale support remain subdued. NO TEXT, NO CHINESE CHARACTERS, NO LATIN LETTERS, NO NUMBERS, NO LOGO, NO WATERMARK, NO SIGNATURE, NO BADGE, NO UI, NO LABEL.\n\nFlat orthographic scanned-paper mood: verifiable, diffuse light, matte absorbent paper, low-to-medium contrast and no 3D depth. Avoid full-bleed scenes, commercial hierarchy, product ads, CTA, glossy mockups, cinematic lighting, neon, cute cartoon, fashion drama, dense scrapbook, many colors and readable generated text.",
+      "compiler": {
+        "service_path": "apps/api/app/services/minimal_zine_native.py",
+        "entrypoint": "MinimalZineNativeService.prepare_web_handoff -> _four_paragraph_prompt",
+        "compiler_mode": "legacy_web_handoff",
+        "skill_name": "gc-minimal-zine-poster-v0-1",
+        "skill_commit": "4cb0396ad4e834019f753b37e1c4f415f5e02026",
+        "compositor_version": "minimal-zine-local-type-v6"
+      },
+      "model_input_fingerprint": "a60fb695736619b4cc6a03fc78025fd97f3a5f8b19fe2830f668816c5c305e4c",
+      "prompt_fingerprint": "c77c549552f3e66c339499a4440728dfbfcb964e445cdbf67cad4710d436517e",
+      "image_reference": {
+        "policy": "none",
+        "value": ""
+      },
+      "known_issues": [
+        "evidence ref 本身不进入 Prompt",
+        "无法判断页面是证据页而非装饰页"
+      ]
+    },
+    {
+      "id": "visual-firewall-03-comparison",
+      "article_summary": "解释写作偏好如何影响表达，又如何被当前证据边界阻止补充历史事实。",
+      "article_thesis": "记忆只决定怎么写，当前 evidence pack 决定能写什么。",
+      "section_title": "偏好不能越过事实边界",
+      "page_visual_role": "comparison",
+      "phrase": "可以改变语气，不能增加事实",
+      "note": "此页故意与下一页共用旧 storyboard 控件，用来冻结指纹碰撞。",
+      "evidence_summary": "历史偏好中的人名、数字、日期和因果不能进入新文章。",
+      "storyboard": {
+        "page": 3,
+        "total_pages": 4,
+        "visual_metaphor": "one sealed evidence folder beside a loose decorative ribbon stopped at a clear divider",
+        "layout": "dual-panel",
+        "anchor": "translucent-geometric-overlay",
+        "accent": "vermilion",
+        "texture": "xerox-softness",
+        "mood": "guarded",
+        "focus_x": 0.5,
+        "focus_y": 0.5,
+        "zoom": 1.0
+      },
+      "raw_prompt": "Create one sparse, non-literal editorial visual symbol for this idea: one sealed evidence folder beside a loose decorative ribbon stopped at a clear divider. Express it as one translucent-geometric-overlay with a xerox-softness material treatment and a guarded mood. Render only the visual object and paper texture; do not render the idea as words.",
+      "final_prompt": "Tall vertical 3:5 full-frame aged-paper editorial plate, no border and no mockup; 70%-90% perceived quiet paper, one sparse 8%-25% visual cluster positioned as dual-panel, with a clean lower-center paper band for local Chinese for local type. Keep that zone as the same continuous paper surface: no panel, frame, card, cream box, caption plate or hard-edged overlay.\n\nOne translucent-geometric-overlay interprets one sealed evidence folder beside a loose decorative ribbon stopped at a clear divider; treat it with xerox-softness and restrained old-print material process. Use this imageable detail only as visual guidance: Create one sparse, non-literal editorial visual symbol for this idea: one sealed evidence folder beside a loose decorative ribbon stopped at a clear divider. Express it as one translucent-geometric-overlay with a xerox-softness material treatment and a guarded mood. Render only the visual object and paper texture; do not render the idea as words..\n\nNo model typography: X2RED adds Chinese locally after generation. Use one fully saturated vermilion as the clear high-chroma anchor, about 0.8%-2.5% of the full canvas, never washed out; paper and grayscale support remain subdued. NO TEXT, NO CHINESE CHARACTERS, NO LATIN LETTERS, NO NUMBERS, NO LOGO, NO WATERMARK, NO SIGNATURE, NO BADGE, NO UI, NO LABEL.\n\nFlat orthographic scanned-paper mood: guarded, diffuse light, matte absorbent paper, low-to-medium contrast and no 3D depth. Avoid full-bleed scenes, commercial hierarchy, product ads, CTA, glossy mockups, cinematic lighting, neon, cute cartoon, fashion drama, dense scrapbook, many colors and readable generated text.",
+      "compiler": {
+        "service_path": "apps/api/app/services/minimal_zine_native.py",
+        "entrypoint": "MinimalZineNativeService.prepare_web_handoff -> _four_paragraph_prompt",
+        "compiler_mode": "legacy_web_handoff",
+        "skill_name": "gc-minimal-zine-poster-v0-1",
+        "skill_commit": "4cb0396ad4e834019f753b37e1c4f415f5e02026",
+        "compositor_version": "minimal-zine-local-type-v6"
+      },
+      "model_input_fingerprint": "77fd4e2214dd70d56010059e294bd4a32d88a3f83ddeaa885c38409e3b8a9157",
+      "prompt_fingerprint": "35c354c923f919986233d3ba487a7817a5530df2b23921f94c61c52d3de8d63e",
+      "image_reference": {
+        "policy": "none",
+        "value": ""
+      },
+      "known_issues": [
+        "与下一页的旧 Prompt 和 model fingerprint 完全相同",
+        "phrase、note 和 role 变化不会使旧 Prompt 过期"
+      ]
+    },
+    {
+      "id": "visual-firewall-04-conclusion",
+      "article_summary": "解释写作偏好如何影响表达，又如何被当前证据边界阻止补充历史事实。",
+      "article_thesis": "记忆只决定怎么写，当前 evidence pack 决定能写什么。",
+      "section_title": "批准规则，保留证据边界",
+      "page_visual_role": "conclusion",
+      "phrase": "记住写法，不替材料说话",
+      "note": "此页改变文字与职责但保留上一页 storyboard，验证旧指纹缺口。",
+      "evidence_summary": "正式偏好卡需要人工批准，事实仍由当前材料决定。",
+      "storyboard": {
+        "page": 4,
+        "total_pages": 4,
+        "visual_metaphor": "one sealed evidence folder beside a loose decorative ribbon stopped at a clear divider",
+        "layout": "dual-panel",
+        "anchor": "translucent-geometric-overlay",
+        "accent": "vermilion",
+        "texture": "xerox-softness",
+        "mood": "guarded",
+        "focus_x": 0.5,
+        "focus_y": 0.5,
+        "zoom": 1.0
+      },
+      "raw_prompt": "Create one sparse, non-literal editorial visual symbol for this idea: one sealed evidence folder beside a loose decorative ribbon stopped at a clear divider. Express it as one translucent-geometric-overlay with a xerox-softness material treatment and a guarded mood. Render only the visual object and paper texture; do not render the idea as words.",
+      "final_prompt": "Tall vertical 3:5 full-frame aged-paper editorial plate, no border and no mockup; 70%-90% perceived quiet paper, one sparse 8%-25% visual cluster positioned as dual-panel, with a clean lower-center paper band for local Chinese for local type. Keep that zone as the same continuous paper surface: no panel, frame, card, cream box, caption plate or hard-edged overlay.\n\nOne translucent-geometric-overlay interprets one sealed evidence folder beside a loose decorative ribbon stopped at a clear divider; treat it with xerox-softness and restrained old-print material process. Use this imageable detail only as visual guidance: Create one sparse, non-literal editorial visual symbol for this idea: one sealed evidence folder beside a loose decorative ribbon stopped at a clear divider. Express it as one translucent-geometric-overlay with a xerox-softness material treatment and a guarded mood. Render only the visual object and paper texture; do not render the idea as words..\n\nNo model typography: X2RED adds Chinese locally after generation. Use one fully saturated vermilion as the clear high-chroma anchor, about 0.8%-2.5% of the full canvas, never washed out; paper and grayscale support remain subdued. NO TEXT, NO CHINESE CHARACTERS, NO LATIN LETTERS, NO NUMBERS, NO LOGO, NO WATERMARK, NO SIGNATURE, NO BADGE, NO UI, NO LABEL.\n\nFlat orthographic scanned-paper mood: guarded, diffuse light, matte absorbent paper, low-to-medium contrast and no 3D depth. Avoid full-bleed scenes, commercial hierarchy, product ads, CTA, glossy mockups, cinematic lighting, neon, cute cartoon, fashion drama, dense scrapbook, many colors and readable generated text.",
+      "compiler": {
+        "service_path": "apps/api/app/services/minimal_zine_native.py",
+        "entrypoint": "MinimalZineNativeService.prepare_web_handoff -> _four_paragraph_prompt",
+        "compiler_mode": "legacy_web_handoff",
+        "skill_name": "gc-minimal-zine-poster-v0-1",
+        "skill_commit": "4cb0396ad4e834019f753b37e1c4f415f5e02026",
+        "compositor_version": "minimal-zine-local-type-v6"
+      },
+      "model_input_fingerprint": "77fd4e2214dd70d56010059e294bd4a32d88a3f83ddeaa885c38409e3b8a9157",
+      "prompt_fingerprint": "35c354c923f919986233d3ba487a7817a5530df2b23921f94c61c52d3de8d63e",
+      "image_reference": {
+        "policy": "none",
+        "value": ""
+      },
+      "known_issues": [
+        "与上一页发生可重复的旧指纹碰撞",
+        "结论职责和人工批准信息被丢弃"
+      ]
+    },
+    {
+      "id": "visual-focus-01-cover",
+      "article_summary": "用四个不同生活动作表达开始、保护、恢复和结束专注。",
+      "article_thesis": "每页应承担不同场景，不能只更换同一抽象 motif。",
+      "section_title": "开始专注",
+      "page_visual_role": "cover",
+      "phrase": "先决定，这段时间只做什么",
+      "note": "封面聚焦唯一目标，不出现励志山峰或发光大脑。",
+      "evidence_summary": "合成观察的第一步是在开始前写下唯一目标。",
+      "storyboard": {
+        "page": 1,
+        "total_pages": 4,
+        "visual_metaphor": "one sharpened pencil aligned with a single blank task card on a quiet desk",
+        "layout": "type-led",
+        "anchor": "object-specimen",
+        "accent": "lemon-yellow",
+        "texture": "aged-paper-mottling",
+        "mood": "focused",
+        "focus_x": 0.5,
+        "focus_y": 0.58,
+        "zoom": 1.0
+      },
+      "raw_prompt": "Create one sparse, non-literal editorial visual symbol for this idea: one sharpened pencil aligned with a single blank task card on a quiet desk. Express it as one object-specimen with a aged-paper-mottling material treatment and a focused mood. Render only the visual object and paper texture; do not render the idea as words.",
+      "final_prompt": "Tall vertical 3:5 full-frame aged-paper editorial plate, no border and no mockup; 70%-90% perceived quiet paper, one sparse 8%-25% visual cluster positioned as type-led, with a large central clean paper field where local Chinese is the type-led anchor for local type. Keep that zone as the same continuous paper surface: no panel, frame, card, cream box, caption plate or hard-edged overlay.\n\nOne object-specimen interprets one sharpened pencil aligned with a single blank task card on a quiet desk; treat it with aged-paper-mottling and restrained old-print material process. Use this imageable detail only as visual guidance: Create one sparse, non-literal editorial visual symbol for this idea: one sharpened pencil aligned with a single blank task card on a quiet desk. Express it as one object-specimen with a aged-paper-mottling material treatment and a focused mood. Render only the visual object and paper texture; do not render the idea as words..\n\nNo model typography: X2RED adds Chinese locally after generation. Use one fully saturated lemon-yellow as the clear high-chroma anchor, about 0.8%-2.5% of the full canvas, never washed out; paper and grayscale support remain subdued. NO TEXT, NO CHINESE CHARACTERS, NO LATIN LETTERS, NO NUMBERS, NO LOGO, NO WATERMARK, NO SIGNATURE, NO BADGE, NO UI, NO LABEL.\n\nFlat orthographic scanned-paper mood: focused, diffuse light, matte absorbent paper, low-to-medium contrast and no 3D depth. Avoid full-bleed scenes, commercial hierarchy, product ads, CTA, glossy mockups, cinematic lighting, neon, cute cartoon, fashion drama, dense scrapbook, many colors and readable generated text.",
+      "compiler": {
+        "service_path": "apps/api/app/services/minimal_zine_native.py",
+        "entrypoint": "MinimalZineNativeService.prepare_web_handoff -> _four_paragraph_prompt",
+        "compiler_mode": "legacy_web_handoff",
+        "skill_name": "gc-minimal-zine-poster-v0-1",
+        "skill_commit": "4cb0396ad4e834019f753b37e1c4f415f5e02026",
+        "compositor_version": "minimal-zine-local-type-v6"
+      },
+      "model_input_fingerprint": "dde955895fa0cfbebd3e35a8999d7e62b42c9b4d11405782c1cf8914a5077bfc",
+      "prompt_fingerprint": "c1ea1f81d8e3335537ed5aeacbcca3ae79e9aa4d5daf8984a7fdaaa30779318e",
+      "image_reference": {
+        "policy": "none",
+        "value": ""
+      },
+      "known_issues": [
+        "当前 typography 只会落为 local-cjk",
+        "没有本地排版 recipe 参与构图"
+      ]
+    },
+    {
+      "id": "visual-focus-02-scene",
+      "article_summary": "用四个不同生活动作表达开始、保护、恢复和结束专注。",
+      "article_thesis": "每页应承担不同场景，不能只更换同一抽象 motif。",
+      "section_title": "保护专注",
+      "page_visual_role": "scene",
+      "phrase": "让入口暂时变少",
+      "note": "用手机朝下的具体场景表现关闭干扰。",
+      "evidence_summary": "合成观察的第二步是关闭与当前目标无关的通知。",
+      "storyboard": {
+        "page": 2,
+        "total_pages": 4,
+        "visual_metaphor": "a face-down phone placed beyond the edge of one active notebook",
+        "layout": "lower-left-float",
+        "anchor": "tiny-faded-photo",
+        "accent": "cyan",
+        "texture": "film-grain-photo",
+        "mood": "quiet",
+        "focus_x": 0.34,
+        "focus_y": 0.62,
+        "zoom": 1.1
+      },
+      "raw_prompt": "Create one sparse, non-literal editorial visual symbol for this idea: a face-down phone placed beyond the edge of one active notebook. Express it as one tiny-faded-photo with a film-grain-photo material treatment and a quiet mood. Render only the visual object and paper texture; do not render the idea as words.",
+      "final_prompt": "Tall vertical 3:5 full-frame aged-paper editorial plate, no border and no mockup; 70%-90% perceived quiet paper, one sparse 8%-25% visual cluster positioned as lower-left-float, with a quiet upper-right vertical paper zone for local Chinese for local type. Keep that zone as the same continuous paper surface: no panel, frame, card, cream box, caption plate or hard-edged overlay.\n\nOne tiny-faded-photo interprets a face-down phone placed beyond the edge of one active notebook; treat it with film-grain-photo and restrained old-print material process. Use this imageable detail only as visual guidance: Create one sparse, non-literal editorial visual symbol for this idea: a face-down phone placed beyond the edge of one active notebook. Express it as one tiny-faded-photo with a film-grain-photo material treatment and a quiet mood. Render only the visual object and paper texture; do not render the idea as words..\n\nNo model typography: X2RED adds Chinese locally after generation. Use one fully saturated cyan as the clear high-chroma anchor, about 0.8%-2.5% of the full canvas, never washed out; paper and grayscale support remain subdued. NO TEXT, NO CHINESE CHARACTERS, NO LATIN LETTERS, NO NUMBERS, NO LOGO, NO WATERMARK, NO SIGNATURE, NO BADGE, NO UI, NO LABEL.\n\nFlat orthographic scanned-paper mood: quiet, diffuse light, matte absorbent paper, low-to-medium contrast and no 3D depth. Avoid full-bleed scenes, commercial hierarchy, product ads, CTA, glossy mockups, cinematic lighting, neon, cute cartoon, fashion drama, dense scrapbook, many colors and readable generated text.",
+      "compiler": {
+        "service_path": "apps/api/app/services/minimal_zine_native.py",
+        "entrypoint": "MinimalZineNativeService.prepare_web_handoff -> _four_paragraph_prompt",
+        "compiler_mode": "legacy_web_handoff",
+        "skill_name": "gc-minimal-zine-poster-v0-1",
+        "skill_commit": "4cb0396ad4e834019f753b37e1c4f415f5e02026",
+        "compositor_version": "minimal-zine-local-type-v6"
+      },
+      "model_input_fingerprint": "a3f47e81fddbe8274cbe6928ef203600e65443466cdd8393c7b5fb35dee22235",
+      "prompt_fingerprint": "6145fc29536c508092049d46ee18341a307681a2ac05213cf65a3a51993ffb84",
+      "image_reference": {
+        "policy": "none",
+        "value": ""
+      },
+      "known_issues": [
+        "当前 compiler 不检查相邻页面主体重复",
+        "场景信息只存在于 metaphor"
+      ]
+    },
+    {
+      "id": "visual-focus-03-process",
+      "article_summary": "用四个不同生活动作表达开始、保护、恢复和结束专注。",
+      "article_thesis": "每页应承担不同场景，不能只更换同一抽象 motif。",
+      "section_title": "被打断后如何回来",
+      "page_visual_role": "process",
+      "phrase": "先留下一个返回点",
+      "note": "用书签而非循环箭头表现中断后的恢复。",
+      "evidence_summary": "合成观察的第三步是被打断时记录返回位置。",
+      "storyboard": {
+        "page": 3,
+        "total_pages": 4,
+        "visual_metaphor": "one bright cloth bookmark holding an interrupted page open on a worn notebook",
+        "layout": "upper-right-block",
+        "anchor": "old-printed-illustration",
+        "accent": "magenta-pink",
+        "texture": "risograph-grain",
+        "mood": "recovering",
+        "focus_x": 0.65,
+        "focus_y": 0.42,
+        "zoom": 1.0
+      },
+      "raw_prompt": "Create one sparse, non-literal editorial visual symbol for this idea: one bright cloth bookmark holding an interrupted page open on a worn notebook. Express it as one old-printed-illustration with a risograph-grain material treatment and a recovering mood. Render only the visual object and paper texture; do not render the idea as words.",
+      "final_prompt": "Tall vertical 3:5 full-frame aged-paper editorial plate, no border and no mockup; 70%-90% perceived quiet paper, one sparse 8%-25% visual cluster positioned as upper-right-block, with a clean lower-left paper block for local Chinese for local type. Keep that zone as the same continuous paper surface: no panel, frame, card, cream box, caption plate or hard-edged overlay.\n\nOne old-printed-illustration interprets one bright cloth bookmark holding an interrupted page open on a worn notebook; treat it with risograph-grain and restrained old-print material process. Use this imageable detail only as visual guidance: Create one sparse, non-literal editorial visual symbol for this idea: one bright cloth bookmark holding an interrupted page open on a worn notebook. Express it as one old-printed-illustration with a risograph-grain material treatment and a recovering mood. Render only the visual object and paper texture; do not render the idea as words..\n\nNo model typography: X2RED adds Chinese locally after generation. Use one fully saturated magenta-pink as the clear high-chroma anchor, about 0.8%-2.5% of the full canvas, never washed out; paper and grayscale support remain subdued. NO TEXT, NO CHINESE CHARACTERS, NO LATIN LETTERS, NO NUMBERS, NO LOGO, NO WATERMARK, NO SIGNATURE, NO BADGE, NO UI, NO LABEL.\n\nFlat orthographic scanned-paper mood: recovering, diffuse light, matte absorbent paper, low-to-medium contrast and no 3D depth. Avoid full-bleed scenes, commercial hierarchy, product ads, CTA, glossy mockups, cinematic lighting, neon, cute cartoon, fashion drama, dense scrapbook, many colors and readable generated text.",
+      "compiler": {
+        "service_path": "apps/api/app/services/minimal_zine_native.py",
+        "entrypoint": "MinimalZineNativeService.prepare_web_handoff -> _four_paragraph_prompt",
+        "compiler_mode": "legacy_web_handoff",
+        "skill_name": "gc-minimal-zine-poster-v0-1",
+        "skill_commit": "4cb0396ad4e834019f753b37e1c4f415f5e02026",
+        "compositor_version": "minimal-zine-local-type-v6"
+      },
+      "model_input_fingerprint": "a7aec883f5976eaeaa45d549f14065e12e44714b5e7f627bc4739678a65b000a",
+      "prompt_fingerprint": "cd4f15783188d10598b92edb5a39d06d9d020ddfe0a0d34109e6f6a68f41980d",
+      "image_reference": {
+        "policy": "none",
+        "value": ""
+      },
+      "known_issues": [
+        "process role 不进入 Prompt",
+        "模型可能把书签生成可读文字"
+      ]
+    },
+    {
+      "id": "visual-focus-04-conclusion",
+      "article_summary": "用四个不同生活动作表达开始、保护、恢复和结束专注。",
+      "article_thesis": "每页应承担不同场景，不能只更换同一抽象 motif。",
+      "section_title": "结束时准备下一次开始",
+      "page_visual_role": "conclusion",
+      "phrase": "把下一步，留在桌面上",
+      "note": "以清理后的桌面和一张待办卡结束，不复用前页物件。",
+      "evidence_summary": "合成观察的第四步是结束前写清下一步。",
+      "storyboard": {
+        "page": 4,
+        "total_pages": 4,
+        "visual_metaphor": "a cleared worktable with one small blank card waiting beside a closed folder",
+        "layout": "single-specimen",
+        "anchor": "flat-silhouette",
+        "accent": "pear-green",
+        "texture": "scan-noise-paper-fibers",
+        "mood": "complete",
+        "focus_x": 0.52,
+        "focus_y": 0.5,
+        "zoom": 1.0
+      },
+      "raw_prompt": "Create one sparse, non-literal editorial visual symbol for this idea: a cleared worktable with one small blank card waiting beside a closed folder. Express it as one flat-silhouette with a scan-noise-paper-fibers material treatment and a complete mood. Render only the visual object and paper texture; do not render the idea as words.",
+      "final_prompt": "Tall vertical 3:5 full-frame aged-paper editorial plate, no border and no mockup; 70%-90% perceived quiet paper, one sparse 8%-25% visual cluster positioned as single-specimen, with a clean lower-right specimen-label paper zone for local Chinese for local type. Keep that zone as the same continuous paper surface: no panel, frame, card, cream box, caption plate or hard-edged overlay.\n\nOne flat-silhouette interprets a cleared worktable with one small blank card waiting beside a closed folder; treat it with scan-noise-paper-fibers and restrained old-print material process. Use this imageable detail only as visual guidance: Create one sparse, non-literal editorial visual symbol for this idea: a cleared worktable with one small blank card waiting beside a closed folder. Express it as one flat-silhouette with a scan-noise-paper-fibers material treatment and a complete mood. Render only the visual object and paper texture; do not render the idea as words..\n\nNo model typography: X2RED adds Chinese locally after generation. Use one fully saturated pear-green as the clear high-chroma anchor, about 0.8%-2.5% of the full canvas, never washed out; paper and grayscale support remain subdued. NO TEXT, NO CHINESE CHARACTERS, NO LATIN LETTERS, NO NUMBERS, NO LOGO, NO WATERMARK, NO SIGNATURE, NO BADGE, NO UI, NO LABEL.\n\nFlat orthographic scanned-paper mood: complete, diffuse light, matte absorbent paper, low-to-medium contrast and no 3D depth. Avoid full-bleed scenes, commercial hierarchy, product ads, CTA, glossy mockups, cinematic lighting, neon, cute cartoon, fashion drama, dense scrapbook, many colors and readable generated text.",
+      "compiler": {
+        "service_path": "apps/api/app/services/minimal_zine_native.py",
+        "entrypoint": "MinimalZineNativeService.prepare_web_handoff -> _four_paragraph_prompt",
+        "compiler_mode": "legacy_web_handoff",
+        "skill_name": "gc-minimal-zine-poster-v0-1",
+        "skill_commit": "4cb0396ad4e834019f753b37e1c4f415f5e02026",
+        "compositor_version": "minimal-zine-local-type-v6"
+      },
+      "model_input_fingerprint": "c240fcc51dbf1199f24a9671108efb35cae0f45eb47b355bcede6e8c45b82af6",
+      "prompt_fingerprint": "bda473acdc8112e267dd2071b222bd1c56b9031107022ebc61e3dbe52d225abe",
+      "image_reference": {
+        "policy": "none",
+        "value": ""
+      },
+      "known_issues": [
+        "旧 Prompt 不知道这是系列收束页",
+        "没有 Visual Bible 保证材质与色彩系统一致"
+      ]
+    }
+  ]
+}

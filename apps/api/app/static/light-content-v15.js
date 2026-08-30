@@ -1,0 +1,2317 @@
+(() => {
+  if (window.__x2redLightContentV15) return;
+
+  const RECIPES = [
+    ["comfort", "人生慰藉", "从具体处境出发，不写廉价鸡汤"],
+    ["mature_life", "中老年生活", "平等、有经验感，不俯视"],
+    ["seasonal", "节气时令", "物候、饮食与日常提醒"],
+    ["photo_quote", "照片短句", "一张图承担叙事，文字保持克制"],
+    ["short_commentary", "一句短评", "短，但不省略事实边界"],
+  ];
+
+  const STYLES = [
+    ["auto", "本地编辑卡片 · 推荐", "稳定的本地构图和中文排版，不调用图片模型"],
+    ["minimal_zine", "Minimal Zine · 实验", "会调用图片模型，只作为可人工复核的视觉锚点"],
+  ];
+  const LIGHT_SOURCE_KEY = "x2red.workspace.wechat.light.source";
+
+  const SOURCE_GROUPS = [
+    ["pool", "语料池批次"],
+    ["x", "X / 信号台"],
+    ["xhs", "小红书"],
+    ["dy", "抖音"],
+    ["ks", "快手"],
+    ["bili", "B站"],
+    ["wb", "微博"],
+    ["tieba", "贴吧"],
+    ["zhihu", "知乎"],
+    ["web", "网页与文档"],
+  ];
+
+  const FIELDS = [
+    "phrase",
+    "note",
+    "visual_metaphor",
+    "layout",
+    "anchor",
+    "accent",
+    "texture",
+    "mood",
+    "focus_x",
+    "focus_y",
+    "zoom",
+  ];
+
+  const LAYOUT_OPTIONS = [
+    ["center-fragment", "中央碎片 · 下方留白"],
+    ["lower-fragment", "下方视觉 · 上方留白"],
+    ["lower-left-float", "左下浮动 · 右侧文字区"],
+    ["upper-right-block", "右上块面 · 左下文字区"],
+    ["dual-panel", "双面板 · 两个视觉区域"],
+    ["irregular-cutout", "不规则裁切 · 纸张留白"],
+    ["type-led", "文字主导 · 画面退后"],
+    ["dot-orbit", "点阵环绕 · 中央视觉"],
+    ["single-specimen", "单件标本 · 右下标签区"],
+    ["diagonal-notes", "斜向注记 · 对角节奏"],
+    ["edge-counterweight", "边缘配重 · 非对称留白"],
+  ];
+
+  const VISUAL_ROLE_OPTIONS = [
+    ["cover", "封面 · 建立主张"],
+    ["scene", "场景 · 落入现实"],
+    ["explanation", "解释 · 说明机制"],
+    ["evidence", "证据 · 展示依据"],
+    ["comparison", "对照 · 比较差异"],
+    ["process", "过程 · 显示步骤"],
+    ["limitation", "限制 · 标出边界"],
+    ["transition", "转场 · 改变节奏"],
+    ["conclusion", "结论 · 收束判断"],
+  ];
+
+  const TYPOGRAPHY_MODE_LABELS = new Map([
+    ["type_led_large", "大字主导"],
+    ["edge_pressed_phrase", "边缘压字"],
+    ["diagonal_fragments", "对角碎句"],
+    ["ghost_text", "幽灵底字"],
+    ["archive_microtype", "档案微排"],
+    ["type_in_color_block", "色块承字"],
+    ["margin_scatter", "边注散排"],
+    ["safe_zone_caption", "安全区说明"],
+  ]);
+
+  const ANCHOR_OPTIONS = [
+    ["tiny-faded-photo", "小幅褪色照片"],
+    ["torn-paper-clipping", "撕纸剪贴"],
+    ["flat-silhouette", "平面剪影"],
+    ["solid-color-block", "纯色块"],
+    ["old-printed-illustration", "旧印刷插图"],
+    ["object-specimen", "物件标本"],
+    ["translucent-geometric-overlay", "半透明几何叠层"],
+    ["abstract-texture-window", "抽象质感窗口"],
+  ];
+
+  const TEXTURE_OPTIONS = [
+    ["xerox-softness", "复印机柔化"],
+    ["risograph-grain", "孔版印刷颗粒"],
+    ["letterpress-ink-bleed", "活版印刷洇墨"],
+    ["halftone-degradation", "半色调磨损"],
+    ["film-grain-photo", "胶片颗粒"],
+    ["scan-noise-paper-fibers", "扫描噪点与纸纤维"],
+    ["aged-paper-mottling", "旧纸斑驳"],
+    ["soft-motion-blur", "轻微动态模糊"],
+  ];
+
+  const ACCENT_OPTIONS = [
+    ["blue", "蓝色"],
+    ["cobalt", "钴蓝"],
+    ["ultramarine", "群青"],
+    ["cyan", "青蓝"],
+    ["violet", "紫罗兰"],
+    ["magenta", "洋红"],
+    ["magenta-pink", "洋红粉"],
+    ["yellow", "黄色"],
+    ["lemon-yellow", "柠檬黄"],
+    ["green", "绿色"],
+    ["pear-green", "梨绿"],
+    ["orange", "橙色"],
+    ["red", "红色"],
+    ["tomato-red", "番茄红"],
+    ["vermilion", "朱砂红"],
+  ];
+
+  const LAYOUTS = new Set(LAYOUT_OPTIONS.map(([value]) => value));
+  const ANCHORS = new Set(ANCHOR_OPTIONS.map(([value]) => value));
+  const TEXTURES = new Set(TEXTURE_OPTIONS.map(([value]) => value));
+  const NAMED_ACCENTS = new Set(ACCENT_OPTIONS.map(([value]) => value));
+  const ACCENT_COLOR_NAMES = new Map([
+    ["#1646d8", "cobalt"],
+    ["#263fca", "ultramarine"],
+    ["#00a7c6", "cyan"],
+    ["#6f3cc3", "violet"],
+    ["#cb247d", "magenta-pink"],
+    ["#d5aa00", "lemon-yellow"],
+    ["#4d9b4a", "pear-green"],
+    ["#d46f1b", "orange"],
+    ["#c93a2b", "tomato-red"],
+    ["#c91f2c", "vermilion"],
+  ]);
+
+  const controller = {
+    state: {
+      ready: false,
+      mode: "article",
+      stage: readStage(),
+      busy: false,
+      loading: false,
+      loadToken: 0,
+      draftLoadToken: 0,
+      sources: [],
+      drafts: [],
+      variants: [],
+      corpus: [],
+      currentVariant: null,
+      candidateIndex: 0,
+      editor: emptyEditor(),
+      storyboard: [],
+      storyboardDirty: false,
+      selectedPage: 1,
+      pageEvidence: new Map(),
+      webHandoffs: new Map(),
+      status: {
+        text: "先设定任务，再逐步完成文案、分镜和交付。",
+        type: "",
+      },
+      brief: {
+        sourceId: readLightSource(),
+        draftId: "",
+        recipe: "comfort",
+        imageCount: 4,
+        seasonalTopic: "",
+        audience: "",
+        tone: "自然、具体、克制",
+        visualStyle: "auto",
+        qualityMode: "studio",
+        feedback: "",
+      },
+    },
+  };
+
+  window.__x2redLightContentV15 = controller;
+  const { state } = controller;
+
+  const call = window.api || (async (url, options = {}) => {
+    const response = await fetch(url, {
+      headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+      ...options,
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.detail || `HTTP ${response.status}`);
+    }
+    if (response.status === 204) return null;
+    return response.json();
+  });
+
+  const node = (id) => document.getElementById(id);
+
+  function emptyEditor() {
+    return {
+      title: "",
+      subtitle: "",
+      summary: "",
+      body_markdown: "",
+      tags: "",
+    };
+  }
+
+  function readStage() {
+    try {
+      const value = Number(window.localStorage.getItem("x2red.light-content.v15.stage"));
+      return value >= 1 && value <= 4 ? value : 1;
+    } catch {
+      return 1;
+    }
+  }
+
+  function readLightSource() {
+    try { return window.localStorage.getItem(LIGHT_SOURCE_KEY) || ""; }
+    catch { return ""; }
+  }
+
+  function saveLightSource() {
+    try { window.localStorage.setItem(LIGHT_SOURCE_KEY, state.brief.sourceId || ""); }
+    catch {
+      // The workspace still works when storage is disabled.
+    }
+  }
+
+  function saveStage() {
+    try {
+      window.localStorage.setItem("x2red.light-content.v15.stage", String(state.stage));
+    } catch {
+      // Storage can be disabled in a private browser context.
+    }
+  }
+
+  function create(tag, className = "", text = "") {
+    const value = document.createElement(tag);
+    if (className) value.className = className;
+    if (text) value.textContent = text;
+    return value;
+  }
+
+  function button(label, className = "", handler = null) {
+    const value = create("button", className, label);
+    value.type = "button";
+    if (handler) value.addEventListener("click", handler);
+    return value;
+  }
+
+  function labelFor(text, control) {
+    const value = create("label", "light-field", text);
+    value.appendChild(control);
+    return value;
+  }
+
+  function input(value = "", options = {}) {
+    const control = document.createElement(options.multiline ? "textarea" : "input");
+    if (!options.multiline) control.type = options.type || "text";
+    if (options.multiline) control.rows = options.rows || 3;
+    if (options.id) control.id = options.id;
+    if (options.maxLength) control.maxLength = options.maxLength;
+    if (options.placeholder) control.placeholder = options.placeholder;
+    if (options.className) control.className = options.className;
+    if (options.min !== undefined) control.min = String(options.min);
+    if (options.max !== undefined) control.max = String(options.max);
+    if (options.step !== undefined) control.step = String(options.step);
+    if (options.inputMode) control.inputMode = options.inputMode;
+    control.value = value ?? "";
+    return control;
+  }
+
+  function select(options, value = "", id = "") {
+    const control = document.createElement("select");
+    if (id) control.id = id;
+    options.forEach(([optionValue, optionLabel]) => {
+      control.appendChild(new Option(optionLabel, optionValue));
+    });
+    control.value = value;
+    return control;
+  }
+
+  function parse(value, fallback = {}) {
+    try {
+      const result = JSON.parse(value || "");
+      return result && typeof result === "object" ? result : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  function metadata(variant = state.currentVariant) {
+    return parse(variant?.metadata_json, {});
+  }
+
+  function outputPaths(variant = state.currentVariant) {
+    return parse(variant?.output_paths_json, {});
+  }
+
+  function imageCandidateLifecycle(variant = state.currentVariant) {
+    const lifecycle = metadata(variant).image_candidate_lifecycle;
+    return lifecycle && typeof lifecycle === "object" ? lifecycle : {};
+  }
+
+  function imageCandidatePage(page, variant = state.currentVariant) {
+    const pages = imageCandidateLifecycle(variant).pages;
+    if (!pages || typeof pages !== "object") return null;
+    const value = pages[String(page)];
+    return value && typeof value === "object" ? value : null;
+  }
+
+  function sourceGroup(source) {
+    if (source?.provider === "corpus_pool" || source?.content_kind === "corpus_batch") return "pool";
+    if (source?.platform === "x" || source?.provider === "fxtwitter" || source?.provider === "signal-studio") return "x";
+    if (["xhs", "dy", "ks", "bili", "wb", "tieba", "zhihu"].includes(source?.platform)) return source.platform;
+    return "web";
+  }
+
+  function sourceLabel(source) {
+    const author = source.author_handle ? `@${source.author_handle}` : source.author_name || "来源";
+    const copy = String(source.text_original || "").replace(/\s+/g, " ").slice(0, 52);
+    return `${author} · ${copy || source.content_kind || "无正文"}`;
+  }
+
+  function isMinimalZine(variant = state.currentVariant) {
+    const visualStyle = String(metadata(variant).visual_style || state.brief.visualStyle || "auto");
+    return ![
+      "photo_editorial",
+      "classical_ink",
+      "dark_contemplative",
+      "seasonal_folk",
+      "old_newspaper",
+    ].includes(visualStyle);
+  }
+
+  function currentCandidate() {
+    const candidates = metadata().candidates;
+    if (Array.isArray(candidates) && candidates.length) {
+      return candidates[state.candidateIndex] || candidates[0];
+    }
+    return {
+      title: state.currentVariant?.title || "",
+      subtitle: state.currentVariant?.subtitle || "",
+      summary: state.currentVariant?.summary || "",
+      body_markdown: state.currentVariant?.body_markdown || "",
+      tags: state.currentVariant?.tags || "",
+    };
+  }
+
+  function normalizeTags(value) {
+    return Array.isArray(value) ? value.join(",") : String(value || "");
+  }
+
+  function allowed(value, choices, fallback) {
+    const normalized = String(value || "").trim();
+    return choices.has(normalized) ? normalized : fallback;
+  }
+
+  function clamp(value, minimum, maximum, fallback) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return fallback;
+    return Math.min(maximum, Math.max(minimum, numeric));
+  }
+
+  function normalizeAccent(value) {
+    const cleaned = String(value || "").trim().toLowerCase().replaceAll("_", "-").replaceAll(" ", "-");
+    return NAMED_ACCENTS.has(cleaned) || /^#[0-9a-f]{6}$/.test(cleaned) ? cleaned : "#1646d8";
+  }
+
+  function loadEditorFromCandidate() {
+    const candidate = currentCandidate() || {};
+    state.editor = {
+      title: candidate.title || state.currentVariant?.title || "",
+      subtitle: candidate.subtitle || state.currentVariant?.subtitle || "",
+      summary: candidate.summary || state.currentVariant?.summary || "",
+      body_markdown: candidate.body_markdown || state.currentVariant?.body_markdown || "",
+      tags: normalizeTags(candidate.tags || state.currentVariant?.tags),
+    };
+  }
+
+  function fallbackPhrase(index) {
+    const lines = String(state.currentVariant?.body_markdown || "")
+      .split(/(?<=[。！？!?])|\n+/)
+      .map((value) => value.replace(/\s+/g, " ").trim())
+      .filter(Boolean);
+    return lines[index] || (index === 0 ? state.currentVariant?.title || "把这一页说清楚" : "把这一页说清楚");
+  }
+
+  function normalizeStoryboard(variant = state.currentVariant) {
+    const meta = metadata(variant);
+    const strategy = meta.strategy && typeof meta.strategy === "object" ? meta.strategy : {};
+    const raw = Array.isArray(meta.poster_specs) ? meta.poster_specs : [];
+    const count = Math.max(3, Math.min(6, raw.length || Number(meta.image_count || state.brief.imageCount || 4)));
+    return Array.from({ length: count }, (_, index) => {
+      const source = raw[index] && typeof raw[index] === "object" ? raw[index] : {};
+      const brief = source.page_visual_brief && typeof source.page_visual_brief === "object"
+        ? structuredClone(source.page_visual_brief)
+        : null;
+      return {
+        ...source,
+        page: index + 1,
+        article_thesis: String(source.article_thesis || strategy.content_thesis || variant?.summary || variant?.title || "").slice(0, 1200),
+        section_title: String(source.section_title || source.phrase || fallbackPhrase(index)).slice(0, 300),
+        page_visual_role: String(source.page_visual_role || (index === 0 ? "cover" : index === count - 1 ? "conclusion" : "scene")),
+        phrase: String(source.phrase || fallbackPhrase(index)).slice(0, 80),
+        note: String(source.note || "").slice(0, 180),
+        evidence_summary: String(source.evidence_summary || source.evidence_basis || "").slice(0, 1600),
+        emotion: String(source.emotion || strategy.emotional_job || source.mood || "quiet").slice(0, 300),
+        current_page_concept: String(source.current_page_concept || source.visual_metaphor || source.photo_direction || "真实生活中的单一物件或场景").slice(0, 800),
+        visual_bible: source.visual_bible && typeof source.visual_bible === "object" ? source.visual_bible : (meta.visual_bible && typeof meta.visual_bible === "object" ? meta.visual_bible : {}),
+        page_visual_brief: brief,
+        concrete_subject: String(brief?.concrete_subject || source.current_page_concept || source.visual_metaphor || "").slice(0, 240),
+        secondary_subject: String(brief?.secondary_subject || "").slice(0, 240),
+        action_or_relation: String(brief?.action_or_relation || "").slice(0, 320),
+        setting: String(brief?.setting || source.photo_direction || "").slice(0, 240),
+        viewpoint: String(brief?.viewpoint || "").slice(0, 160),
+        crop: String(brief?.crop || "").slice(0, 160),
+        lighting: String(brief?.lighting || "").slice(0, 160),
+        reader_emotion: String(brief?.reader_emotion || source.emotion || source.mood || "").slice(0, 160),
+        visual_metaphor: String(source.visual_metaphor || source.photo_direction || "真实生活中的单一物件或场景").slice(0, 240),
+        layout: allowed(source.layout, LAYOUTS, "center-fragment"),
+        anchor: allowed(source.anchor, ANCHORS, "object-specimen"),
+        accent: normalizeAccent(source.accent),
+        texture: allowed(source.texture, TEXTURES, "xerox-softness"),
+        mood: String(source.mood || "quiet").slice(0, 80),
+        focus_x: clamp(source.focus_x, 0, 1, 0.5),
+        focus_y: clamp(source.focus_y, 0, 1, 0.42),
+        zoom: clamp(source.zoom, 0.65, 2, 1),
+      };
+    });
+  }
+
+  function storyboardPayload() {
+    return state.storyboard.map((item, index) => {
+      const page = index + 1;
+      const phrase = String(item.phrase || "").trim().slice(0, 80);
+      const note = String(item.note || "").trim().slice(0, 180);
+      const evidence = String(item.evidence_summary || item.evidence_basis || "").trim().slice(0, 1600);
+      const role = String(item.page_visual_role || (index === 0 ? "cover" : index === state.storyboard.length - 1 ? "conclusion" : "scene"));
+      const layout = allowed(item.layout, LAYOUTS, "center-fragment");
+      const accent = normalizeAccent(item.accent);
+      const concreteSubject = String(item.concrete_subject || item.current_page_concept || item.visual_metaphor || "").trim().slice(0, 240);
+      const actionOrRelation = String(item.action_or_relation || "").trim().slice(0, 320);
+      const setting = String(item.setting || item.photo_direction || "").trim().slice(0, 240);
+      const currentConcept = [concreteSubject, actionOrRelation, setting].filter(Boolean).join("，").slice(0, 800);
+      const existingBrief = item.page_visual_brief && typeof item.page_visual_brief === "object"
+        ? item.page_visual_brief
+        : null;
+      const pageBrief = existingBrief ? {
+        ...existingBrief,
+        page,
+        section_id: String(existingBrief.section_id || `page-${String(page).padStart(2, "0")}`).slice(0, 120),
+        visual_role: role,
+        claim: [phrase, note, evidence].filter(Boolean).join("；").slice(0, 600) || "承接当前页面判断",
+        reader_emotion: String(item.reader_emotion || item.emotion || item.mood || existingBrief.reader_emotion || "克制、清晰").slice(0, 160),
+        concrete_subject: concreteSubject || String(existingBrief.concrete_subject || "具体证据材料").slice(0, 240),
+        secondary_subject: String(item.secondary_subject || existingBrief.secondary_subject || "").slice(0, 240),
+        action_or_relation: actionOrRelation || String(existingBrief.action_or_relation || "形成一个可见关系").slice(0, 320),
+        setting: setting || String(existingBrief.setting || "与证据一致的真实现场").slice(0, 240),
+        viewpoint: String(item.viewpoint || existingBrief.viewpoint || "正俯视，空间关系清楚").slice(0, 160),
+        crop: String(item.crop || existingBrief.crop || "完整保留主体轮廓与中文安全区").slice(0, 160),
+        lighting: String(item.lighting || existingBrief.lighting || "低对比漫射光").slice(0, 160),
+        layout_family: layout,
+        palette_delta: [accent],
+      } : null;
+      const payload = {
+        page,
+        article_thesis: String(item.article_thesis || "").trim().slice(0, 1200),
+        section_title: String(item.section_title || phrase || "").trim().slice(0, 300),
+        page_visual_role: role,
+        phrase,
+        note,
+        evidence_summary: evidence,
+        emotion: String(item.emotion || item.mood || "").trim().slice(0, 300),
+        current_page_concept: currentConcept || String(item.current_page_concept || item.visual_metaphor || "").trim().slice(0, 800),
+        visual_bible: item.visual_bible && typeof item.visual_bible === "object" ? item.visual_bible : {},
+        visual_metaphor: currentConcept || String(item.visual_metaphor || "").trim().slice(0, 240),
+        layout,
+        anchor: allowed(item.anchor, ANCHORS, "object-specimen"),
+        accent,
+        texture: allowed(item.texture, TEXTURES, "xerox-softness"),
+        mood: String(item.mood || "quiet").trim().slice(0, 80),
+        focus_x: clamp(item.focus_x, 0, 1, 0.5),
+        focus_y: clamp(item.focus_y, 0, 1, 0.42),
+        zoom: clamp(item.zoom, 0.65, 2, 1),
+      };
+      if (pageBrief) payload.page_visual_brief = pageBrief;
+      return payload;
+    });
+  }
+
+  function status(text, type = "") {
+    state.status = { text, type };
+    const target = node("light-status");
+    if (!target) return;
+    target.textContent = text;
+    target.className = `light-status${type ? ` ${type}` : ""}`;
+  }
+
+  function setBusy(value, message = "") {
+    state.busy = value;
+    node("wechat-light-v15")?.setAttribute("aria-busy", String(value));
+    document.querySelectorAll("#wechat-light-v15 [data-light-action]").forEach((control) => {
+      if (value) {
+        if (!("lightDisabledBeforeBusy" in control.dataset)) {
+          control.dataset.lightDisabledBeforeBusy = String(Boolean(control.disabled));
+        }
+        control.disabled = true;
+      } else if ("lightDisabledBeforeBusy" in control.dataset) {
+        control.disabled = control.dataset.lightDisabledBeforeBusy === "true";
+        delete control.dataset.lightDisabledBeforeBusy;
+      }
+    });
+    if (message) status(message);
+  }
+
+  async function run(message, task) {
+    if (state.busy) return null;
+    setBusy(true, message);
+    try {
+      return await task();
+    } catch (error) {
+      status(error.message || String(error), "error");
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function upsertVariant(variant) {
+    if (!variant?.id) return;
+    const index = state.variants.findIndex((item) => item.id === variant.id);
+    if (index >= 0) state.variants[index] = variant;
+    else state.variants.unshift(variant);
+    state.variants.sort((left, right) => Number(right.version || 0) - Number(left.version || 0));
+  }
+
+  function setCurrentVariant(variant, options = {}) {
+    if (!variant) {
+      state.currentVariant = null;
+      state.storyboard = [];
+      state.pageEvidence.clear();
+      state.webHandoffs.clear();
+      return;
+    }
+    const changed = state.currentVariant?.id !== variant.id;
+    if (changed) state.webHandoffs.clear();
+    state.currentVariant = variant;
+    upsertVariant(variant);
+    const currentMeta = metadata(variant);
+    const candidates = Array.isArray(currentMeta.candidates) ? currentMeta.candidates : [];
+    state.candidateIndex = Math.max(0, Math.min(
+      Number(currentMeta.selected_candidate_index || state.candidateIndex || 0),
+      Math.max(0, candidates.length - 1),
+    ));
+    if (changed || options.resetEditor) loadEditorFromCandidate();
+    if (changed || options.resetStoryboard || !state.storyboard.length) {
+      state.storyboard = normalizeStoryboard(variant);
+      state.storyboardDirty = false;
+      state.selectedPage = Math.min(Math.max(1, state.selectedPage), state.storyboard.length || 1);
+    }
+  }
+
+  function renderSourceOptions(control) {
+    const current = state.brief.sourceId;
+    const groups = new Map(SOURCE_GROUPS.map(([id, label]) => {
+      const group = document.createElement("optgroup");
+      group.label = label;
+      return [id, group];
+    }));
+    state.sources.forEach((source) => {
+      groups.get(sourceGroup(source)).appendChild(new Option(sourceLabel(source), source.id));
+    });
+    control.replaceChildren(...[...groups.values()].filter((group) => group.children.length));
+    if (current && state.sources.some((source) => source.id === current)) control.value = current;
+    else if (state.sources[0]) {
+      control.value = state.sources[0].id;
+      state.brief.sourceId = control.value;
+    }
+  }
+
+  async function loadDrafts() {
+    const sourceId = state.brief.sourceId;
+    const token = ++state.draftLoadToken;
+    const preferredDraftId = state.brief.draftId;
+    state.drafts = [];
+    state.brief.draftId = "";
+    const drafts = sourceId
+      ? await call(`/api/sources/${encodeURIComponent(sourceId)}/drafts`)
+      : [];
+    if (token !== state.draftLoadToken || sourceId !== state.brief.sourceId) return false;
+    state.drafts = drafts;
+    if (state.drafts.some((item) => item.id === preferredDraftId)) {
+      state.brief.draftId = preferredDraftId;
+    } else {
+      state.brief.draftId = state.drafts[0]?.id || "";
+    }
+    return true;
+  }
+
+  async function loadWorkspace(preferredVariantId = "") {
+    const token = ++state.loadToken;
+    state.loading = true;
+    try {
+      const [sources, variants, corpus] = await Promise.all([
+        call("/api/sources?workspace_state=active&include_pool_batches=true&limit=2000"),
+        call("/api/platforms/variants?platform=wechat&limit=200"),
+        call(`/api/platforms/wechat/light/corpus?recipe=${encodeURIComponent(state.brief.recipe)}&limit=100`),
+      ]);
+      if (token !== state.loadToken) return;
+      state.sources = Array.isArray(sources) ? sources : [];
+      state.variants = (Array.isArray(variants) ? variants : []).filter((item) => item.format === "light_series");
+      state.corpus = Array.isArray(corpus) ? corpus : [];
+      if (!state.sources.some((item) => item.id === state.brief.sourceId)) {
+        state.brief.sourceId = state.sources[0]?.id || "";
+      }
+      saveLightSource();
+      await loadDrafts();
+      const currentVariantForSource = state.currentVariant?.source_id === state.brief.sourceId
+        ? state.currentVariant.id
+        : "";
+      const targetId = preferredVariantId || currentVariantForSource;
+      const target = state.variants.find((item) => item.id === targetId)
+        || state.variants.find((item) => item.source_id === state.brief.sourceId)
+        || null;
+      setCurrentVariant(target, { resetEditor: Boolean(targetId), resetStoryboard: Boolean(targetId) });
+      render();
+    } catch (error) {
+      status(error.message || String(error), "error");
+    } finally {
+      state.loading = false;
+    }
+  }
+
+  async function reloadCurrentVariant() {
+    if (!state.currentVariant?.id) return null;
+    const variant = await call(`/api/platforms/variants/${encodeURIComponent(state.currentVariant.id)}`);
+    setCurrentVariant(variant, { resetStoryboard: !state.storyboardDirty });
+    return variant;
+  }
+
+  function editorPayload(variant = state.currentVariant) {
+    return {
+      title: state.editor.title || "",
+      subtitle: state.editor.subtitle || "",
+      summary: state.editor.summary || "",
+      body_markdown: state.editor.body_markdown || "",
+      tags: state.editor.tags || "",
+      theme: variant?.theme || "zen",
+    };
+  }
+
+  function differs(variant, payload) {
+    return ["title", "subtitle", "summary", "body_markdown", "tags", "theme"]
+      .some((key) => String(variant?.[key] || "") !== String(payload[key] || ""));
+  }
+
+  async function persistCurrent({ adoptCandidate = true } = {}) {
+    let variant = state.currentVariant;
+    if (!variant) throw new Error("请先生成或选择一个轻内容版本。 ");
+    const currentMeta = metadata(variant);
+    const candidates = Array.isArray(currentMeta.candidates) ? currentMeta.candidates : [];
+    if (
+      adoptCandidate
+      && candidates.length
+      && Number(currentMeta.selected_candidate_index || 0) !== state.candidateIndex
+    ) {
+      variant = await call(
+        `/api/platforms/wechat/light/variants/${encodeURIComponent(variant.id)}/select-candidate`,
+        {
+          method: "POST",
+          body: JSON.stringify({ candidate_index: state.candidateIndex }),
+        },
+      );
+      state.currentVariant = variant;
+      upsertVariant(variant);
+    }
+    const payload = editorPayload(variant);
+    if (differs(variant, payload)) {
+      variant = await call(`/api/platforms/variants/${encodeURIComponent(variant.id)}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      });
+      state.currentVariant = variant;
+      upsertVariant(variant);
+      if (!state.storyboardDirty) state.storyboard = normalizeStoryboard(variant);
+    }
+    return variant;
+  }
+
+  async function saveStoryboardIfDirty(variant) {
+    if (!state.storyboardDirty) return variant;
+    const revised = await call(
+      `/api/platforms/wechat/light/variants/${encodeURIComponent(variant.id)}/storyboard`,
+      {
+        method: "POST",
+        body: JSON.stringify({ pages: storyboardPayload() }),
+      },
+    );
+    state.currentVariant = revised;
+    upsertVariant(revised);
+    state.webHandoffs.clear();
+    state.storyboard = normalizeStoryboard(revised);
+    state.storyboardDirty = false;
+    return revised;
+  }
+
+  function briefPayload() {
+    return {
+      source_id: state.brief.sourceId,
+      draft_id: state.brief.draftId || null,
+      recipe: state.brief.recipe,
+      image_count: Number(state.brief.imageCount || 4),
+      seasonal_topic: state.brief.seasonalTopic || "",
+      audience: state.brief.audience || "",
+      tone: state.brief.tone || "自然、具体、克制",
+      visual_style: state.brief.visualStyle || "auto",
+      quality_mode: state.brief.qualityMode || "studio",
+      feedback: state.brief.feedback || "",
+      theme: "zen",
+      author: "",
+    };
+  }
+
+  async function generate() {
+    const payload = briefPayload();
+    if (!payload.source_id) {
+      status("请先选择来源。", "error");
+      return;
+    }
+    await run("选题、写作、审稿与视觉导演正在协作…", async () => {
+      const variant = await call("/api/platforms/wechat/light/variants", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      setCurrentVariant(variant, { resetEditor: true, resetStoryboard: true });
+      state.stage = 2;
+      saveStage();
+      status("已生成候选。先阅读审稿意见并编辑当前版本，再进入视觉分镜。", "ok");
+      await loadWorkspace(variant.id);
+    });
+  }
+
+  async function useCandidate() {
+    await run("正在采用当前候选并创建不可变版本…", async () => {
+      const variant = await persistCurrent({ adoptCandidate: true });
+      status(`候选 ${state.candidateIndex + 1} 已保存为 v${variant.version}。`, "ok");
+      render();
+    });
+  }
+
+  async function saveEdit() {
+    await run("正在保存编辑框里的当前文字…", async () => {
+      const variant = await persistCurrent({ adoptCandidate: true });
+      const sync = metadata(variant).storyboard_copy_sync;
+      const suffix = sync?.mode === "preserved-after-article-edit"
+        ? "逐页短句和说明已原样保留，未被正文重排。"
+        : "";
+      status(`当前候选与人工修改已保存为 v${variant.version}。${suffix}`, "ok");
+      render();
+    });
+  }
+
+  async function proceedToVisual() {
+    await run("正在先保存当前候选和编辑稿…", async () => {
+      const variant = await persistCurrent({ adoptCandidate: true });
+      state.stage = 3;
+      saveStage();
+      const sync = metadata(variant).storyboard_copy_sync;
+      const suffix = sync?.status === "review_required"
+        ? "系统保留了原分镜，但检测到旧版跨页重复，请逐页改完再保存。"
+        : "逐页短句和说明不会因正文保存而被改写。";
+      status(`文案已冻结为新版本。${suffix}`, sync?.status === "review_required" ? "error" : "ok");
+      render();
+    });
+  }
+
+  async function iterate() {
+    const feedback = node("light-feedback")?.value.trim() || "";
+    if (!feedback) {
+      status("请写清楚要调整的角度、文字或画面。", "error");
+      return;
+    }
+    await run("正在保存当前稿，并带着反馈重新策划和审稿…", async () => {
+      const current = await persistCurrent({ adoptCandidate: true });
+      const revised = await call(
+        `/api/platforms/wechat/light/variants/${encodeURIComponent(current.id)}/iterate`,
+        {
+          method: "POST",
+          body: JSON.stringify({ feedback, quality_mode: state.brief.qualityMode || "studio" }),
+        },
+      );
+      state.pageEvidence.clear();
+      setCurrentVariant(revised, { resetEditor: true, resetStoryboard: true });
+      status("新一轮候选与审稿已经加载。", "ok");
+      await loadWorkspace(revised.id);
+    });
+  }
+
+  async function approve() {
+    await run("正在批准当前实际编辑稿并加入私有优质语料…", async () => {
+      const variant = await persistCurrent({ adoptCandidate: true });
+      const note = node("light-feedback")?.value.trim() || "人工确认可作为未来同配方的正向样本";
+      await call(`/api/platforms/wechat/light/variants/${encodeURIComponent(variant.id)}/approve`, {
+        method: "POST",
+        body: JSON.stringify({ note }),
+      });
+      status("当前实际编辑稿已批准；未来只学习这版的结构、节奏与判断，不照抄句子。", "ok");
+      await loadWorkspace(variant.id);
+    });
+  }
+
+  async function openMemoryCandidate() {
+    await run("正在先冻结当前候选和编辑框内容…", async () => {
+      const variant = await persistCurrent({ adoptCandidate: true });
+      document.dispatchEvent(new CustomEvent("x2red:memory-source", {
+        detail: { kind: "platform_variant", id: variant.id },
+      }));
+      status(`已冻结为 v${variant.version}，请在写作偏好中检查候选。`, "ok");
+    });
+  }
+
+  function ingestRenderResult(result) {
+    (Array.isArray(result?.pages) ? result.pages : []).forEach((page) => {
+      const number = Number(page.page);
+      if (Number.isInteger(number) && number > 0) state.pageEvidence.set(number, page);
+    });
+  }
+
+  function posterKey(page) {
+    const evidence = state.pageEvidence.get(page);
+    if (evidence?.poster_key) return evidence.poster_key;
+    const padded = String(page).padStart(2, "0");
+    const files = outputPaths();
+    return files[`poster_${padded}`] ? `poster_${padded}` : "";
+  }
+
+  function anchorKey(page) {
+    const evidence = state.pageEvidence.get(page);
+    if (evidence?.anchor_key) return evidence.anchor_key;
+    const padded = String(page).padStart(2, "0");
+    const files = outputPaths();
+    return files[`anchor_${padded}`] ? `anchor_${padded}` : "";
+  }
+
+  function renderFileUrl(key) {
+    if (!state.currentVariant?.id || !key) return "";
+    return `/api/platforms/variants/${encodeURIComponent(state.currentVariant.id)}/files/${encodeURIComponent(key)}?v=${Date.now()}`;
+  }
+
+  function selectedPages() {
+    const page = Number(state.selectedPage || 1);
+    return Number.isInteger(page) && page > 0 ? [page] : [];
+  }
+
+  async function renderPages(mode, pages) {
+    if (!state.currentVariant) {
+      status("请先生成或选择一个轻内容版本。", "error");
+      return;
+    }
+    const uniquePages = [...new Set(pages.map(Number).filter((page) => Number.isInteger(page) && page > 0))];
+    if (!uniquePages.length) {
+      status("请至少选择一个有效页面。", "error");
+      return;
+    }
+    if (mode === "recompose" && uniquePages.some((page) => !anchorKey(page))) {
+      status("该页没有保留原始视觉锚点，不能仅重新排版。请明确选择“重新生成本页（调用图片模型）”。", "error");
+      render();
+      return;
+    }
+    const messages = {
+      render_missing: "正在保存当前稿和分镜，并生成缺失视觉锚点…",
+      recompose: "正在仅重新排版本地成品，不会调用图片模型…",
+      regenerate: "正在重新生成视觉锚点：这一步会调用图片模型…",
+    };
+    await run(messages[mode] || "正在渲染…", async () => {
+      let variant = await persistCurrent({ adoptCandidate: true });
+      variant = await saveStoryboardIfDirty(variant);
+      if (isMinimalZine(variant)) {
+        const result = await call(
+          `/api/native-skills/minimal-zine/variants/${encodeURIComponent(variant.id)}/render`,
+          {
+            method: "POST",
+            body: JSON.stringify({ mode, pages: uniquePages }),
+          },
+        );
+        ingestRenderResult(result);
+        const fresh = await reloadCurrentVariant();
+        if (fresh) variant = fresh;
+        const reviewPages = (Array.isArray(result?.pages) ? result.pages : [])
+          .filter((item) => item?.action === "candidate_review_required")
+          .map((item) => Number(item.page))
+          .filter((page) => Number.isInteger(page) && page > 0);
+        if (reviewPages.length) {
+          state.stage = 3;
+          saveStage();
+          status(
+            `${reviewPages.map((page) => `第 ${page} 页`).join("、")}候选和单次定向修复仍未通过，已保留全部候选；请人工批准、选择或替换概念。`,
+            "error",
+          );
+          render();
+          return;
+        }
+      } else {
+        if (mode !== "render_missing") {
+          throw new Error("仅 Minimal Zine 支持保留原始锚点后的重新排版或逐页再生图。请先切换到 Minimal Zine 视觉路线。");
+        }
+        const result = await call(`/api/platforms/variants/${encodeURIComponent(variant.id)}/render`, {
+          method: "POST",
+          body: JSON.stringify({ package: true }),
+        });
+        if (result?.variant) {
+          variant = result.variant;
+          setCurrentVariant(variant, { resetStoryboard: !state.storyboardDirty });
+        }
+      }
+      state.stage = 4;
+      saveStage();
+      const completed = uniquePages.map((page) => `第 ${page} 页`).join("、");
+      const resultMessage = mode === "recompose"
+        ? `${completed} 已仅重新排版，未调用图片模型。`
+        : mode === "regenerate"
+          ? `${completed} 已重新生成视觉锚点，并重建本地版式。`
+          : `${completed} 已完成渲染并同步更新预览与发布包。`;
+      status(resultMessage, "ok");
+      render();
+    });
+  }
+
+  async function renderMissing() {
+    const pages = state.storyboard
+      .map((item) => item.page)
+      .filter((page) => !posterKey(page));
+    await renderPages("render_missing", pages.length ? pages : state.storyboard.map((item) => item.page));
+  }
+
+  async function recomposeSelected() {
+    await renderPages("recompose", selectedPages());
+  }
+
+  async function regenerateSelected() {
+    await renderPages("regenerate", selectedPages());
+  }
+
+  async function addCorpus() {
+    const title = node("light-corpus-title")?.value.trim() || "";
+    const body = node("light-corpus-body")?.value.trim() || "";
+    if (!title && !body) {
+      status("请添加你原创或有权使用的样本。", "error");
+      return;
+    }
+    await run("正在加入授权样本…", async () => {
+      await call("/api/platforms/wechat/light/corpus", {
+        method: "POST",
+        body: JSON.stringify({
+          recipe: state.brief.recipe,
+          title,
+          body_markdown: body,
+          visual_style: state.brief.visualStyle,
+          note: node("light-corpus-note")?.value || "",
+        }),
+      });
+      status("授权样本已加入；后续只提炼结构与节奏，不复制原句。", "ok");
+      await loadWorkspace(state.currentVariant?.id || "");
+    });
+  }
+
+  async function requestStage(next) {
+    const stage = Number(next);
+    if (stage === state.stage || state.busy) return;
+    if (stage > 1 && !state.currentVariant) {
+      status("请先在“任务设置”生成一个轻内容版本。", "error");
+      state.stage = 1;
+      saveStage();
+      renderStageState();
+      return;
+    }
+    if (state.stage === 2 && stage !== 2) {
+      await proceedToStage(stage);
+      return;
+    }
+    state.stage = stage;
+    saveStage();
+    renderStageState();
+  }
+
+  async function proceedToStage(stage) {
+    await run("正在先保存当前候选和编辑稿…", async () => {
+      await persistCurrent({ adoptCandidate: true });
+      state.stage = stage;
+      saveStage();
+      status("当前文案已保存为不可变版本。", "ok");
+      render();
+    });
+  }
+
+  function stageDefinition(number, title, description) {
+    const section = create("section", "light-stage");
+    section.id = `light-stage-${number}`;
+    section.dataset.stage = String(number);
+    const header = create("header", "light-stage-header");
+    const heading = create("div", "light-stage-heading");
+    heading.append(
+      create("p", "light-stage-kicker", `阶段 ${String(number).padStart(2, "0")}`),
+      create("h3", "", title),
+      create("p", "", description),
+    );
+    const summary = create("p", "light-stage-summary");
+    summary.id = `light-stage-summary-${number}`;
+    header.append(heading, summary);
+    const body = create("div", "light-stage-body");
+    body.id = `light-stage-body-${number}`;
+    section.append(header, body);
+    return section;
+  }
+
+  function injectModeTabs(view) {
+    const intro = view.querySelector(".page-intro");
+    if (!intro || node("wechat-mode-tabs")) return;
+    const tabs = create("div", "wechat-mode-tabs");
+    tabs.id = "wechat-mode-tabs";
+    tabs.setAttribute("role", "tablist");
+    [["article", "长文编辑"], ["light", "轻内容图组"]].forEach(([mode, label]) => {
+      const tab = button(label, "wechat-mode-tab", () => setMode(mode));
+      tab.id = `wechat-mode-${mode}`;
+      tab.dataset.mode = mode;
+      tab.setAttribute("role", "tab");
+      tab.setAttribute("aria-controls", mode === "light" ? "wechat-light-v15" : "wechat-article-workspace");
+      tabs.appendChild(tab);
+    });
+    tabs.addEventListener("keydown", (event) => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      const nextMode = event.key === "ArrowLeft" || event.key === "Home" ? "article" : "light";
+      void setMode(nextMode);
+      tabs.querySelector(`[data-mode="${nextMode}"]`)?.focus();
+    });
+    intro.appendChild(tabs);
+  }
+
+  function injectLab(view) {
+    if (node("wechat-light-v15")) return;
+    const longLayout = view.querySelector(".platform-studio-layout");
+    if (!longLayout) return;
+    longLayout.id ||= "wechat-article-workspace";
+    longLayout.setAttribute("aria-labelledby", "wechat-mode-article");
+    const lab = create("section", "light-v15");
+    lab.id = "wechat-light-v15";
+    lab.hidden = true;
+    lab.setAttribute("role", "tabpanel");
+    lab.setAttribute("aria-labelledby", "wechat-mode-light");
+    const statusNode = create("div", "light-status", state.status.text);
+    statusNode.id = "light-status";
+    statusNode.setAttribute("role", "status");
+    const layout = create("div", "light-v15-layout");
+    const rail = create("nav", "light-stage-rail");
+    rail.setAttribute("aria-label", "轻内容任务阶段");
+    rail.appendChild(create("div", "light-stage-nav-label", "轻内容任务流"));
+    const canvas = create("div", "light-stage-canvas");
+    [
+      [1, "任务设置", "选择可追溯来源、内容配方、视觉路线与本轮要求。"],
+      [2, "文案候选", "比较候选与审稿意见，采用并编辑当前不可变版本。"],
+      [3, "视觉分镜", "逐页编辑视觉说明，再决定只排版还是调用图片模型。"],
+      [4, "成品交付", "检查整组图片、预览、清单与发布包，并完成人工复核。"],
+    ].forEach(([number, title, description]) => {
+      const tab = button("", "light-stage-tab", () => { void requestStage(number); });
+      tab.dataset.stage = String(number);
+      tab.dataset.lightAction = "true";
+      tab.setAttribute("aria-label", `阶段 ${String(number).padStart(2, "0")}：${title}`);
+      tab.setAttribute("aria-controls", `light-stage-${number}`);
+      tab.append(create("span", "light-stage-tab-number", String(number)), create("span", "", title));
+      rail.appendChild(tab);
+      canvas.appendChild(stageDefinition(number, title, description));
+    });
+    layout.append(rail, canvas);
+    lab.append(statusNode, layout);
+    longLayout.before(lab);
+  }
+
+  function choiceGrid(name, values, selectedValue, onChange) {
+    const grid = create("div", "light-choice-grid");
+    values.forEach(([value, title, note]) => {
+      const choice = create("label", "light-choice");
+      const radio = document.createElement("input");
+      radio.type = "radio";
+      radio.name = name;
+      radio.value = value;
+      radio.checked = value === selectedValue;
+      radio.addEventListener("change", () => onChange(value));
+      choice.append(radio, create("strong", "", title), create("small", "", note));
+      grid.appendChild(choice);
+    });
+    return grid;
+  }
+
+  function actionBar(copy, primary, secondary = []) {
+    const bar = create("div", "light-action-bar");
+    bar.appendChild(create("div", "light-action-bar-copy", copy));
+    const actions = create("div", "light-action-bar-actions");
+    if (primary) {
+      primary.dataset.lightAction = "true";
+      actions.appendChild(primary);
+    }
+    secondary.forEach((value) => {
+      value.dataset.lightAction = "true";
+      actions.appendChild(value);
+    });
+    bar.appendChild(actions);
+    return bar;
+  }
+
+  function renderTask() {
+    const body = node("light-stage-body-1");
+    if (!body) return;
+    body.replaceChildren();
+    const grid = create("div", "light-task-grid");
+    const sourceCard = create("section", "light-section-card");
+    sourceCard.appendChild(create("h4", "", "任务来源与内容配方"));
+    const source = document.createElement("select");
+    source.id = "light-source";
+    renderSourceOptions(source);
+    source.addEventListener("change", async () => {
+      state.brief.sourceId = source.value;
+      saveLightSource();
+      state.brief.draftId = "";
+      state.drafts = [];
+      const variant = state.variants.find((item) => item.source_id === state.brief.sourceId) || null;
+      setCurrentVariant(variant, { resetEditor: true, resetStoryboard: true });
+      setBusy(true, "正在加载轻内容自己的来源版本…");
+      render();
+      try {
+        await loadDrafts();
+        status("轻内容来源已切换；公众号长文来源不会跟着改变。", "ok");
+      } catch (error) {
+        status(error.message || String(error), "error");
+      } finally {
+        setBusy(false);
+        render();
+      }
+    });
+    sourceCard.appendChild(labelFor("来源", source));
+    const draft = document.createElement("select");
+    draft.id = "light-draft";
+    draft.appendChild(new Option("直接使用来源", ""));
+    state.drafts.forEach((item) => draft.appendChild(new Option(`v${item.version} · ${item.title || "未命名终稿"}`, item.id)));
+    draft.value = state.brief.draftId;
+    draft.addEventListener("change", () => { state.brief.draftId = draft.value; });
+    sourceCard.appendChild(labelFor("基础终稿", draft));
+    sourceCard.appendChild(create("p", "", "内容配方"));
+    sourceCard.appendChild(choiceGrid("light-recipe", RECIPES, state.brief.recipe, (value) => {
+      state.brief.recipe = value;
+      renderTask();
+    }));
+    if (state.brief.recipe === "seasonal") {
+      const topic = input(state.brief.seasonalTopic, { maxLength: 120, placeholder: "例如：处暑、秋分早晚温差" });
+      topic.addEventListener("input", () => { state.brief.seasonalTopic = topic.value; });
+      sourceCard.appendChild(labelFor("节气或时令主题", topic));
+    }
+
+    const settingsCard = create("section", "light-section-card");
+    settingsCard.appendChild(create("h4", "", "视觉路线与本轮要求"));
+    settingsCard.appendChild(create("p", "", "视觉路线"));
+    settingsCard.appendChild(choiceGrid("light-style", STYLES, state.brief.visualStyle, (value) => {
+      state.brief.visualStyle = value;
+      renderTask();
+    }));
+    const pair = create("div", "light-field-grid");
+    const count = select([["3", "3 张"], ["4", "4 张"], ["5", "5 张"], ["6", "6 张"]], String(state.brief.imageCount));
+    count.addEventListener("change", () => { state.brief.imageCount = Number(count.value); });
+    const quality = select([["studio", "工作室 · 多路审稿"], ["fast", "快速 · 控制调用"]], state.brief.qualityMode);
+    quality.addEventListener("change", () => { state.brief.qualityMode = quality.value; });
+    pair.append(labelFor("图片数量", count), labelFor("质量模式", quality));
+    settingsCard.appendChild(pair);
+    const audience = input(state.brief.audience, { maxLength: 500, placeholder: "例如：高压工作的城市读者" });
+    audience.addEventListener("input", () => { state.brief.audience = audience.value; });
+    settingsCard.appendChild(labelFor("目标读者", audience));
+    const tone = input(state.brief.tone, { maxLength: 300 });
+    tone.addEventListener("input", () => { state.brief.tone = tone.value; });
+    settingsCard.appendChild(labelFor("语气", tone));
+    const feedback = input(state.brief.feedback, { multiline: true, rows: 3, maxLength: 3000, placeholder: "哪些事实边界、角度或表达必须保留？" });
+    feedback.addEventListener("input", () => { state.brief.feedback = feedback.value; });
+    settingsCard.appendChild(labelFor("本轮要求", feedback));
+    const advanced = create("details", "light-advanced");
+    const advancedSummary = create("summary", "", "高级设置与授权语料");
+    advancedSummary.appendChild(create("span", "light-corpus-count", String(state.corpus.length)));
+    const advancedContent = create("div", "light-advanced-content");
+    const corpusTitle = input("", { id: "light-corpus-title", maxLength: 160, placeholder: "授权样本标题" });
+    const corpusBody = input("", { id: "light-corpus-body", multiline: true, rows: 4, maxLength: 8000, placeholder: "仅添加你原创或有权使用的样本" });
+    const corpusNote = input("", { id: "light-corpus-note", maxLength: 3000, placeholder: "喜欢什么结构或节奏，不要照抄句子" });
+    const corpusButton = button("加入授权样本", "light-secondary-action", () => { void addCorpus(); });
+    corpusButton.dataset.lightAction = "true";
+    advancedContent.append(
+      labelFor("授权样本标题", corpusTitle),
+      labelFor("授权样本正文", corpusBody),
+      labelFor("学习备注", corpusNote),
+      corpusButton,
+    );
+    advanced.append(advancedSummary, advancedContent);
+    settingsCard.appendChild(advanced);
+    grid.append(sourceCard, settingsCard);
+    body.appendChild(grid);
+    body.appendChild(actionBar(
+      "默认只生成本地编辑卡片；只有明确选择 Minimal Zine 实验路线才会调用图片模型。",
+      button("生成 3 个文案候选", "light-primary-action", () => { void generate(); }),
+      [button("刷新来源与版本", "light-secondary-action", () => { void loadWorkspace(state.currentVariant?.id || ""); })],
+    ));
+  }
+
+  function reviewCard(title, value, fallback) {
+    const card = create("article", "light-review-card");
+    card.appendChild(create("strong", "", title));
+    const strengths = Array.isArray(value?.strengths) ? value.strengths.filter(Boolean).slice(0, 2).join("；") : "";
+    const fixes = Array.isArray(value?.must_fix) ? value.must_fix.filter(Boolean).slice(0, 2).join("；") : "";
+    card.appendChild(create("span", "", strengths || fixes || fallback));
+    return card;
+  }
+
+  function reviewAt(payload, index) {
+    const values = Array.isArray(payload?.candidate_reviews) ? payload.candidate_reviews : [];
+    return values.find((item) => Number(item.candidate_index) === index) || payload || {};
+  }
+
+  function renderCopy() {
+    const body = node("light-stage-body-2");
+    if (!body) return;
+    body.replaceChildren();
+    if (!state.currentVariant) {
+      body.appendChild(create("div", "light-section-card", "先在“任务设置”生成轻内容候选。"));
+      return;
+    }
+    const grid = create("div", "light-copy-grid");
+    const candidateCard = create("section", "light-section-card");
+    candidateCard.appendChild(create("h4", "", `v${state.currentVariant.version} · 候选与审阅`));
+    const meta = metadata();
+    const score = create("div", "light-score-row");
+    score.append(create("strong", "", Number(meta.quality_score || 0).toFixed(1)), create("span", "", "/ 10 综合质量"));
+    candidateCard.appendChild(score);
+    const versions = create("div", "light-version-list");
+    const forSource = state.variants.filter((item) => item.source_id === state.brief.sourceId);
+    forSource.forEach((variant) => {
+      const versionMeta = parse(variant.metadata_json, {});
+      const versionButton = button(
+        `v${variant.version} · ${versionMeta.recipe_label || "轻内容"}`,
+        `light-version-chip${variant.id === state.currentVariant.id ? " active" : ""}`,
+        () => {
+          setCurrentVariant(variant, { resetEditor: true, resetStoryboard: true });
+          render();
+        },
+      );
+      versionButton.dataset.lightAction = "true";
+      versions.appendChild(versionButton);
+    });
+    candidateCard.appendChild(versions);
+    const tabs = create("div", "light-candidate-tabs");
+    const candidates = Array.isArray(meta.candidates) ? meta.candidates : [];
+    candidates.forEach((candidate, index) => {
+      const tab = button(
+        `候选 ${index + 1} · ${candidate.angle || "不同角度"}`,
+        `light-candidate-tab${index === state.candidateIndex ? " active" : ""}`,
+        () => {
+          state.candidateIndex = index;
+          loadEditorFromCandidate();
+          renderCopy();
+        },
+      );
+      tab.dataset.lightAction = "true";
+      tabs.appendChild(tab);
+    });
+    if (!candidates.length) tabs.appendChild(create("span", "light-page-state", "人工版本"));
+    candidateCard.appendChild(tabs);
+    const reviews = create("div", "light-review-list");
+    reviews.append(
+      reviewCard("目标读者审稿", reviewAt(meta.reviews?.audience, state.candidateIndex), "是否真实、尊重、值得分享"),
+      reviewCard("文化事实审校", reviewAt(meta.reviews?.culture, state.candidateIndex), "是否忠于来源、无夸大和刻板印象"),
+      reviewCard("总编选择", { strengths: [meta.chief_editor_note], must_fix: [meta.revision_summary] }, "为什么选这版、修改了什么"),
+      reviewCard("语料使用", { strengths: [`参考 ${meta.corpus_item_ids?.length || 0} 条已批准语料`] }, "只学习结构与节奏，不照抄句子"),
+    );
+    candidateCard.appendChild(reviews);
+
+    const editorCard = create("section", "light-section-card");
+    editorCard.appendChild(create("h4", "", "当前编辑稿"));
+    const fields = [
+      ["标题", "title", { maxLength: 160 }],
+      ["副标题", "subtitle", { maxLength: 240 }],
+      ["摘要", "summary", { multiline: true, rows: 3, maxLength: 1000 }],
+      ["短正文", "body_markdown", { multiline: true, rows: 12, maxLength: 50000, className: "light-editor-body" }],
+      ["标签", "tags", { maxLength: 1000 }],
+    ];
+    fields.forEach(([label, key, options]) => {
+      const control = input(state.editor[key], options);
+      control.id = `light-edit-${key.replace("body_markdown", "body")}`;
+      control.addEventListener("input", () => { state.editor[key] = control.value; });
+      editorCard.appendChild(labelFor(label, control));
+    });
+    const actions = create("div", "light-action-row");
+    const adopt = button("采用当前候选", "light-secondary-action", () => { void useCandidate(); });
+    const save = button("保存当前编辑稿", "light-secondary-action", () => { void saveEdit(); });
+    adopt.dataset.lightAction = "true";
+    save.dataset.lightAction = "true";
+    actions.append(adopt, save);
+    editorCard.appendChild(actions);
+    const feedback = input("", { id: "light-feedback", multiline: true, rows: 4, maxLength: 3000, placeholder: "指出具体要调整的角度、事实边界、句子或画面。" });
+    const feedbackSection = create("div", "light-feedback");
+    feedbackSection.append(
+      labelFor("继续迭代意见", feedback),
+      button("按反馈重新迭代", "light-secondary-action", () => { void iterate(); }),
+      button("批准到旧优质语料（兼容）", "light-secondary-action", () => { void approve(); }),
+      button("提炼为写作偏好", "light-secondary-action", () => { void openMemoryCandidate(); }),
+    );
+    feedbackSection.querySelectorAll("button").forEach((value) => { value.dataset.lightAction = "true"; });
+    editorCard.appendChild(feedbackSection);
+    grid.append(candidateCard, editorCard);
+    body.appendChild(grid);
+    body.appendChild(actionBar(
+      "离开本阶段前，会先采用当前候选并保存编辑框里的文字，得到新的不可变版本。",
+      button("保存当前文案，进入视觉分镜", "light-primary-action", () => { void proceedToVisual(); }),
+    ));
+  }
+
+  function storyboardField(item, key, label, options = {}) {
+    const control = input(String(item[key] ?? ""), options);
+    control.addEventListener("input", () => {
+      const value = options.type === "number" ? Number(control.value) : control.value;
+      if (options.type === "number" && !Number.isFinite(value)) return;
+      updateStoryboardValue(item, key, value);
+    });
+    return labelFor(label, control);
+  }
+
+  function updateStoryboardValue(item, key, value) {
+    item[key] = value;
+    state.storyboardDirty = true;
+    renderStageState();
+    const prompt = document.querySelector(".light-storyboard-card-expanded .light-prompt pre");
+    if (prompt) prompt.textContent = pagePrompt(item);
+    const handoff = document.querySelector(".light-web-handoff");
+    if (handoff) handoff.replaceWith(renderChatGptWebHandoff(item));
+  }
+
+  function storyboardSelectField(item, key, label, options) {
+    const control = select(options, String(item[key] ?? ""));
+    control.addEventListener("change", () => updateStoryboardValue(item, key, control.value));
+    return labelFor(label, control);
+  }
+
+  function accentOptionValue(value) {
+    const normalized = normalizeAccent(value);
+    if (NAMED_ACCENTS.has(normalized)) return normalized;
+    return ACCENT_COLOR_NAMES.get(normalized) || "custom";
+  }
+
+  function storyboardAccentField(item) {
+    const group = create("div", "light-accent-control");
+    const selected = accentOptionValue(item.accent);
+    const control = select([...ACCENT_OPTIONS, ["custom", "自定义 #RRGGBB"]], selected);
+    const normalized = normalizeAccent(item.accent);
+    const custom = input(
+      /^#[0-9a-f]{6}$/.test(normalized) ? normalized : "#1646d8",
+      { type: "color" },
+    );
+    const customField = labelFor("自定义色（#RRGGBB）", custom);
+    customField.classList.add("light-accent-custom");
+    customField.hidden = selected !== "custom";
+    control.addEventListener("change", () => {
+      const isCustom = control.value === "custom";
+      customField.hidden = !isCustom;
+      if (isCustom) {
+        updateStoryboardValue(item, "accent", custom.value.toLowerCase());
+        custom.focus();
+      } else {
+        updateStoryboardValue(item, "accent", control.value);
+      }
+    });
+    custom.addEventListener("input", () => {
+      updateStoryboardValue(item, "accent", custom.value.toLowerCase());
+    });
+    group.append(labelFor("强调色", control), customField);
+    return group;
+  }
+
+  function pagePrompt(item) {
+    if (state.storyboardDirty) {
+      return "当前分镜有未保存修改，之前的 Prompt 已过期。请在右侧重新生成并检查本页 Prompt。";
+    }
+    return currentWebHandoff(item.page)?.prompt
+      || item.final_prompt
+      || state.pageEvidence.get(item.page)?.final_prompt
+      || "尚未生成本页 ChatGPT 网页 Prompt。点击右侧“编译并显示本页 Prompt”；这一步不会调用图片模型。";
+  }
+
+  function currentWebHandoff(page) {
+    const handoff = state.webHandoffs.get(page);
+    if (
+      !handoff?.prompt
+      || handoff.variant_id !== state.currentVariant?.id
+      || state.storyboardDirty
+    ) return null;
+    return handoff;
+  }
+
+  async function copyText(value) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return;
+    } catch {
+      const fallback = document.createElement("textarea");
+      fallback.value = value;
+      fallback.setAttribute("readonly", "");
+      fallback.style.position = "fixed";
+      fallback.style.opacity = "0";
+      document.body.appendChild(fallback);
+      fallback.select();
+      const copied = document.execCommand("copy");
+      fallback.remove();
+      if (!copied) throw new Error("浏览器拒绝复制，请在 Prompt 文本框中手动全选复制。");
+    }
+  }
+
+  async function prepareChatGptWebHandoff(page, forceRecompile = false) {
+    await run(forceRecompile ? "正在重新编译并比较本页 Prompt…" : "正在冻结当前分镜并编译可见的 ChatGPT 网页 Prompt…", async () => {
+      let variant = await persistCurrent({ adoptCandidate: true });
+      variant = await saveStoryboardIfDirty(variant);
+      if (!isMinimalZine(variant)) {
+        throw new Error("ChatGPT 网页回传只用于 Minimal Zine 无字视觉锚点；请先切换视觉路线。 ");
+      }
+      let result;
+      try {
+        result = await call(
+          `/api/native-skills/minimal-zine/variants/${encodeURIComponent(variant.id)}/web-handoff`,
+          {
+            method: "POST",
+            body: JSON.stringify({ pages: [page], force_recompile: forceRecompile }),
+          },
+        );
+      } catch (error) {
+        if (String(error?.message || error).trim() === "Not Found") {
+          throw new Error("当前本地服务仍是旧进程，尚未载入网页 Prompt 接口。请重启 X2RED 后刷新页面。");
+        }
+        throw error;
+      }
+      const handoff = Array.isArray(result?.pages) ? result.pages[0] : null;
+      if (!handoff?.prompt) throw new Error("当前页没有可用的网页生图 Prompt。 ");
+      state.webHandoffs.set(page, { ...handoff, variant_id: variant.id });
+      const degraded = Array.isArray(handoff.warnings) && handoff.warnings.some((value) => String(value).startsWith("DEGRADED_FALLBACK"));
+      status(
+        degraded
+          ? `第 ${page} 页已使用显式降级配方编译；请先检查警告和 Prompt，再决定是否生图。`
+          : forceRecompile
+            ? `第 ${page} 页 Prompt 已重新编译；请检查版本、配方和差异。`
+            : `第 ${page} 页 Prompt 已编译并显示。请先检查，再复制到 ChatGPT Images。`,
+        degraded ? "error" : "ok",
+      );
+      render();
+    });
+  }
+
+  async function copyChatGptWebPrompt(page) {
+    const handoff = currentWebHandoff(page);
+    if (!handoff) {
+      status("请先生成并检查本页 Prompt；分镜有修改时必须重新生成。", "error");
+      return;
+    }
+    try {
+      await copyText(handoff.prompt);
+      state.webHandoffs.set(page, { ...handoff, copied: true });
+      status(`第 ${page} 页完整 Prompt 已复制。现在可以打开 ChatGPT Images 生成并保存图片。`, "ok");
+      const item = state.storyboard.find((value) => value.page === page);
+      const section = document.querySelector(".light-web-handoff");
+      if (item && section) section.replaceWith(renderChatGptWebHandoff(item));
+    } catch (error) {
+      status(error.message || String(error), "error");
+    }
+  }
+
+  async function uploadChatGptWebAnchor(page, files) {
+    if (state.storyboardDirty) {
+      status("分镜在 Prompt 生成后又被修改了。旧 Prompt 已过期，请重新生成、复制和回传。", "error");
+      render();
+      return;
+    }
+    const handoff = currentWebHandoff(page);
+    if (!handoff) {
+      status("请先生成并检查本页 Prompt，再复制到 ChatGPT Images 并回传图片。", "error");
+      render();
+      return;
+    }
+    const selectedFiles = Array.from(files || []);
+    if (!selectedFiles.length || selectedFiles.length > 4) {
+      status("每页请选择 1–4 张图片进入同一候选审稿。", "error");
+      return;
+    }
+    if (selectedFiles.some((file) => file.size > 12 * 1024 * 1024)) {
+      status("单张图片不能超过 12 MB。", "error");
+      return;
+    }
+    await run(`正在回传第 ${page} 页的 ${selectedFiles.length} 张候选并进行视觉审稿…`, async () => {
+      const form = new FormData();
+      selectedFiles.forEach((file) => form.append("file", file));
+      const response = await fetch(
+        `/api/native-skills/minimal-zine/variants/${encodeURIComponent(state.currentVariant.id)}/external-anchor?page=${encodeURIComponent(page)}`,
+        { method: "POST", body: form },
+      );
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.detail || `上传失败：HTTP ${response.status}`);
+      }
+      const result = await response.json();
+      ingestRenderResult(result);
+      await reloadCurrentVariant();
+      state.webHandoffs.delete(page);
+      state.stage = 3;
+      saveStage();
+      status(
+        result.complete
+          ? `第 ${page} 页候选已审稿并选中；整组已重建预览与发布包。`
+          : result?.pages?.[0]?.action === "candidate_review_required"
+            ? `第 ${page} 页候选已保留，但没有候选通过自动审稿；请人工批准、驳回或定向修复。`
+            : `第 ${page} 页候选已审稿并完成本地排版；其余页面可继续逐页回传。`,
+        "ok",
+      );
+      render();
+    });
+  }
+
+  async function reviewImageCandidate(page, candidateId, action, reason = "") {
+    const labels = { keep: "保留候选", reject: "驳回候选", approve: "人工批准候选" };
+    await run(`正在${labels[action] || "更新候选"}…`, async () => {
+      await call(
+        `/api/native-skills/minimal-zine/variants/${encodeURIComponent(state.currentVariant.id)}/candidates/${encodeURIComponent(page)}/review`,
+        {
+          method: "POST",
+          body: JSON.stringify({ candidate_id: candidateId, action, reason }),
+        },
+      );
+      await reloadCurrentVariant();
+      status(`${labels[action] || "候选状态"}已记录；其他候选和文件均保留。`, "ok");
+      render();
+    });
+  }
+
+  async function selectImageCandidate(page, candidateId) {
+    await run("正在选中候选并重建本地版式与发布门禁…", async () => {
+      const result = await call(
+        `/api/native-skills/minimal-zine/variants/${encodeURIComponent(state.currentVariant.id)}/candidates/${encodeURIComponent(page)}/select`,
+        {
+          method: "POST",
+          body: JSON.stringify({ candidate_id: candidateId }),
+        },
+      );
+      if (Array.isArray(result?.pages)) ingestRenderResult(result);
+      await reloadCurrentVariant();
+      status(
+        result.deferred_composition
+          ? `第 ${page} 页候选已选中；待其余页面有锚点后统一重建图组。`
+          : `第 ${page} 页候选已选中并完成本地排版；未选候选仍可回看。`,
+        "ok",
+      );
+      render();
+    });
+  }
+
+  async function repairImageCandidate(page, candidateId) {
+    await run("正在进行唯一一次定向修复：只修改主要缺陷…", async () => {
+      const result = await call(
+        `/api/native-skills/minimal-zine/variants/${encodeURIComponent(state.currentVariant.id)}/candidates/${encodeURIComponent(page)}/repair`,
+        {
+          method: "POST",
+          body: JSON.stringify({ candidate_id: candidateId }),
+        },
+      );
+      if (Array.isArray(result?.pages)) ingestRenderResult(result);
+      await reloadCurrentVariant();
+      status(
+        result.publish_allowed
+          ? `第 ${page} 页定向修复已通过并更新成品。`
+          : `第 ${page} 页已完成一次定向修复；若仍不合格，请人工选择或替换概念。`,
+        result.publish_allowed ? "ok" : "error",
+      );
+      render();
+    });
+  }
+
+  function replaceVisualConcept(page) {
+    state.selectedPage = page;
+    renderVisual();
+    requestAnimationFrame(() => {
+      const card = document.querySelector(`.light-storyboard-card-expanded[data-page="${page}"]`);
+      const field = [...(card?.querySelectorAll("label.light-field") || [])]
+        .find((value) => value.textContent?.includes("具体主体"));
+      const control = field?.querySelector("input,textarea");
+      control?.focus();
+      control?.select?.();
+      status("请替换具体主体或动作关系并保存分镜；旧 Prompt、候选和 raw anchor 会按指纹失效。", "ok");
+    });
+  }
+
+  function compilerModeLabel(value) {
+    return {
+      production_text_safe: "Production · 本地中文安全",
+      faithful_skill: "Skill v0.3 · 忠实编译",
+      legacy: "Legacy · 回滚模式",
+    }[String(value || "")] || String(value || "未知模式");
+  }
+
+  function renderPromptProvenance(stored) {
+    const panel = create("section", "light-compiler-trace");
+    panel.setAttribute("aria-label", "视觉 Prompt 编译溯源");
+    panel.appendChild(create("strong", "light-compiler-title", "编译溯源"));
+    const grid = create("dl", "light-compiler-grid");
+    const add = (label, value, className = "") => {
+      const term = create("dt", "", label);
+      const description = create("dd", className, value || "—");
+      grid.append(term, description);
+    };
+    add("模式", compilerModeLabel(stored.compiler_mode || stored.visual_prompt_spec?.mode));
+    add("Skill", stored.skill_version || stored.visual_prompt_spec?.skill_version || "—");
+    add("来源指纹", stored.source_fingerprint || "—", "light-compiler-fingerprint");
+    add("Prompt 指纹", stored.prompt_fingerprint || "—", "light-compiler-fingerprint");
+    panel.appendChild(grid);
+
+    const recipe = stored.recipe && typeof stored.recipe === "object" ? stored.recipe : {};
+    const recipeLine = [
+      recipe.layout_family && `版式 ${recipe.layout_family}`,
+      recipe.anchor_form && `锚点 ${recipe.anchor_form}`,
+      recipe.texture_mode && `质感 ${recipe.texture_mode}`,
+      recipe.main_hue && `主色 ${recipe.main_hue}`,
+      recipe.mood && `情绪 ${recipe.mood}`,
+    ].filter(Boolean);
+    const recipeBlock = create("div", "light-compiler-recipe");
+    recipeBlock.appendChild(create("span", "", "上游配方"));
+    const chips = create("div", "light-compiler-chips");
+    (recipeLine.length ? recipeLine : ["尚无结构化配方"]).forEach((value) => chips.appendChild(create("code", "", value)));
+    recipeBlock.appendChild(chips);
+    panel.appendChild(recipeBlock);
+
+    const warnings = Array.isArray(stored.warnings) ? stored.warnings : [];
+    if (warnings.length) {
+      const warning = create("div", "light-compiler-warnings");
+      warning.setAttribute("role", "alert");
+      warning.appendChild(create("strong", "", "编译警告"));
+      const list = document.createElement("ul");
+      warnings.forEach((value) => list.appendChild(create("li", "", String(value))));
+      warning.appendChild(list);
+      panel.appendChild(warning);
+    }
+
+    const diff = stored.prompt_diff && typeof stored.prompt_diff === "object" ? stored.prompt_diff : {};
+    const details = create("details", "light-prompt-diff");
+    details.appendChild(create("summary", "", diff.changed ? "Prompt diff · 已发生变化" : "Prompt diff · 无文本变化"));
+    details.appendChild(create(
+      "pre",
+      "",
+      diff.changed ? String(diff.unified || "Prompt 已变化，但没有可显示的逐行差异。") : "本次编译结果与上一版 Prompt 相同。",
+    ));
+    panel.appendChild(details);
+    return panel;
+  }
+
+  function renderChatGptWebHandoff(page) {
+    const section = create("section", "light-web-handoff");
+    section.dataset.page = String(page.page);
+    const head = create("div", "light-web-handoff-head");
+    const copy = create("div");
+    copy.append(
+      create("strong", "", "ChatGPT 网页生图"),
+      create("span", "", "不接 API · 不自动控制账号 · 回传后由 X2RED 本地排中文"),
+    );
+    head.append(copy, create("span", "light-web-badge", "推荐替换 GLM"));
+    const steps = document.createElement("ol");
+    [
+      "生成并检查当前页无字 Prompt",
+      "复制完整 Prompt",
+      "在 ChatGPT Images 生成并保存 1–4 张",
+      "上传候选、审稿后本地重建海报",
+    ].forEach((value) => {
+      steps.appendChild(create("li", "", value));
+    });
+    const stored = state.webHandoffs.get(page.page);
+    const ready = Boolean(currentWebHandoff(page.page));
+    const stale = Boolean(stored && !ready);
+    const promptPanel = create("div", `light-web-prompt-panel${stale ? " stale" : ""}`);
+    promptPanel.appendChild(create("strong", "", "本页完整 Prompt"));
+    if (ready) {
+      const prompt = input(stored.prompt, {
+        multiline: true,
+        rows: 12,
+        className: "light-web-prompt-text",
+      });
+      prompt.readOnly = true;
+      prompt.spellcheck = false;
+      prompt.setAttribute("aria-label", `第 ${page.page} 页完整生图 Prompt`);
+      promptPanel.appendChild(prompt);
+      promptPanel.appendChild(renderPromptProvenance(stored));
+    } else {
+      promptPanel.appendChild(create(
+        "p",
+        "light-web-prompt-empty",
+        stale
+          ? "分镜已修改，上一版 Prompt 已作废。请重新生成后再复制或上传。"
+          : "尚未生成。点击下方按钮后会运行统一文本编译器；网页 handoff 永远不会调用图片 API。",
+      ));
+    }
+    const actions = create("div", "light-web-actions");
+    const prepare = button(ready ? "1 · 重新编译 Prompt" : "1 · 编译并显示本页 Prompt", ready ? "light-web-secondary" : "light-web-primary", () => {
+      void prepareChatGptWebHandoff(page.page, ready);
+    });
+    prepare.dataset.lightAction = "true";
+    const copyPrompt = button("2 · 复制完整 Prompt", "light-web-primary", () => {
+      void copyChatGptWebPrompt(page.page);
+    });
+    copyPrompt.dataset.lightAction = "true";
+    copyPrompt.disabled = !ready;
+    copyPrompt.title = ready ? "复制上方显示的完整 Prompt" : "请先生成并检查本页 Prompt";
+    const open = create("a", `light-web-link${ready ? "" : " disabled"}`, ready ? "3 · 打开 ChatGPT Images ↗" : "3 · 先生成 Prompt");
+    if (ready) {
+      open.href = "https://chatgpt.com/images";
+      open.target = "_blank";
+      open.rel = "noreferrer";
+    } else {
+      open.setAttribute("aria-disabled", "true");
+      open.tabIndex = -1;
+      open.title = "请先生成并检查本页 Prompt";
+    }
+    const uploadLabel = create("label", "light-web-upload", "4 · 上传下载图（1–4 张候选）");
+    const upload = document.createElement("input");
+    upload.type = "file";
+    upload.accept = "image/png,image/jpeg,image/webp";
+    upload.multiple = true;
+    upload.disabled = !ready;
+    upload.dataset.lightAction = "true";
+    upload.addEventListener("change", () => {
+      const files = upload.files ? Array.from(upload.files) : [];
+      if (files.length) void uploadChatGptWebAnchor(page.page, files);
+      upload.value = "";
+    });
+    uploadLabel.classList.toggle("disabled", !ready);
+    uploadLabel.title = ready ? "选择从 ChatGPT Images 保存的 1–4 张候选图" : "请先生成本页 Prompt";
+    uploadLabel.appendChild(upload);
+    actions.append(prepare, copyPrompt, open, uploadLabel);
+    const handoffStatus = create(
+      "p",
+      stale ? "light-web-state stale" : "light-web-state",
+      stale
+        ? `第 ${page.page} 页分镜已修改，旧 Prompt 已过期。`
+        : ready
+          ? stored.copied
+            ? `第 ${page.page} 页 Prompt 已生成并复制，可去 ChatGPT Images 生图。`
+            : `第 ${page.page} 页 Prompt 已生成并显示，请检查后复制。`
+          : `第 ${page.page} 页尚未生成网页 Prompt。`,
+    );
+    handoffStatus.setAttribute("aria-live", "polite");
+    section.append(head, steps, promptPanel, actions, handoffStatus);
+    return section;
+  }
+
+  function pageActionLabel(page) {
+    const evidence = state.pageEvidence.get(page);
+    const candidatePage = imageCandidatePage(page);
+    const candidates = Array.isArray(candidatePage?.candidates) ? candidatePage.candidates : [];
+    if (candidates.length && !candidatePage.selected_candidate_id) return `${candidates.length} 张候选待审`;
+    if (evidence?.action === "recomposed") return "已仅重新排版";
+    if (evidence?.action === "regenerated") return "已重新生成视觉锚点";
+    if (evidence?.action === "cached") return "已使用已有成品";
+    if (posterKey(page)) return "已有最终海报";
+    return "尚未渲染";
+  }
+
+  function selectStoryboardPage(page) {
+    if (page === state.selectedPage) return;
+    state.selectedPage = page;
+    renderVisual();
+  }
+
+  function renderStoryboardSummary(item) {
+    const card = create("article", "light-storyboard-card light-storyboard-card-compact");
+    card.dataset.page = String(item.page);
+    const selectPage = button("", "light-storyboard-summary", () => selectStoryboardPage(item.page));
+    selectPage.dataset.lightAction = "true";
+    selectPage.setAttribute("aria-label", `展开第 ${item.page} 页的视觉分镜编辑`);
+    const copy = create("span", "light-storyboard-summary-copy");
+    copy.append(
+      create("strong", "light-storyboard-summary-phrase", item.phrase || "未填写短句"),
+      create(
+        "span",
+        "light-storyboard-summary-metaphor",
+        item.page_visual_brief
+          ? `具体主体 · ${item.concrete_subject || "未填写"}`
+          : `视觉隐喻 · ${item.visual_metaphor || "未填写"}`,
+      ),
+    );
+    selectPage.append(
+      create("span", "light-storyboard-summary-page", `第 ${item.page} 页`),
+      copy,
+      create("span", "light-page-state", pageActionLabel(item.page)),
+    );
+    card.appendChild(selectPage);
+    return card;
+  }
+
+  function renderStoryboardCard(item) {
+    if (item.page !== state.selectedPage) return renderStoryboardSummary(item);
+    const card = create("article", "light-storyboard-card light-storyboard-card-expanded selected");
+    card.dataset.page = String(item.page);
+    const head = create("div", "light-storyboard-head");
+    head.append(
+      create("span", "light-page-select", `第 ${item.page} 页 · 正在编辑`),
+      create("span", "light-page-state", pageActionLabel(item.page)),
+    );
+    card.appendChild(head);
+    card.append(storyboardField(item, "phrase", "短句", { maxLength: 80 }));
+    card.append(storyboardField(item, "note", "说明", { multiline: true, rows: 2, maxLength: 180 }));
+    if (item.page_visual_brief) {
+      const briefPanel = create("section", "light-visual-brief-editor");
+      const briefHead = create("div", "light-visual-brief-head");
+      briefHead.append(
+        create("strong", "", "冻结 PageVisualBrief"),
+        create(
+          "span",
+          "",
+          `${Array.isArray(item.visual_concept_candidates) ? item.visual_concept_candidates.length : 3} 个候选 · 主编已选择`,
+        ),
+      );
+      briefPanel.appendChild(briefHead);
+      const briefGrid = create("div", "light-field-grid");
+      briefGrid.append(
+        storyboardSelectField(item, "page_visual_role", "页面职责", VISUAL_ROLE_OPTIONS),
+        storyboardField(item, "concrete_subject", "具体主体", { maxLength: 240 }),
+        storyboardField(item, "action_or_relation", "动作 / 关系", { multiline: true, rows: 2, maxLength: 320 }),
+        storyboardField(item, "setting", "场景", { maxLength: 240 }),
+        storyboardField(item, "viewpoint", "视点", { maxLength: 160 }),
+        storyboardField(item, "crop", "裁切", { maxLength: 160 }),
+        storyboardField(item, "lighting", "光线", { maxLength: 160 }),
+        storyboardField(item, "reader_emotion", "读者情绪", { maxLength: 160 }),
+      );
+      briefPanel.appendChild(briefGrid);
+      const refs = Array.isArray(item.page_visual_brief.evidence_refs)
+        ? item.page_visual_brief.evidence_refs.filter(Boolean)
+        : [];
+      briefPanel.appendChild(create(
+        "p",
+        "light-visual-brief-evidence",
+        `证据引用 · ${refs.length ? refs.join(" · ") : "缺失（保存时会被拒绝）"}`,
+      ));
+      card.appendChild(briefPanel);
+    }
+    const row = create("div", "light-field-grid");
+    const controls = [
+      storyboardSelectField(item, "layout", "版式", LAYOUT_OPTIONS),
+      storyboardSelectField(item, "anchor", "视觉锚点", ANCHOR_OPTIONS),
+      storyboardAccentField(item),
+      storyboardSelectField(item, "texture", "质感", TEXTURE_OPTIONS),
+      storyboardField(item, "mood", "情绪", { maxLength: 80 }),
+      storyboardField(item, "focus_x", "焦点 X", {
+        type: "number", min: 0, max: 1, step: 0.01, inputMode: "decimal",
+      }),
+      storyboardField(item, "focus_y", "焦点 Y", {
+        type: "number", min: 0, max: 1, step: 0.01, inputMode: "decimal",
+      }),
+      storyboardField(item, "zoom", "缩放", {
+        type: "number", min: 0.65, max: 2, step: 0.05, inputMode: "decimal",
+      }),
+    ];
+    if (!item.page_visual_brief) {
+      controls.unshift(storyboardField(item, "visual_metaphor", "视觉隐喻", { maxLength: 240 }));
+    }
+    row.append(...controls);
+    card.appendChild(row);
+    const prompt = create("details", "light-prompt");
+    prompt.append(create("summary", "", "查看编译 Prompt"), create("pre", "", pagePrompt(item)));
+    card.appendChild(prompt);
+    return card;
+  }
+
+  function evidenceFigure(title, key, alt) {
+    const figure = create("figure", "light-evidence");
+    const image = document.createElement("img");
+    image.src = renderFileUrl(key);
+    image.alt = alt;
+    figure.append(image, create("figcaption", "", title));
+    return figure;
+  }
+
+  function candidateStatusLabel(candidate, selectedId) {
+    if (candidate.candidate_id === selectedId) return "已选中";
+    return {
+      eligible: "自动审稿通过",
+      kept: "已保留",
+      rejected: "已驳回",
+      pending_review: "待人工审稿",
+      repair_failed: "修复后仍待人工",
+      selected: "已选中",
+    }[String(candidate.status || "")] || "候选";
+  }
+
+  function renderImageCandidates(page) {
+    const candidatePage = imageCandidatePage(page);
+    const candidates = Array.isArray(candidatePage?.candidates) ? candidatePage.candidates : [];
+    if (!candidates.length) return null;
+    const lifecycle = imageCandidateLifecycle();
+    const panel = create("section", "light-image-candidates");
+    const head = create("div", "light-image-candidates-head");
+    const title = create("div");
+    title.append(
+      create("strong", "", `图片候选 · ${candidates.length} 张`),
+      create(
+        "span",
+        "",
+        `生成 ${Number(candidatePage.generation_count || 0)} 次 · API ${Number(lifecycle.total_api_calls || 0)} 次 · 自动修复 ${Number(candidatePage.auto_repair_count || 0)}/1`,
+      ),
+    );
+    const totalCost = lifecycle.total_cost_usd;
+    head.append(title, create("span", "light-candidate-cost", totalCost === null || totalCost === undefined ? "成本未返回" : `$${Number(totalCost).toFixed(4)}`));
+    panel.appendChild(head);
+
+    if (candidatePage.contact_sheet_key) {
+      const sheet = create("figure", "light-contact-sheet");
+      const image = document.createElement("img");
+      image.src = renderFileUrl(candidatePage.contact_sheet_key);
+      image.alt = `第 ${page} 页候选 Contact Sheet`;
+      sheet.append(image, create("figcaption", "", "Contact Sheet 仅显示原始候选与编号，不叠加长文字。"));
+      panel.appendChild(sheet);
+    }
+
+    const scoreLabels = {
+      semantic_match: "语义",
+      subject_clarity: "主体",
+      composition: "构图",
+      thumbnail_hook: "缩略钩子",
+      series_consistency: "系列",
+      texture: "质感",
+      color_anchor: "色锚",
+      artifacts: "伪影风险",
+      text_safety: "无字安全",
+      cliche_score: "俗套风险",
+    };
+    const grid = create("div", "light-candidate-grid");
+    candidates.forEach((candidate) => {
+      const review = candidate.review && typeof candidate.review === "object" ? candidate.review : {};
+      const scores = review.scores && typeof review.scores === "object" ? review.scores : {};
+      const selected = candidate.candidate_id === candidatePage.selected_candidate_id;
+      const card = create("article", `light-candidate-card${selected ? " selected" : ""}${candidate.status === "rejected" ? " rejected" : ""}`);
+      const preview = document.createElement("img");
+      preview.className = "light-candidate-image";
+      preview.src = renderFileUrl(candidate.artifact_key);
+      preview.alt = `第 ${page} 页候选 ${candidate.candidate_index}`;
+      const cardHead = create("div", "light-candidate-card-head");
+      cardHead.append(
+        create("strong", "", `#${candidate.candidate_index}`),
+        create("span", `light-candidate-state${review.passed ? " passed" : ""}`, candidateStatusLabel(candidate, candidatePage.selected_candidate_id)),
+      );
+      const meta = create(
+        "p",
+        "light-candidate-meta",
+        `${candidate.provider || "unknown"} · ${candidate.model || "unknown"} · ${candidate.width || "?"}×${candidate.height || "?"} · ${Number(candidate.latency_ms || 0)}ms · ${candidate.cost_usd === null || candidate.cost_usd === undefined ? "成本未返回" : `$${Number(candidate.cost_usd).toFixed(4)}`}`,
+      );
+      const total = create("div", "light-candidate-total");
+      total.append(
+        create("strong", "", `${Math.round(Number(review.overall_score || 0))}`),
+        create("span", "", "综合分"),
+      );
+      const scoreGrid = create("dl", "light-candidate-scores");
+      Object.entries(scoreLabels).forEach(([key, label]) => {
+        scoreGrid.append(create("dt", "", label), create("dd", "", `${Math.round(Number(scores[key] || 0))}`));
+      });
+      card.append(preview, cardHead, meta, total, scoreGrid);
+      const issues = Array.isArray(review.issues) ? review.issues.filter(Boolean) : [];
+      if (issues.length) card.appendChild(create("p", "light-candidate-issues", issues.join("；")));
+      if (candidate.rejection_reason) card.appendChild(create("p", "light-candidate-reason", `驳回理由：${candidate.rejection_reason}`));
+
+      const actions = create("div", "light-candidate-actions");
+      const choose = button(selected ? "已选中" : "选中候选", "light-page-action", () => { void selectImageCandidate(page, candidate.candidate_id); });
+      choose.disabled = selected || !review.passed || candidate.status === "rejected";
+      choose.title = review.passed ? "选中后重建 raw anchor、本地版式和发布门禁" : "未通过审稿，需先人工批准或定向修复";
+      const keep = button("保留", "light-page-action", () => { void reviewImageCandidate(page, candidate.candidate_id, "keep"); });
+      keep.disabled = candidate.status === "rejected";
+      keep.title = candidate.status === "rejected" ? "已驳回候选需先由人工批准后才能恢复" : "保留候选及其完整追溯记录";
+      const approve = button("人工批准", "light-page-action", () => { void reviewImageCandidate(page, candidate.candidate_id, "approve", "人工复核后批准"); });
+      approve.hidden = Boolean(review.passed);
+      const repair = button("定向修复 1 次", "light-page-action regenerate", () => { void repairImageCandidate(page, candidate.candidate_id); });
+      repair.disabled = Number(candidatePage.auto_repair_count || 0) >= 1 || Boolean(review.passed) || candidate.status === "rejected";
+      actions.append(choose, keep, approve, repair);
+      card.appendChild(actions);
+
+      const rejectRow = create("div", "light-candidate-reject");
+      const reason = input("", { placeholder: "写明主体、构图、伪影或版权等具体问题", maxLength: 600 });
+      reason.setAttribute("aria-label", `候选 ${candidate.candidate_index} 驳回理由`);
+      const reject = button("记录驳回", "light-page-action", () => {
+        const value = reason.value.trim();
+        if (!value) {
+          status("驳回候选必须填写具体理由。", "error");
+          reason.focus();
+          return;
+        }
+        void reviewImageCandidate(page, candidate.candidate_id, "reject", value);
+      });
+      rejectRow.append(reason, reject);
+      card.appendChild(rejectRow);
+      grid.appendChild(card);
+    });
+    panel.appendChild(grid);
+    return panel;
+  }
+
+  function renderInspector() {
+    const card = create("aside", "light-section-card light-page-inspector");
+    const page = state.storyboard.find((item) => item.page === state.selectedPage) || state.storyboard[0];
+    if (!page) {
+      card.appendChild(create("p", "", "生成文案后才会建立逐页视觉分镜。"));
+      return card;
+    }
+    card.appendChild(create("h4", "", `第 ${page.page} 页 · 证据与操作`));
+    card.appendChild(create("p", "light-page-inspector-copy", "原始视觉锚点与最终海报分开保存；最终中文排版始终由本地合成。"));
+    if (page.page_visual_brief) {
+      const brief = page.page_visual_brief;
+      const roleLabel = VISUAL_ROLE_OPTIONS.find(([value]) => value === brief.visual_role)?.[1] || brief.visual_role;
+      const briefSummary = create("section", "light-visual-brief-summary");
+      briefSummary.append(
+        create("strong", "", `冻结视觉简报 · ${roleLabel}`),
+        create("p", "", `${brief.concrete_subject} · ${brief.action_or_relation}`),
+        create("small", "", `版式 ${brief.layout_family} · 证据 ${(brief.evidence_refs || []).join(" / ")}`),
+      );
+      const bible = page.visual_bible && typeof page.visual_bible === "object" ? page.visual_bible : {};
+      const invariants = Array.isArray(bible.invariants) ? bible.invariants.filter(Boolean) : [];
+      if (invariants.length) {
+        const details = create("details", "light-visual-bible-summary");
+        details.append(
+          create("summary", "", "查看 Visual Bible 不变量"),
+          create("p", "", invariants.join("；")),
+        );
+        briefSummary.appendChild(details);
+      }
+      card.appendChild(briefSummary);
+    }
+    const composition = page.composition_diagnostics && typeof page.composition_diagnostics === "object"
+      ? page.composition_diagnostics
+      : {};
+    const typography = composition.typography && typeof composition.typography === "object"
+      ? composition.typography
+      : {};
+    if (typography.schema_version === "typography-render-v2") {
+      const recipe = composition.typography_recipe && typeof composition.typography_recipe === "object"
+        ? composition.typography_recipe
+        : {};
+      const modeLabel = TYPOGRAPHY_MODE_LABELS.get(typography.mode) || typography.mode || "未知模式";
+      const typographySummary = create("section", "light-visual-brief-summary");
+      typographySummary.append(
+        create("strong", "", `本地排版配方 · ${modeLabel}`),
+        create(
+          "p",
+          "",
+          `${typography.canvas_ratio || "未知比例"} · ${typography.visible_text_region_count || 0} 个可见文字区域 · ${typography.no_overflow ? "无溢出" : "存在溢出"} · ${typography.subject_clear ? "主体未遮挡" : "主体被遮挡"}`,
+        ),
+      );
+      const chips = create("div", "light-compiler-chips");
+      [
+        recipe.font_role && `字体 ${recipe.font_role}`,
+        recipe.weight && `字重 ${recipe.weight}`,
+        recipe.size_ratio && `字号比 ${Number(recipe.size_ratio).toFixed(3)}`,
+        recipe.line_height && `行高 ${recipe.line_height}`,
+        recipe.tracking !== undefined && `字距 ${recipe.tracking}`,
+        typography.transform && `避让 ${typography.transform}`,
+      ].filter(Boolean).forEach((value) => chips.appendChild(create("code", "", value)));
+      typographySummary.appendChild(chips);
+      if (typography.selection_reason) {
+        typographySummary.appendChild(create("small", "", typography.selection_reason));
+      }
+      if (typography.fallback_from) {
+        typographySummary.appendChild(create("small", "", `已从 ${typography.fallback_from} 降级；请人工复核主体安全区。`));
+      }
+      card.appendChild(typographySummary);
+    }
+    const sourceRefs = Array.isArray(page.source_refs) ? page.source_refs.filter(Boolean) : [];
+    const evidenceBasis = String(page.evidence_basis || "").trim();
+    if (evidenceBasis || sourceRefs.length) {
+      const copyEvidence = create("section", "light-copy-evidence");
+      copyEvidence.appendChild(create("strong", "", "本页取材依据"));
+      if (evidenceBasis) copyEvidence.appendChild(create("p", "", evidenceBasis));
+      if (sourceRefs.length) copyEvidence.appendChild(create("small", "", sourceRefs.join(" · ")));
+      card.appendChild(copyEvidence);
+    }
+    const candidatePanel = renderImageCandidates(page.page);
+    if (candidatePanel) card.appendChild(candidatePanel);
+    const raw = anchorKey(page.page);
+    const poster = posterKey(page.page);
+    if (!raw) {
+      card.appendChild(create("p", "light-legacy-note", "此版本没有保留原始视觉锚点。仅重新排版不可用，直到你明确重新生成本页。"));
+    }
+    const evidence = create("div", "light-evidence-grid");
+    if (raw) evidence.appendChild(evidenceFigure("原始视觉锚点", raw, `第 ${page.page} 页原始视觉锚点`));
+    if (poster) evidence.appendChild(evidenceFigure("最终本地海报", poster, `第 ${page.page} 页最终海报`));
+    if (evidence.children.length) card.appendChild(evidence);
+    if (isMinimalZine()) card.appendChild(renderChatGptWebHandoff(page));
+    const actions = create("div", "light-page-actions");
+    const recompose = button("仅重新排版（不调用图片模型）", "light-page-action", () => { void recomposeSelected(); });
+    recompose.dataset.lightAction = "true";
+    recompose.disabled = !raw || !isMinimalZine();
+    recompose.title = raw ? "基于已有原始视觉锚点重新本地合成" : "此版本没有保留原始视觉锚点";
+    const regenerate = button("再生本页三候选（调用图片模型）", "light-page-action regenerate", () => { void regenerateSelected(); });
+    regenerate.dataset.lightAction = "true";
+    regenerate.disabled = !isMinimalZine();
+    const replaceConcept = button("替换概念", "light-page-action", () => replaceVisualConcept(page.page));
+    replaceConcept.dataset.lightAction = "true";
+    actions.append(recompose, regenerate, replaceConcept);
+    card.appendChild(actions);
+    return card;
+  }
+
+  function renderVisual() {
+    const body = node("light-stage-body-3");
+    if (!body) return;
+    body.replaceChildren();
+    if (!state.currentVariant) {
+      body.appendChild(create("div", "light-section-card", "先在“文案候选”完成一版可编辑的轻内容。"));
+      return;
+    }
+    const grid = create("div", "light-visual-grid");
+    const listCard = create("section", "light-section-card");
+    listCard.append(create("h4", "", "逐页视觉分镜"), create("p", "", "编辑短句、说明或具体主体与画面关系会创建新的不可变版本；渲染始终读取冻结合同。"));
+    const storyboard = create("div", "light-storyboard-list");
+    state.storyboard.forEach((item) => storyboard.appendChild(renderStoryboardCard(item)));
+    listCard.appendChild(storyboard);
+    grid.append(listCard, renderInspector());
+    body.appendChild(grid);
+    const routeNote = isMinimalZine()
+      ? "网页可上传 1–4 张，接口默认生成 3 张；候选经 Contact Sheet 与审稿后才进入本地排版和发布包。"
+      : "当前视觉路线使用常规图组渲染；要使用逐页无成本重新排版，请切换到 Minimal Zine。";
+    body.appendChild(actionBar(
+      routeNote,
+      button("生成缺失页面三候选（接口图片模型）", "light-primary-action", () => { void renderMissing(); }),
+      [button("保存分镜", "light-secondary-action", () => { void saveStoryboardOnly(); })],
+    ));
+  }
+
+  async function saveStoryboardOnly() {
+    if (!state.currentVariant) return;
+    await run("正在保存完整视觉分镜为新的不可变版本…", async () => {
+      const variant = await persistCurrent({ adoptCandidate: true });
+      const revised = await saveStoryboardIfDirty(variant);
+      status(`视觉分镜已保存为 v${revised.version}；尚未调用图片模型。`, "ok");
+      render();
+    });
+  }
+
+  function outputLink(key, label) {
+    const link = create("a", "", label);
+    link.href = `/api/platforms/variants/${encodeURIComponent(state.currentVariant.id)}/files/${encodeURIComponent(key)}`;
+    link.target = "_blank";
+    link.rel = "noreferrer";
+    return link;
+  }
+
+  function renderDelivery() {
+    const body = node("light-stage-body-4");
+    if (!body) return;
+    body.replaceChildren();
+    if (!state.currentVariant) {
+      body.appendChild(create("div", "light-section-card", "完成图组后，这里会显示预览、清单和发布包。"));
+      return;
+    }
+    const card = create("section", "light-section-card");
+    const files = outputPaths();
+    card.appendChild(create("h4", "", `v${state.currentVariant.version} · 成品交付`));
+    card.appendChild(create("p", "", "以下文件来自当前不可变版本。下载或打开预览不会触发重新生成。"));
+    const links = create("div", "light-output-links");
+    [["manifest", "查看 manifest"], ["preview", "打开整组预览"], ["package", "下载发布包 ZIP"]].forEach(([key, label]) => {
+      if (files[key]) links.appendChild(outputLink(key, label));
+    });
+    if (links.children.length) card.appendChild(links);
+    const gallery = create("div", "light-gallery");
+    const pages = state.storyboard.map((item) => item.page);
+    pages.forEach((page) => {
+      const key = posterKey(page);
+      if (!key) return;
+      const item = state.storyboard.find((value) => value.page === page) || {};
+      const figure = create("figure", "light-poster");
+      const image = document.createElement("img");
+      image.src = renderFileUrl(key);
+      image.alt = item.phrase || `第 ${page} 页海报`;
+      const caption = create("figcaption");
+      caption.append(create("span", "", item.phrase || `第 ${page} 页`), create("span", "", `第 ${page} 页`));
+      figure.append(image, caption);
+      gallery.appendChild(figure);
+    });
+    if (gallery.children.length) card.appendChild(gallery);
+    else card.appendChild(create("p", "", "当前版本还没有最终海报。回到视觉分镜后明确开始渲染。"));
+    card.appendChild(create("div", "light-human-review", "人工复核提醒：请确认事实、引用范围、图片与媒体版权，并检查是否存在异常字符、模型水印或平台标识。X2RED 只生成预览与发布包，不会点击最终发布。"));
+    body.appendChild(card);
+    body.appendChild(actionBar(
+      "成品可继续回到文案或分镜阶段修订；任何改动都会创建新版本。",
+      button("返回视觉分镜", "light-primary-action", () => { void requestStage(3); }),
+      [
+        button("提炼为写作偏好", "light-secondary-action", () => { void openMemoryCandidate(); }),
+        button("刷新当前版本", "light-secondary-action", () => { void refreshDelivery(); }),
+      ],
+    ));
+  }
+
+  async function refreshDelivery() {
+    await run("正在读取当前版本的交付文件…", async () => {
+      await reloadCurrentVariant();
+      render();
+      status("已刷新当前版本的预览、清单和发布包状态。", "ok");
+    });
+  }
+
+  function stageSummary(number) {
+    if (number === 1) {
+      const source = state.sources.find((item) => item.id === state.brief.sourceId);
+      return source ? `${sourceLabel(source)} · ${state.brief.recipe}` : "尚未选择来源";
+    }
+    if (!state.currentVariant) return "等待前一阶段完成";
+    if (number === 2) return `v${state.currentVariant.version} · 候选 ${state.candidateIndex + 1} 已选中`;
+    if (number === 3) return state.storyboardDirty ? "分镜有未保存修改" : `${state.storyboard.length} 页分镜已就绪`;
+    const posters = state.storyboard.filter((item) => posterKey(item.page)).length;
+    return posters ? `${posters}/${state.storyboard.length} 页海报已生成` : "等待生成图组";
+  }
+
+  function renderStageState() {
+    [1, 2, 3, 4].forEach((number) => {
+      const section = node(`light-stage-${number}`);
+      const body = node(`light-stage-body-${number}`);
+      const summary = node(`light-stage-summary-${number}`);
+      const tab = document.querySelector(`#wechat-light-v15 .light-stage-tab[data-stage="${number}"]`);
+      const current = number === state.stage;
+      const complete = state.currentVariant && ((number === 1) || (number === 2) || (number === 3 && !state.storyboardDirty) || (number === 4 && state.storyboard.some((item) => posterKey(item.page))));
+      section?.classList.toggle("is-current", current);
+      body.hidden = !current;
+      if (summary) summary.textContent = stageSummary(number);
+      if (tab) {
+        tab.classList.toggle("active", current);
+        tab.classList.toggle("done", Boolean(complete && !current));
+        tab.setAttribute("aria-current", current ? "step" : "false");
+      }
+    });
+  }
+
+  function render() {
+    renderTask();
+    renderCopy();
+    renderVisual();
+    renderDelivery();
+    renderStageState();
+    const tabs = document.querySelectorAll("#wechat-mode-tabs .wechat-mode-tab");
+    tabs.forEach((tab) => {
+      const active = tab.dataset.mode === state.mode;
+      tab.classList.toggle("active", active);
+      tab.setAttribute("aria-selected", String(active));
+      tab.tabIndex = active ? 0 : -1;
+    });
+    status(state.status.text, state.status.type);
+  }
+
+  async function setMode(mode, sourceId = "") {
+    state.mode = mode;
+    const view = node("wechat-view");
+    const longLayout = view?.querySelector(".platform-studio-layout");
+    const longPipeline = node("wechat-production-pipeline");
+    const lab = node("wechat-light-v15");
+    const kicker = node("wechat-view-kicker");
+    const description = node("wechat-view-description");
+    view?.classList.toggle("is-wechat-light-mode", mode === "light");
+    view?.classList.toggle("is-wechat-article-mode", mode !== "light");
+    if (longLayout) longLayout.hidden = mode === "light";
+    if (longPipeline) longPipeline.hidden = mode === "light";
+    if (lab) lab.hidden = mode !== "light";
+    if (kicker) kicker.textContent = mode === "light" ? "WECHAT · LIGHT CONTENT" : "WECHAT · LONGFORM";
+    if (description) {
+      description.textContent = mode === "light"
+        ? "轻内容独立选源、独立保存；按任务、文案、视觉、交付四步完成图组，不混入长文流程。"
+        : "长文可直接重构，也可进入深度写作；每一步都保留来源、证据和版本。";
+    }
+    render();
+    if (mode !== "light") return;
+    if (sourceId) {
+      state.brief.sourceId = sourceId;
+      saveLightSource();
+    }
+    const preferredVariantId = sourceId ? "" : state.currentVariant?.id || "";
+    await loadWorkspace(preferredVariantId);
+  }
+
+  function ensure() {
+    const view = node("wechat-view");
+    if (!view) return;
+    injectModeTabs(view);
+    injectLab(view);
+    if (!state.ready && node("wechat-light-v15")) {
+      state.ready = true;
+      void setMode("article");
+    }
+  }
+
+  function boot() {
+    ensure();
+    const observer = new MutationObserver(ensure);
+    observer.observe(document.body, { childList: true, subtree: true });
+    document.addEventListener("x2red:open-wechat-light", (event) => {
+      const sourceId = event.detail?.sourceId || "";
+      void setMode("light", sourceId);
+    });
+    document.addEventListener("x2red:sources-refreshed", (event) => {
+      const sources = event.detail?.sources;
+      if (!Array.isArray(sources) || !state.ready) return;
+      state.sources = sources;
+      if (!state.sources.some((item) => item.id === state.brief.sourceId)) {
+        state.brief.sourceId = state.sources[0]?.id || "";
+      }
+      saveLightSource();
+      if (state.mode === "light") renderTask();
+    });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", boot, { once: true });
+  } else {
+    boot();
+  }
+})();

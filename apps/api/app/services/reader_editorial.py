@@ -5,8 +5,10 @@ import re
 
 import httpx
 
+from app.domain.evidence_schemas import EvidenceBundle
 from app.domain.models import SkillBinding, SourceItem
 from app.services.editorial import EditorialService
+from app.services.retrieval import bounded_json
 
 _STYLE_LABELS = {
     "news": "资讯速览",
@@ -83,6 +85,8 @@ class ReaderFirstEditorialService(EditorialService):
         context: list[SourceItem],
         style: str,
         bindings: dict[str, SkillBinding] | None = None,
+        memory_prompts: dict[str, str] | None = None,
+        evidence_bundle: EvidenceBundle | None = None,
     ) -> dict | None:
         if not (self.settings.model_base_url and self.settings.model_name):
             return None
@@ -97,7 +101,12 @@ class ReaderFirstEditorialService(EditorialService):
         if not analysis_binding.enabled or not draft_binding.enabled:
             return None
 
-        source_json = json.dumps(self._source_blocks(context), ensure_ascii=False)[:30000]
+        evidence_bundle = evidence_bundle or self._editorial_evidence_bundle(
+            context,
+            style=style,
+        )
+        source_json = json.dumps(evidence_bundle.prompt_payload(), ensure_ascii=False)
+        memory = memory_prompts or {}
         style_label = _STYLE_LABELS.get(style, style)
         analysis_prompt = f"""
 先分析下面的 X 原帖、Thread 或 X Article，不要直接写成稿。
@@ -117,6 +126,9 @@ uncertainties、audience_value、angles、recommended_angle、title_candidates�
 其中 recommended_angle 必须包含 name、reason、reader_hook、plain_language_thesis；
 outline 每一项包含 heading、purpose、source_indices，并按读者理解顺序组织。
 来源：{source_json}
+
+当前任务相关个人记忆：
+{memory.get("editor", "")}
 """.strip()
 
         try:
@@ -133,9 +145,12 @@ outline 每一项包含 heading、purpose、source_indices，并按读者理解�
 
             writing_prompt = f"""
 根据编辑分析和原始来源，写一篇真正面向读者的小红书技术长文。
-类型：{style_label}。{_READER_STYLE_GUIDES.get(style, _READER_STYLE_GUIDES['explain'])}
-编辑分析：{json.dumps(analysis, ensure_ascii=False)[:15000]}
+类型：{style_label}。{_READER_STYLE_GUIDES.get(style, _READER_STYLE_GUIDES["explain"])}
+编辑分析：{bounded_json(analysis, 15000)}
 原始来源：{source_json}
+
+当前任务相关个人记忆：
+{memory.get("writer", "")}
 
 读者稿必须遵守：
 - 开头两三句直接讲清“做成了什么”和“为什么这很厉害或很有意思”。
@@ -172,18 +187,22 @@ outline 每一项包含 heading、purpose、source_indices，并按读者理解�
             final = initial
             passes = ["editorial.analysis", "writing.draft"]
             if polish_binding.enabled:
-                final = await self._polish_draft(
+                polished = await self._polish_draft(
                     initial,
                     analysis,
                     source_json,
                     polish_binding,
+                    memory_prompt=memory.get("polish", ""),
                 )
-                passes.append("writing.de_translate")
+                if polished is not None:
+                    final = polished
+                    passes.append("writing.de_translate")
 
             return {
                 "analysis": analysis,
                 "quality_passes": passes,
                 "model": draft_binding.model_name or self.settings.model_name,
+                "evidence_retrieval": evidence_bundle.prompt_payload(),
                 "draft": {
                     "title": str(final.get("title") or initial.get("title") or ""),
                     "body": str(final.get("body") or initial.get("body") or ""),
@@ -201,7 +220,9 @@ outline 每一项包含 heading、purpose、source_indices，并按读者理解�
         analysis: dict,
         source_json: str,
         binding: SkillBinding,
-    ) -> dict:
+        *,
+        memory_prompt: str = "",
+    ) -> dict | None:
         prompt = f"""
 把下面初稿做最后一轮读者编辑。
 
@@ -214,9 +235,10 @@ outline 每一项包含 heading、purpose、source_indices，并按读者理解�
 5. 删除任何“阅读提醒、注意以下边界、适用性判断、仍需确认、事实核查、本文基于来源整理”。
 6. 结尾落在技术意义或判断上，不要以免责声明收尾。
 
-编辑分析：{json.dumps(analysis, ensure_ascii=False)[:9000]}
+编辑分析：{bounded_json(analysis, 9000)}
 原始来源：{source_json}
-初稿：{json.dumps(initial, ensure_ascii=False)[:16000]}
+初稿：{bounded_json(initial, 16000)}
+当前任务冻结的个人记忆：{memory_prompt}
 只输出 JSON：{{"title":"标题","body":"正文","tags":["标签"]}}
 """.strip()
         try:
@@ -231,7 +253,7 @@ outline 每一项包含 heading、purpose、source_indices，并按读者理解�
                 model_name=binding.model_name,
             )
         except (httpx.HTTPError, KeyError, TypeError, ValueError, json.JSONDecodeError):
-            return initial
+            return None
 
     def _fallback(self, context, style: str) -> dict:
         items = list(context)
@@ -336,7 +358,6 @@ outline 每一项包含 heading、purpose、source_indices，并按读者理解�
         if any(marker.replace(" ", "") in compact for marker in _GENERIC_DISCLAIMER_MARKERS):
             return True
         disclaimer_terms = sum(
-            term in compact
-            for term in ("核查", "验证", "边界", "适用性", "不确定", "公开资料")
+            term in compact for term in ("核查", "验证", "边界", "适用性", "不确定", "公开资料")
         )
         return disclaimer_terms >= 2 and len(compact) <= 220

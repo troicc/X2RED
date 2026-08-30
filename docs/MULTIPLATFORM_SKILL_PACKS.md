@@ -1,11 +1,11 @@
 # Multi-platform Skill Packs and WeChat Workbench
 
-X2RED 0.8 introduces a platform-variant layer. Sources, evidence packs, personal style snapshots, and multi-Agent final drafts remain shared, but each publishing platform receives an independent immutable version.
+X2RED 0.12 keeps the platform-variant layer introduced in 0.8. Sources, evidence packs, personal style profiles, task-scoped pool-memory selections, and multi-Agent final drafts remain traceable, while each publishing platform receives an independent immutable version.
 
 ```text
 X source / X2PDF Article
         ↓
-normalized source + evidence
+normalized source + evidence + approved task memory
         ↓
 quick editorial or multi-Agent final draft
         ↓
@@ -17,6 +17,8 @@ quick editorial or multi-Agent final draft
 ```
 
 A WeChat version never overwrites its base `DraftRevision`. Saving an edit creates a new `PlatformVariant` version.
+
+Pool memory is not shared as one global prompt. Each generated draft or platform variant freezes a separate `PoolMemorySnapshot`; derived variants clone the selected IDs without mutating the parent snapshot. Current evidence remains the factual boundary, and only a configured model's real consumption creates usage rows.
 
 ## Curated Skill Pack registry
 
@@ -65,6 +67,8 @@ selling-point priority
 ```
 
 This pass is optional and failure-tolerant. If the model endpoint cannot serve another request, X2RED keeps the already completed reader-first draft instead of failing the entire generation.
+
+Copy roles receive only approved, task-relevant writing dimensions. Visual roles receive only visual-direction/layout dimensions. Evidence roles receive no style-memory payload.
 
 ## Rich social-card dimensions
 
@@ -192,7 +196,7 @@ Playwright is used when available. A deterministic Pillow fallback is retained f
 
 ## Publishing boundary
 
-X2RED 0.8 generates validated local output and a release package. It does not silently publish a WeChat article. The `wechat.publish_draft` Skill is disabled by default and reserves a clear interface for a future API or browser adapter with explicit credentials and human final confirmation.
+X2RED generates validated local output and a release package. It does not silently publish a WeChat article. The `wechat.publish_draft` Skill is disabled by default and reserves a clear interface for a future API or browser adapter with explicit credentials and human final confirmation.
 
 ## Data model
 

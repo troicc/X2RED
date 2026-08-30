@@ -8,6 +8,7 @@ import httpx
 from sqlalchemy.orm import Session
 
 from app.domain.models import DraftRevision, SourceItem
+from app.services.pool_memory import PoolMemoryService
 from app.services.reader_editorial import ReaderFirstEditorialService
 from app.services.skills import binding_for
 
@@ -48,6 +49,21 @@ class SkillPackEditorialService(ReaderFirstEditorialService):
 
         provenance = self._parse_object(draft.provenance_json)
         analysis = provenance.get("editorial_analysis") if isinstance(provenance, dict) else {}
+        memory_service = PoolMemoryService(self.settings, self)
+        memory_snapshot = memory_service.snapshot(
+            db,
+            str(provenance.get("memory_snapshot_id") or ""),
+        )
+        copy_memory = memory_service.prompt_payload(
+            memory_snapshot,
+            role="writer",
+            allow_pending=True,
+        )["text"]
+        visual_memory = memory_service.prompt_payload(
+            memory_snapshot,
+            role="visual_director",
+            allow_pending=True,
+        )["text"]
         active = [name for name, binding in bindings.items() if binding.enabled]
         selling_point_rule = (
             "先按稀缺性、实用性和可感知性给信息排序，只让一到两个核心卖点主导标题和开头。"
@@ -83,7 +99,7 @@ class SkillPackEditorialService(ReaderFirstEditorialService):
 对下面已经完成事实核查和读者化编辑的小红书草稿，执行最后一轮平台适配与制图策划。
 这一步只能改善卖点优先级、标题、开头节奏、发布配文、标签和视觉故事板，不能改变事实、数字、来源归属或结论范围。
 
-启用的 Skill：{', '.join(active)}
+启用的 Skill：{", ".join(active)}
 - {selling_point_rule}
 - {title_rule}
 - {caption_rule}
@@ -107,6 +123,12 @@ class SkillPackEditorialService(ReaderFirstEditorialService):
 当前标题：{draft.title}
 当前正文：{draft.body}
 当前标签：{draft.tags}
+
+当前任务冻结的文案记忆：
+{copy_memory}
+
+仅供视觉故事板使用的视觉记忆：
+{visual_memory}
 
 只输出 JSON：
 {{
@@ -165,6 +187,12 @@ class SkillPackEditorialService(ReaderFirstEditorialService):
         draft.title = generated["title"][:80]
         draft.body = generated["body"][:4000]
         draft.tags = generated["tags"][:500]
+        if memory_snapshot is not None:
+            roles = [("writer", "xhs_platform_adaptation")]
+            if bindings["visual.storyboard"].enabled or bindings["visual.art_direction"].enabled:
+                roles.append(("visual_director", "xhs_storyboard"))
+            memory_service.mark_snapshot_applied(db, memory_snapshot, roles=roles)
+        memory_summary = memory_service.snapshot_summary(memory_snapshot)
         next_provenance = {
             **(provenance if isinstance(provenance, dict) else {}),
             "xhs_skill_pack": {
@@ -180,6 +208,11 @@ class SkillPackEditorialService(ReaderFirstEditorialService):
                 *(provenance.get("quality_passes") or []),
                 *active,
             ][-24:],
+            "memory_snapshot_id": memory_summary["snapshot_id"],
+            "memory_snapshot_hash": memory_summary["snapshot_hash"],
+            "memory_ids": memory_summary["memory_ids"],
+            "memory_applied": memory_summary["applied"],
+            "memory_status": memory_summary["status"],
         }
         draft.provenance_json = json.dumps(next_provenance, ensure_ascii=False)
         return draft
@@ -187,7 +220,11 @@ class SkillPackEditorialService(ReaderFirstEditorialService):
     @staticmethod
     def _content_type(value: object) -> str:
         text = str(value or "").strip()
-        return text if text in {"technology", "design", "tutorial", "opinion", "news", "explainer"} else "explainer"
+        return (
+            text
+            if text in {"technology", "design", "tutorial", "opinion", "news", "explainer"}
+            else "explainer"
+        )
 
     @staticmethod
     def _visual_direction(value: object) -> dict[str, str]:

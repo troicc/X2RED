@@ -1,0 +1,628 @@
+{
+  "schema_version": 1,
+  "baseline_id": "x2red-c0-9073a4b-writing",
+  "baseline_commit": "9073a4bc8a71a76dbf6762d7fc64a425eb3c99fe",
+  "captured_at": "2026-08-09T12:00:00+08:00",
+  "fixture_policy": "全部案例均为仓库内合成回归材料，不含真实用户正文、第三方长引文、密钥或本机路径。输出用于冻结旧行为，不代表已经达到目标质量。",
+  "rubric_path": "apps/api/tests/evals/rubrics/writing_rubric.json",
+  "cases": [
+    {
+      "id": "writing-tech-01-tail-evidence",
+      "category": "technical_explanation",
+      "platform": "xhs",
+      "article_type": "technical_explainer",
+      "input": {
+        "audience": "正在维护长材料写作系统的工程师",
+        "promise": "解释为什么按字符平均切片会漏掉长材料尾部的重要证据",
+        "thesis": "检索预算应围绕章节问题分配，而不是围绕来源长度平均分配。",
+        "source_materials": [
+          {
+            "ref": "source:synthetic:tail-evidence",
+            "title": "长材料尾部证据实验",
+            "excerpt": "一份合成材料把关键限制条件放在最后一段；固定字符截断只保留开头，按章节检索则能召回该限制条件。",
+            "rights_status": "synthetic"
+          }
+        ],
+        "constraints": [
+          "不得虚构召回率数字",
+          "必须解释 fallback 边界"
+        ]
+      },
+      "baseline_output": {
+        "title": "为什么长材料不能只按字符切",
+        "body_markdown": "固定字符切片看起来公平，其实只对材料开头公平。只要决定性的限制、反例或结论出现在尾部，它就会在进入写作前消失。\n\n更可靠的做法是先按语义切成带来源位置的片段，再围绕每个章节的问题召回。没有 embedding 时仍可使用全文检索，但必须把旧切片路径明确标为 fallback。",
+        "tags": [
+          "检索",
+          "证据",
+          "写作系统"
+        ],
+        "claims": [
+          {
+            "text": "固定字符截断会遗漏位于长材料尾部的关键限制条件。",
+            "evidence_refs": [
+              "source:synthetic:tail-evidence"
+            ]
+          }
+        ]
+      },
+      "trace": {
+        "service_path": "apps/api/app/services/editorial.py",
+        "entrypoint": "EditorialService.generate",
+        "prompt_version": "current-v0.12-contract",
+        "execution_mode": "deterministic_fixture",
+        "fallback_used": true
+      },
+      "known_issues": [
+        "标题准确但缺少机制冲突",
+        "只有一个例子，具体性不足"
+      ],
+      "baseline_output_fingerprint": "e23e0c5a892b7fde5692245e1f1e8c211a48d0ecc2ae65385b9a31db95bfa678"
+    },
+    {
+      "id": "writing-tech-02-immutable-revisions",
+      "category": "technical_explanation",
+      "platform": "xhs",
+      "article_type": "technical_explainer",
+      "input": {
+        "audience": "需要审计 AI 内容修改历史的产品与工程团队",
+        "promise": "说明不可变版本为什么比原地覆盖更适合创作系统",
+        "thesis": "版本不可变让每次模型、人工和排版变化都有独立证据链。",
+        "source_materials": [
+          {
+            "ref": "source:synthetic:immutable-version",
+            "title": "不可变版本状态机",
+            "excerpt": "合成案例中，旧稿保留原始正文和输入哈希，新稿通过 parent id 关联修改原因，因此可以重放每次人工与模型变更。",
+            "rights_status": "synthetic"
+          }
+        ],
+        "constraints": [
+          "区分内容版本与发布包",
+          "不得声称不可变等于绝对安全"
+        ]
+      },
+      "baseline_output": {
+        "title": "创作系统为什么要保留每一版",
+        "body_markdown": "原地覆盖最大的损失不是撤销按钮，而是解释权：你无法知道某句话来自来源、模型还是人工编辑。不可变版本把每次修改变成新对象，并通过父版本和输入哈希保留关系。\n\n发布包也应绑定某个批准版本。这样回滚是选择旧版本，不是猜测旧文件；但它仍需要访问控制、备份和迁移，不能被表述成绝对安全。",
+        "tags": [
+          "版本管理",
+          "可追溯"
+        ],
+        "claims": [
+          {
+            "text": "父版本与输入哈希可以保留一次修改的来源关系。",
+            "evidence_refs": [
+              "source:synthetic:immutable-version"
+            ]
+          }
+        ]
+      },
+      "trace": {
+        "service_path": "apps/api/app/services/editorial.py",
+        "entrypoint": "EditorialService.generate",
+        "prompt_version": "current-v0.12-contract",
+        "execution_mode": "deterministic_fixture",
+        "fallback_used": true
+      },
+      "known_issues": [
+        "开头仍偏概念化",
+        "缺少失败案例的操作细节"
+      ],
+      "baseline_output_fingerprint": "92882e39f08846d07a5d13a0c12f77d2a08559a73f98f976a725e636d20cec7b"
+    },
+    {
+      "id": "writing-tech-03-local-cjk",
+      "category": "technical_explanation",
+      "platform": "xhs",
+      "article_type": "technical_explainer",
+      "input": {
+        "audience": "使用图片模型制作中文海报的内容团队",
+        "promise": "解释为什么图片模型只负责视觉锚点，最终中文应在本地合成",
+        "thesis": "把语义图像生成与准确文字排版拆开，才能同时保留视觉探索和中文正确性。",
+        "source_materials": [
+          {
+            "ref": "source:synthetic:local-cjk",
+            "title": "无字锚点与本地中文合成测试",
+            "excerpt": "合成测试把模型图保存为 raw anchor，再用经过 cmap 覆盖验证的字体排入中文；缺少字体时任务明确失败。",
+            "rights_status": "synthetic"
+          }
+        ],
+        "constraints": [
+          "不得声称图片模型绝不会生成文字",
+          "必须保留人工审图"
+        ]
+      },
+      "baseline_output": {
+        "title": "让图片模型画图，不让它排中文",
+        "body_markdown": "图片模型擅长寻找形状、材质和气氛，却不适合承担准确中文。X2RED 先保存无字视觉锚点，再在干净画布上用通过字形覆盖检查的本地字体排版。\n\n这条边界减少乱码，却不能保证 raw anchor 没有异常文字或角标。发布前仍要查看原图与成品，确认水印、版权、裁切和语义都可接受。",
+        "tags": [
+          "中文排版",
+          "图片模型",
+          "人工审核"
+        ],
+        "claims": [
+          {
+            "text": "当前链路将 raw anchor 与本地中文合成分为两个产物阶段。",
+            "evidence_refs": [
+              "source:synthetic:local-cjk"
+            ]
+          }
+        ]
+      },
+      "trace": {
+        "service_path": "apps/api/app/services/editorial.py",
+        "entrypoint": "EditorialService.generate",
+        "prompt_version": "current-v0.12-contract",
+        "execution_mode": "deterministic_fixture",
+        "fallback_used": true
+      },
+      "known_issues": [
+        "标题较直白",
+        "没有展开字体覆盖检查的失败路径"
+      ],
+      "baseline_output_fingerprint": "9e998dc736a6a64a5a1ff9a078f70de16decbd00c34515511a5e0491741bd638"
+    },
+    {
+      "id": "writing-tech-04-raw-final-boundary",
+      "category": "technical_explanation",
+      "platform": "xhs",
+      "article_type": "technical_explainer",
+      "input": {
+        "audience": "维护图片生成与打包链路的工程师",
+        "promise": "说明 raw anchor 与 final poster 混用会破坏什么",
+        "thesis": "原始模型图和最终排版图必须拥有不同校验、缓存和发布规则。",
+        "source_materials": [
+          {
+            "ref": "source:synthetic:raw-final",
+            "title": "raw 与 final 生命周期测试",
+            "excerpt": "合成生命周期测试要求 recompose 只能读取已验证 raw anchor，并用发布包 allowlist 排除所有 anchor 文件。",
+            "rights_status": "synthetic"
+          }
+        ],
+        "constraints": [
+          "解释 recompose",
+          "说明发布包 allowlist"
+        ]
+      },
+      "baseline_output": {
+        "title": "同一张图，为什么必须存成两类工件",
+        "body_markdown": "raw anchor 是模型返回的视觉材料，final poster 是加入本地中文与构图后的成品。如果重排版拿 final 当 raw，文字会被再次压缩、裁切或叠加，来源也无法解释。\n\n因此 recompose 只接受通过校验的 raw anchor；发布包则使用显式 allowlist，只带 final poster、文章、清单和预览。两条规则分别保护可重建性与交付边界。",
+        "tags": [
+          "视觉工件",
+          "发布包"
+        ],
+        "claims": [
+          {
+            "text": "recompose 只应读取已验证的 raw anchor，发布包应排除 raw 文件。",
+            "evidence_refs": [
+              "source:synthetic:raw-final"
+            ]
+          }
+        ]
+      },
+      "trace": {
+        "service_path": "apps/api/app/services/editorial.py",
+        "entrypoint": "EditorialService.generate",
+        "prompt_version": "current-v0.12-contract",
+        "execution_mode": "deterministic_fixture",
+        "fallback_used": true
+      },
+      "known_issues": [
+        "首段信息密度偏高",
+        "缺少一张可视化生命周期示例"
+      ],
+      "baseline_output_fingerprint": "eadb8ab3679ac675261dc1bc0488856da092a01d8bf569b3e2e617e580927df7"
+    },
+    {
+      "id": "writing-news-01-release-explainer",
+      "category": "news_explanation",
+      "platform": "xhs",
+      "article_type": "news",
+      "input": {
+        "audience": "需要快速判断一次软件发布是否值得升级的普通用户",
+        "promise": "把一则合成发布公告拆成变化、影响和验证边界",
+        "thesis": "发布说明只有在区分已确认功能与待验证效果后才对读者有用。",
+        "source_materials": [
+          {
+            "ref": "source:synthetic:release-note",
+            "title": "示例工具 2.0 发布公告",
+            "excerpt": "合成公告确认新增离线导出和失败重试，但只声称内部样例更稳定，没有公开基准、成本或真实用户结果。",
+            "rights_status": "synthetic"
+          }
+        ],
+        "constraints": [
+          "明确这是合成事件",
+          "不把内部样例写成普遍效果"
+        ]
+      },
+      "baseline_output": {
+        "title": "一个合成的 2.0 发布，真正确定了什么",
+        "body_markdown": "这是一则用于回归测试的合成发布消息。公告能够确认两件事：新增离线导出，并为失败任务增加重试。它没有提供公开基准，因此不能推出所有场景都更稳定。\n\n对用户而言，升级前应先验证自己的文件能否完整导出、失败是否可恢复，再记录时间和成本。功能存在是事实，效果多大仍是待验证问题。",
+        "tags": [
+          "发布解读",
+          "事实边界"
+        ],
+        "claims": [
+          {
+            "text": "合成公告只确认离线导出和失败重试，没有公开效果基准。",
+            "evidence_refs": [
+              "source:synthetic:release-note"
+            ]
+          }
+        ]
+      },
+      "trace": {
+        "service_path": "apps/api/app/services/editorial.py",
+        "entrypoint": "EditorialService.generate",
+        "prompt_version": "current-v0.12-contract",
+        "execution_mode": "deterministic_fixture",
+        "fallback_used": true
+      },
+      "known_issues": [
+        "新闻感较弱",
+        "缺少时间线和利益相关方视角"
+      ],
+      "baseline_output_fingerprint": "1d1513df859a1a8a39e2d3fae76cb92a018f386c4d05a3efd32e73a0baa8063e"
+    },
+    {
+      "id": "writing-news-02-policy-change",
+      "category": "news_explanation",
+      "platform": "xhs",
+      "article_type": "news",
+      "input": {
+        "audience": "管理内容发布流程的小团队",
+        "promise": "解释一条合成平台规则变化对工作流的直接影响",
+        "thesis": "规则解读要把原文、推断和团队动作分开。",
+        "source_materials": [
+          {
+            "ref": "source:synthetic:policy-note",
+            "title": "示例平台素材标注规则",
+            "excerpt": "合成规则要求发布前记录素材来源和授权状态，自下月起执行；它没有要求平台自动替用户完成版权判断。",
+            "rights_status": "synthetic"
+          }
+        ],
+        "constraints": [
+          "不得写成法律意见",
+          "区分规则原文与建议"
+        ]
+      },
+      "baseline_output": {
+        "title": "合成规则变化后，团队先改哪一步",
+        "body_markdown": "示例规则只确认两点：发布前记录素材来源与授权状态，并从下月开始执行。它没有把版权判断交给平台，也不能替代团队自己的复核。\n\n最直接的改动是把来源、授权状态和审核人放进发布包，在最终发布前设为阻断项。至于具体材料能否使用，仍应按实际许可和适用规则判断。",
+        "tags": [
+          "规则解读",
+          "发布审核"
+        ],
+        "claims": [
+          {
+            "text": "合成规则要求记录来源与授权状态，但不替代团队版权复核。",
+            "evidence_refs": [
+              "source:synthetic:policy-note"
+            ]
+          }
+        ]
+      },
+      "trace": {
+        "service_path": "apps/api/app/services/editorial.py",
+        "entrypoint": "EditorialService.generate",
+        "prompt_version": "current-v0.12-contract",
+        "execution_mode": "deterministic_fixture",
+        "fallback_used": true
+      },
+      "known_issues": [
+        "标题机制较单一",
+        "行动清单缺少优先级细分"
+      ],
+      "baseline_output_fingerprint": "8907ca22c055ed319a65ba7c9812d1bd2125931e42a74dc8f115fd0e022e38d5"
+    },
+    {
+      "id": "writing-opinion-01-evidence-first",
+      "category": "opinion_commentary",
+      "platform": "xhs",
+      "article_type": "commentary",
+      "input": {
+        "audience": "反复修改 AI 初稿但仍觉得内容空泛的编辑",
+        "promise": "提出为什么先修证据编译往往比先加风格词更有效",
+        "thesis": "没有被召回的具体证据，无法靠更华丽的语气补回来。",
+        "source_materials": [
+          {
+            "ref": "source:synthetic:evidence-first",
+            "title": "证据与风格对照实验",
+            "excerpt": "合成对照中，风格提示变长但证据片段不变时文章仍空泛；加入具体限制与反例后，段落才出现可验证差异。",
+            "rights_status": "synthetic"
+          }
+        ],
+        "constraints": [
+          "观点必须引用对照材料",
+          "不得贬低所有风格训练"
+        ]
+      },
+      "baseline_output": {
+        "title": "文章空，不一定是语气不够像你",
+        "body_markdown": "很多团队看到初稿空泛，第一反应是继续追加风格词。但合成对照显示，证据片段没有变化时，语气更像作者也不会凭空生出限制、反例和机制。\n\n我的判断是先检查材料是否被正确切分、召回和分配到章节，再优化节奏与措辞。风格训练仍有价值，只是它回答“怎么写”，不能替代“有什么可写”。",
+        "tags": [
+          "AI 写作",
+          "证据编译"
+        ],
+        "claims": [
+          {
+            "text": "在合成对照中，增加风格提示没有弥补缺失的具体证据。",
+            "evidence_refs": [
+              "source:synthetic:evidence-first"
+            ]
+          }
+        ]
+      },
+      "trace": {
+        "service_path": "apps/api/app/services/editorial.py",
+        "entrypoint": "EditorialService.generate",
+        "prompt_version": "current-v0.12-contract",
+        "execution_mode": "deterministic_fixture",
+        "fallback_used": true
+      },
+      "known_issues": [
+        "论证只有一组对照",
+        "结尾仍接近总结句模板"
+      ],
+      "baseline_output_fingerprint": "96b7fa98f180c0733d32cfbd3ff1c4c21a0a054b48d5dc62f6086ba677349909"
+    },
+    {
+      "id": "writing-opinion-02-human-publish",
+      "category": "opinion_commentary",
+      "platform": "xhs",
+      "article_type": "commentary",
+      "input": {
+        "audience": "考虑把内容生成到发布全自动化的产品负责人",
+        "promise": "说明为什么最终发布决定仍应由人保留",
+        "thesis": "模型成功只证明任务执行结束，不证明事实、权利和平台语境已经通过。",
+        "source_materials": [
+          {
+            "ref": "source:synthetic:human-publish",
+            "title": "发布门禁故障演练",
+            "excerpt": "合成演练中，模型输出格式正确但包含来源未支持的因果，并复用了权利状态待审的图片；人工门禁阻止了发布。",
+            "rights_status": "synthetic"
+          }
+        ],
+        "constraints": [
+          "不把人工审核写成万能",
+          "给出最小门禁"
+        ]
+      },
+      "baseline_output": {
+        "title": "生成成功，不等于可以发布",
+        "body_markdown": "格式正确、接口返回 200、图片已经生成，这些都只说明流程完成。合成演练里，正文仍出现证据外因果，图片权利状态也没有通过；如果系统自动点击发布，错误会直接进入公开页面。\n\n最小门禁应至少确认事实、引用范围、图片权利和批准版本。人工也会犯错，所以系统还要保留来源、差异和包哈希，让复核有东西可查。",
+        "tags": [
+          "人工审核",
+          "发布安全"
+        ],
+        "claims": [
+          {
+            "text": "模型任务成功不能证明事实与素材权利已经通过审核。",
+            "evidence_refs": [
+              "source:synthetic:human-publish"
+            ]
+          }
+        ]
+      },
+      "trace": {
+        "service_path": "apps/api/app/services/editorial.py",
+        "entrypoint": "EditorialService.generate",
+        "prompt_version": "current-v0.12-contract",
+        "execution_mode": "deterministic_fixture",
+        "fallback_used": true
+      },
+      "known_issues": [
+        "观点较符合常识，反常识张力不足",
+        "未展开审核成本"
+      ],
+      "baseline_output_fingerprint": "b9ef9aa43769b38c1251bdb67a34e7c8acb2803b93f32f492548fe24f504b8f0"
+    },
+    {
+      "id": "writing-light-01-four-page-focus",
+      "category": "light_content",
+      "platform": "wechat",
+      "article_type": "light_series",
+      "input": {
+        "audience": "工作中容易被消息打断的知识工作者",
+        "promise": "用四页分别表达开始、保护、恢复和结束专注的动作",
+        "thesis": "轻内容每页应承担不同生活场景，不能用同一句话换词重复。",
+        "source_materials": [
+          {
+            "ref": "source:synthetic:focus-ritual",
+            "title": "四段专注仪式观察",
+            "excerpt": "合成观察记录了四个不同动作：写下唯一目标、关闭非必要通知、被打断后记录返回点、结束时清空下一步。",
+            "rights_status": "synthetic"
+          }
+        ],
+        "constraints": [
+          "四页短句不得近似",
+          "每页必须绑定不同证据动作"
+        ]
+      },
+      "baseline_output": {
+        "title": "把专注变成四个动作",
+        "body_markdown": "第一页：开始前，只写下这段时间唯一要完成的事。\n\n第二页：关掉与它无关的通知，让入口暂时变少。\n\n第三页：被打断时先记下返回点，不靠记忆硬撑。\n\n第四页：结束前写清下一步，让下次启动不再重新找路。",
+        "tags": [
+          "轻内容",
+          "专注"
+        ],
+        "claims": [
+          {
+            "text": "四页分别对应开始、保护、恢复和结束四个不同动作。",
+            "evidence_refs": [
+              "source:synthetic:focus-ritual"
+            ]
+          }
+        ]
+      },
+      "trace": {
+        "service_path": "apps/api/app/services/light_content_lab.py",
+        "entrypoint": "LightContentLabService.create_variant",
+        "prompt_version": "light-lab-v13",
+        "execution_mode": "deterministic_fixture",
+        "fallback_used": true
+      },
+      "known_issues": [
+        "短句较像操作说明",
+        "缺少视觉化生活细节"
+      ],
+      "baseline_output_fingerprint": "818fca0aa999aa6a329e989340e9ff3361d6c2c240842c1569727ddb31c3152c"
+    },
+    {
+      "id": "writing-light-02-source-check",
+      "category": "light_content",
+      "platform": "wechat",
+      "article_type": "light_series",
+      "input": {
+        "audience": "准备转发一段看起来可信的信息的普通读者",
+        "promise": "用四页给出来源核验的最小步骤",
+        "thesis": "核验不是寻找一个熟悉截图，而是检查原始出处、时间、范围和反证。",
+        "source_materials": [
+          {
+            "ref": "source:synthetic:source-check",
+            "title": "信息核验四步演练",
+            "excerpt": "合成演练依次检查原始出处、发布时间、结论适用范围和是否存在相反材料；截图本身不作为最终来源。",
+            "rights_status": "synthetic"
+          }
+        ],
+        "constraints": [
+          "避免恐吓式语气",
+          "每页只讲一个判断"
+        ]
+      },
+      "baseline_output": {
+        "title": "转发之前，先做四个小检查",
+        "body_markdown": "第一页：离开截图，找到最初发布它的页面。\n\n第二页：确认时间，旧结论可能不再适用于今天。\n\n第三页：看清范围，个案不自动代表全部。\n\n第四页：主动找反证，再决定这条信息是否值得转发。",
+        "tags": [
+          "信息核验",
+          "轻内容"
+        ],
+        "claims": [
+          {
+            "text": "原始出处、时间、范围与反证构成合成演练的四个核验步骤。",
+            "evidence_refs": [
+              "source:synthetic:source-check"
+            ]
+          }
+        ]
+      },
+      "trace": {
+        "service_path": "apps/api/app/services/light_content_lab.py",
+        "entrypoint": "LightContentLabService.create_variant",
+        "prompt_version": "light-lab-v13",
+        "execution_mode": "deterministic_fixture",
+        "fallback_used": true
+      },
+      "known_issues": [
+        "标题较常规",
+        "页面节奏和句型过于一致"
+      ],
+      "baseline_output_fingerprint": "bb201bb1760f9d53445c3a5f758420cc8ed20f8805ffc0b0cf5584cb5d542752"
+    },
+    {
+      "id": "writing-wechat-01-local-first-flow",
+      "category": "wechat_longform",
+      "platform": "wechat",
+      "article_type": "technical_explainer",
+      "input": {
+        "audience": "希望理解本地优先内容工作流的编辑与工程负责人",
+        "promise": "完整解释来源、证据、版本、视觉与人工发布如何衔接",
+        "thesis": "本地优先不是断网口号，而是让关键工件和决定留在可审计边界内。",
+        "source_materials": [
+          {
+            "ref": "source:synthetic:local-first-flow",
+            "title": "本地优先创作链路",
+            "excerpt": "合成链路从标准来源开始，冻结证据批次，生成不可变版本，分离 raw 与 final 视觉工件，最后由人工检查发布包。",
+            "rights_status": "synthetic"
+          }
+        ],
+        "constraints": [
+          "至少三个二级标题",
+          "包含失败与回滚边界",
+          "不宣称完全离线"
+        ]
+      },
+      "baseline_output": {
+        "title": "本地优先的创作系统，真正应该把什么留在本地",
+        "body_markdown": "## 先保存可追溯的来源\n\n本地优先首先意味着来源正文、原始快照、权利状态和编辑备注进入同一证据边界。外部模型可以参与分析，但不能成为唯一历史。\n\n## 再冻结每次创作输入\n\n语料池送入工作台时应冻结批次；人工或模型修改产生新版本。失败时保留旧版本和包哈希，回滚是选择既有工件，不是覆盖数据库。\n\n## 把视觉材料和最终排版分开\n\n图片模型只提供 raw anchor，本地合成中文与版式。这样能重排文字，也能检查异常文字、水印和版权风险。\n\n## 最后的决定仍由人完成\n\n系统准备预览和发布包，但事实、引用、图片权利与批准版本必须由人确认。这里的本地优先不是完全离线，而是关键记录不依赖某个远端会话才能存在。",
+        "tags": [
+          "本地优先",
+          "内容工作流",
+          "可追溯"
+        ],
+        "claims": [
+          {
+            "text": "合成链路将来源、冻结输入、不可变版本、视觉工件和人工发布组织为可追溯流程。",
+            "evidence_refs": [
+              "source:synthetic:local-first-flow"
+            ]
+          }
+        ]
+      },
+      "trace": {
+        "service_path": "apps/api/app/services/platform_studio.py",
+        "entrypoint": "PlatformStudioService.create_wechat_variant",
+        "prompt_version": "wechat-current-v0.12-contract",
+        "execution_mode": "deterministic_fixture",
+        "fallback_used": true
+      },
+      "known_issues": [
+        "篇幅仍不足以代表真实长文",
+        "章节主要是流程说明，叙事张力弱"
+      ],
+      "baseline_output_fingerprint": "3a752df222e6a9cca9ff39b9f5642904ca41e7166768ca2429cd9f06dc141f55"
+    },
+    {
+      "id": "writing-wechat-02-memory-firewall",
+      "category": "wechat_longform",
+      "platform": "wechat",
+      "article_type": "commentary",
+      "input": {
+        "audience": "正在设计长期写作记忆功能的产品团队",
+        "promise": "解释风格记忆如何发挥作用而不污染当前事实",
+        "thesis": "记忆应保存表达规则与判断习惯，并通过当前 evidence pack 限制所有事实。",
+        "source_materials": [
+          {
+            "ref": "source:synthetic:memory-firewall",
+            "title": "写作偏好事实防火墙测试",
+            "excerpt": "合成测试让事实角色看不到历史风格记忆；写作角色只收到已批准的结构和语气规则，历史人名与数字不能进入新稿。",
+            "rights_status": "synthetic"
+          }
+        ],
+        "constraints": [
+          "至少三个二级标题",
+          "区分检索、冻结与使用记录",
+          "人工批准不可省略"
+        ]
+      },
+      "baseline_output": {
+        "title": "让系统记住你怎么写，而不是替你记住事实",
+        "body_markdown": "## 两种“记忆”解决不同问题\n\n当前来源回答能写什么，写作偏好回答怎么写。把两者混在同一长 Prompt 里，历史人名、数字和因果就可能被误带进新文章。\n\n## 先批准，再按任务检索\n\n长期规则只能从已授权内容提炼为候选，经人工编辑和批准后成为正式卡片。生成前再按平台、文章类型和角色选择少量规则，而不是整包注入。\n\n## 冻结选择，但只记录真实消费\n\n每个目标保存不可变选择快照。只有配置模型真正收到这些规则时，系统才写使用记录；确定性 fallback 可以保留选择来源，却不能伪称规则已生效。\n\n## 事实防火墙必须在角色边界上执行\n\n事实研究角色不接收风格记忆，写作角色也不得把历史事实当成当前证据。最终发布仍需人工逐项检查主张与来源。",
+        "tags": [
+          "写作偏好",
+          "事实防火墙",
+          "AI 写作"
+        ],
+        "claims": [
+          {
+            "text": "合成测试通过角色隔离阻止历史人名与数字进入当前事实链。",
+            "evidence_refs": [
+              "source:synthetic:memory-firewall"
+            ]
+          }
+        ]
+      },
+      "trace": {
+        "service_path": "apps/api/app/services/platform_studio.py",
+        "entrypoint": "PlatformStudioService.create_wechat_variant",
+        "prompt_version": "wechat-current-v0.12-contract",
+        "execution_mode": "deterministic_fixture",
+        "fallback_used": true
+      },
+      "known_issues": [
+        "结构完整但行文偏产品文档",
+        "缺少一个反例的具体叙事"
+      ],
+      "baseline_output_fingerprint": "658b0c393c19c69d1b826016c82468c325e1155626da625f49028d6b81c46a87"
+    }
+  ]
+}

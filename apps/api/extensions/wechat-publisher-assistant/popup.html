@@ -8,8 +8,8 @@
     *{box-sizing:border-box}body{width:390px;margin:0;padding:18px;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;background:#f5f7fb;color:#151821}
     .card{padding:16px;border:1px solid #dfe4ec;border-radius:16px;background:#fff;box-shadow:0 10px 30px rgba(20,28,45,.08)}
     h1{margin:0 0 6px;font-size:18px}p{margin:0 0 14px;color:#667085;font-size:13px;line-height:1.55}
-    label{display:grid;gap:7px;margin:12px 0;font-size:12px;font-weight:750;color:#4d5668}select,button{width:100%;min-height:42px;border-radius:10px;font:inherit}
-    select{padding:0 11px;border:1px solid #d9deea;background:#fff}button{border:0;background:#315efb;color:#fff;font-weight:800;cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}
+    label{display:grid;gap:7px;margin:12px 0;font-size:12px;font-weight:750;color:#4d5668}select,input,button{width:100%;min-height:42px;border-radius:10px;font:inherit}
+    select,input{padding:0 11px;border:1px solid #d9deea;background:#fff}button{border:0;background:#315efb;color:#fff;font-weight:800;cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}
     .copy-grid{display:grid;grid-template-columns:1fr 1.35fr;gap:8px;margin-top:8px}.secondary{background:#edf1ff;color:#284dcf}.refresh{margin-top:8px;background:#f2f4f7;color:#475467}
     .status{min-height:38px;margin-top:12px;padding:10px 11px;border-radius:10px;background:#f0f3f8;color:#536078;font-size:12px;line-height:1.5}.status.ok{background:#e9f9f0;color:#16734a}.status.error{background:#fff0f0;color:#b42318}
     .safe-note{margin-top:10px;padding:9px 10px;border-left:3px solid #f0a000;background:#fff8e8;color:#76520b;font-size:11px;line-height:1.5}.meta{display:flex;justify-content:space-between;gap:10px;margin-top:9px;color:#8a94a6;font-size:11px}
@@ -19,6 +19,8 @@
   <section class="card">
     <h1>公众号发布助手</h1>
     <p>自动写入会优先使用微信编辑器 API，并分别校验标题和正文。无法可靠识别时会停止操作，不再盲目粘贴。</p>
+    <label>本地 API 令牌（可选）<input id="api-token" type="password" autocomplete="off" placeholder="与 X2RED_LOCAL_API_TOKEN 一致"></label>
+    <button id="save-token" class="refresh" type="button">保存到当前浏览器会话</button>
     <label>公众号版本<select id="variant"></select></label>
     <button id="fill" type="button">安全写入当前公众号编辑器</button>
     <div class="copy-grid">

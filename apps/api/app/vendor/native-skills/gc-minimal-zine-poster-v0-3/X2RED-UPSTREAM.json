@@ -1,0 +1,15 @@
+{
+  "name": "gc-minimal-zine-poster-v0-3",
+  "repository": "https://github.com/LiamGvchi/gc-minimal-zine-poster",
+  "tag": "v0.3.0",
+  "commit": "342b5c11d6fa9be261841ec722c12a683a9fa5e9",
+  "license": "MIT",
+  "vendored_paths": [
+    "SKILL.md",
+    "LICENSE",
+    "references/",
+    "evals/",
+    "examples/"
+  ],
+  "policy": "Unmodified pinned upstream snapshot used by the X2RED adapter."
+}

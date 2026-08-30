@@ -10,15 +10,10 @@ from app.domain.schemas import CardGenerateRequest
 from app.services.guizang_native_full import FullGuizangNativeService
 from app.services.market_material_harvester import MarketMaterialHarvester
 from app.services.material_harvester import MaterialHarvester, MaterialHarvesterError
-from app.services.material_search_providers import (
-    MaterialSearchEngine,
-    MaterialSearchError,
-    SearchCandidate,
-)
+from app.services.mediacrawler_bridge import MediaCrawlerBridge, MediaCrawlerError
 from app.services.minimal_zine_native import MinimalZineNativeService
 from app.services.native_deck_renderer import NativeDeckRenderer
 from app.services.native_skill_manager import NATIVE_SKILLS, NativeSkillManager
-from app.services.resilient_material_search import ResilientMaterialSearchEngine
 
 
 def settings(tmp_path: Path, **overrides: Any) -> Settings:
@@ -64,59 +59,101 @@ def test_market_discovery_query_defaults_to_chinese_terms(tmp_path: Path) -> Non
     query = service.discovery_query(category="mature_life")
     assert "退休" in query
     assert "社区" in query
-    assert service.discovery_query(category="mature_life", query="  社区食堂 老朋友  ") == "社区食堂 老朋友"
+    assert (
+        service.discovery_query(
+            category="mature_life",
+            query="  社区食堂 老朋友  ",
+        )
+        == "社区食堂 老朋友"
+    )
 
 
-def test_search_provider_status_and_auto_failover(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    engine = ResilientMaterialSearchEngine(settings(tmp_path, tavily_api_key="tvly-test"))
-    statuses = {item["id"]: item for item in engine.statuses()}
-    assert statuses["tavily"]["configured"] is True
-    assert statuses["serpapi_baidu"]["configured"] is False
-    assert statuses["gdelt"]["configured"] is True
+def test_mediacrawler_status_and_xhs_normalization(tmp_path: Path) -> None:
+    root = tmp_path / "MediaCrawler"
+    (root / ".venv" / "bin").mkdir(parents=True)
+    (root / "main.py").write_text("", encoding="utf-8")
+    (root / ".venv" / "bin" / "python").write_text("", encoding="utf-8")
+    bridge = MediaCrawlerBridge(
+        settings(
+            tmp_path,
+            mediacrawler_root=root,
+            mediacrawler_connect_existing=False,
+        )
+    )
+    statuses = {item["id"]: item for item in bridge.statuses()}
+    assert statuses["xhs"]["configured"] is True
+    assert statuses["xhs"]["ready"] is True
+    assert statuses["zhihu"]["configured"] is True
 
-    calls: list[str] = []
+    normalized = bridge.normalize_item(
+        platform="xhs",
+        query="退休生活",
+        item={
+            "note_id": "abc123",
+            "title": "退休后的社区晚饭",
+            "desc": "每天傍晚和老朋友一起吃饭。",
+            "note_url": "https://www.xiaohongshu.com/explore/abc123",
+            "nickname": "张阿姨",
+            "time": 1_700_000_000_000,
+            "image_list": "https://example.com/a.jpg,https://example.com/b.jpg",
+            "liked_count": "88",
+            "xsec_token": "secret",
+        },
+    )
+    assert normalized["provider"] == "mediacrawler"
+    assert normalized["platform"] == "xhs"
+    assert normalized["external_id"] == "abc123"
+    assert normalized["title"] == "退休后的社区晚饭"
+    assert normalized["image_urls"] == [
+        "https://example.com/a.jpg",
+        "https://example.com/b.jpg",
+    ]
+    assert "xsec_token" not in normalized["crawler_payload"]
 
-    def fake_search_one(provider: str, **_: Any) -> list[SearchCandidate]:
-        calls.append(provider)
-        if provider == "tavily":
-            raise AttributeError("malformed provider response")
-        if provider == "gdelt":
-            return [
-                SearchCandidate(
-                    url="https://example.com/life",
-                    title="社区食堂里的晚饭",
-                    discovery_source="gdelt-doc-2",
-                )
-            ]
-        return []
 
-    monkeypatch.setattr(engine, "_search_one", fake_search_one)
-    result = engine.search(provider="auto", query="退休 社区", max_results=10)
-    assert result["provider"] == "gdelt"
-    assert calls == ["tavily", "gdelt"]
-    assert any(item["status"] == "failed" for item in result["attempts"])
+def test_mediacrawler_rejects_cross_platform_url(tmp_path: Path) -> None:
+    bridge = MediaCrawlerBridge(settings(tmp_path))
+    with pytest.raises(MediaCrawlerError, match=r"不属于\s*小红书"):
+        bridge._validate_platform_url("xhs", "https://www.zhihu.com/question/1")
 
 
-def test_explicit_unconfigured_provider_fails_cleanly(tmp_path: Path) -> None:
-    engine = MaterialSearchEngine(settings(tmp_path))
-    with pytest.raises(MaterialSearchError, match="所有搜索供应商"):
-        engine.search(provider="serpapi_baidu", query="退休生活")
+def test_mediacrawler_setup_uses_uv_without_editable_build() -> None:
+    script = (
+        Path(__file__).resolve().parents[3] / "scripts" / "setup-mediacrawler.sh"
+    ).read_text(encoding="utf-8")
+    assert "uv.lock" in script
+    assert "--frozen" in script
+    assert "--no-install-project" in script
+    assert 'pip install -e "$MEDIACRAWLER_ROOT"' not in script
 
 
 def test_native_skill_definitions_are_pinned_and_licensed(tmp_path: Path) -> None:
     manager = NativeSkillManager(settings(tmp_path))
     guizang = NATIVE_SKILLS["guizang-social-card-skill"]
     zine = NATIVE_SKILLS["gc-minimal-zine-poster-v0-1"]
+    zine_v03 = NATIVE_SKILLS["gc-minimal-zine-poster-v0-3"]
     assert guizang.license == "AGPL-3.0"
     assert len(guizang.commit) == 40
     assert zine.license == "MIT"
     assert len(zine.commit) == 40
+    assert zine_v03.license == "MIT"
+    assert zine_v03.commit == "342b5c11d6fa9be261841ec722c12a683a9fa5e9"
+    assert zine_v03.vendor_subdir == "gc-minimal-zine-poster-v0-3"
     statuses = manager.statuses()
     assert {item["name"] for item in statuses} == set(NATIVE_SKILLS)
     assert all(item["installed"] is False for item in statuses)
+
+
+def test_minimal_zine_v03_vendored_snapshot_installs_offline(tmp_path: Path) -> None:
+    manager = NativeSkillManager(settings(tmp_path))
+    path = manager.install("gc-minimal-zine-poster-v0-3", install_runtime=False)
+    status = manager.status("gc-minimal-zine-poster-v0-3")
+
+    assert (path / "SKILL.md").is_file()
+    assert (path / "references" / "prompt-compiler.md").is_file()
+    assert (path / "evals" / "evals.json").is_file()
+    assert status["pinned_commit_match"] is True
+    assert status["vendor_complete"] is True
 
 
 def test_guizang_seed_replacement_removes_placeholder_demo() -> None:
@@ -124,7 +161,7 @@ def test_guizang_seed_replacement_removes_placeholder_demo() -> None:
 <!-- POSTERS_HERE --><section class="poster xhs" id="placeholder"></section>
 </main><script></script></body></html>"""
     posters = (
-        '<!-- X2RED_UPSTREAM_THEME:forest-ink -->'
+        "<!-- X2RED_UPSTREAM_THEME:forest-ink -->"
         '<section class="poster xhs" id="xhs-01"></section>'
         '<section class="poster xhs" id="xhs-02"></section>'
     )
@@ -135,8 +172,14 @@ def test_guizang_seed_replacement_removes_placeholder_demo() -> None:
 
 
 def test_card_schema_accepts_full_guizang_modes() -> None:
-    assert CardGenerateRequest(visual_style="guizang_editorial").visual_style == "guizang_editorial"
-    assert CardGenerateRequest(visual_style="guizang_swiss").visual_style == "guizang_swiss"
+    assert (
+        CardGenerateRequest(visual_style="guizang_editorial").visual_style
+        == "guizang_editorial"
+    )
+    assert (
+        CardGenerateRequest(visual_style="guizang_swiss").visual_style
+        == "guizang_swiss"
+    )
 
 
 def test_minimal_zine_requires_explicit_image_model(tmp_path: Path) -> None:

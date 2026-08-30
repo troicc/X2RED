@@ -30,6 +30,13 @@ class WorkspaceState(str, enum.Enum):
     archived = "archived"
 
 
+class SourceWorkbench(str, enum.Enum):
+    xhs = "xhs"
+    wechat_long = "wechat_long"
+    wechat_light = "wechat_light"
+    deep_writing = "deep_writing"
+
+
 class AssetState(str, enum.Enum):
     discovered = "discovered"
     downloading = "downloading"
@@ -113,6 +120,27 @@ class SourceItem(Base):
     )
 
 
+class SourceWorkbenchState(Base):
+    __tablename__ = "source_workbench_states"
+    __table_args__ = (UniqueConstraint("source_id", "workbench"),)
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: new_id("sws"))
+    source_id: Mapped[str] = mapped_column(
+        ForeignKey("source_items.id", ondelete="CASCADE"), index=True
+    )
+    workbench: Mapped[str] = mapped_column(String(40), index=True)
+    state: Mapped[str] = mapped_column(
+        String(20), default=WorkspaceState.active.value, index=True
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
 class SourceRelation(Base):
     __tablename__ = "source_relations"
     __table_args__ = (UniqueConstraint("from_source_id", "to_source_id", "relation_type"),)
@@ -122,6 +150,83 @@ class SourceRelation(Base):
     to_source_id: Mapped[str] = mapped_column(ForeignKey("source_items.id", ondelete="CASCADE"))
     relation_type: Mapped[str] = mapped_column(String(40), index=True)
     position: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class CorpusPool(Base):
+    __tablename__ = "corpus_pools"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: new_id("pool"))
+    name: Mapped[str] = mapped_column(String(160), default="正在整理")
+    name_locked: Mapped[bool] = mapped_column(Boolean, default=False)
+    description: Mapped[str] = mapped_column(Text, default="")
+    state: Mapped[str] = mapped_column(String(20), default="active", index=True)
+    batch_size: Mapped[int] = mapped_column(Integer, default=6)
+    topic_keywords_json: Mapped[str] = mapped_column(Text, default="[]")
+    profile_text: Mapped[str] = mapped_column(Text, default="")
+    source_count: Mapped[int] = mapped_column(Integer, default=0)
+    total_chars: Mapped[int] = mapped_column(Integer, default=0)
+    revision: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+    last_compiled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    members: Mapped[list[CorpusPoolSource]] = relationship(
+        back_populates="pool", cascade="all, delete-orphan"
+    )
+    batches: Mapped[list[CorpusBatch]] = relationship(
+        back_populates="pool", cascade="all, delete-orphan"
+    )
+
+
+class CorpusPoolSource(Base):
+    __tablename__ = "corpus_pool_sources"
+    __table_args__ = (UniqueConstraint("pool_id", "source_id"),)
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: new_id("member"))
+    pool_id: Mapped[str] = mapped_column(
+        ForeignKey("corpus_pools.id", ondelete="CASCADE"), index=True
+    )
+    source_id: Mapped[str] = mapped_column(
+        ForeignKey("source_items.id", ondelete="CASCADE"), index=True
+    )
+    normalized_text: Mapped[str] = mapped_column(Text, default="")
+    summary: Mapped[str] = mapped_column(Text, default="")
+    keywords_json: Mapped[str] = mapped_column(Text, default="[]")
+    used_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    pool: Mapped[CorpusPool] = relationship(back_populates="members")
+    source: Mapped[SourceItem] = relationship()
+
+
+class CorpusBatch(Base):
+    __tablename__ = "corpus_batches"
+    __table_args__ = (UniqueConstraint("pool_id", "sequence"),)
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: new_id("batch"))
+    pool_id: Mapped[str] = mapped_column(
+        ForeignKey("corpus_pools.id", ondelete="CASCADE"), index=True
+    )
+    sequence: Mapped[int] = mapped_column(Integer)
+    focus: Mapped[str] = mapped_column(Text, default="")
+    source_ids_json: Mapped[str] = mapped_column(Text, default="[]")
+    source_fingerprint: Mapped[str] = mapped_column(String(64), default="", index=True)
+    profile_revision: Mapped[int] = mapped_column(Integer, default=0)
+    anchor_source_id: Mapped[str | None] = mapped_column(
+        ForeignKey("source_items.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    draft_id: Mapped[str] = mapped_column(String(64), default="", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    pool: Mapped[CorpusPool] = relationship(back_populates="batches")
+    anchor_source: Mapped[SourceItem | None] = relationship(foreign_keys=[anchor_source_id])
 
 
 class Asset(Base):
@@ -239,6 +344,35 @@ class PublishTask(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class PublishAuditEvent(Base):
+    __tablename__ = "publish_audit_events"
+
+    id: Mapped[str] = mapped_column(
+        String(64),
+        primary_key=True,
+        default=lambda: new_id("publish_audit"),
+    )
+    task_id: Mapped[str | None] = mapped_column(
+        ForeignKey("publish_tasks.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    draft_id: Mapped[str | None] = mapped_column(
+        ForeignKey("draft_revisions.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    action: Mapped[str] = mapped_column(String(60), index=True)
+    outcome: Mapped[str] = mapped_column(String(30), index=True)
+    actor: Mapped[str] = mapped_column(String(80), default="local-user")
+    detail_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        index=True,
     )
 
 

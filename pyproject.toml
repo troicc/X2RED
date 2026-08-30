@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "x2red"
-version = "0.11.0"
-description = "Local-first X signal intelligence and multi-platform editorial studio"
+version = "0.12.0"
+description = "Local-first Chinese content research, corpus, and multi-platform editorial studio"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -14,7 +14,7 @@ dependencies = [
   "sqlalchemy>=2.0,<3",
   "alembic>=1.14,<2",
   "pydantic-settings>=2.7,<3",
-  "httpx>=0.28,<1",
+  "httpx[socks]>=0.28,<1",
   "jinja2>=3.1,<4",
   "python-multipart>=0.0.20,<1",
   "pillow>=11,<13",
@@ -25,8 +25,12 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-  "pytest>=8,<10",
-  "pytest-asyncio>=0.25,<1",
+  "bandit>=1.8,<2",
+  "mypy>=1.15,<2",
+  "pip-audit>=2.8,<4",
+  "pytest>=9.0.3,<10",
+  "pytest-asyncio>=1.4,<2",
+  "pytest-cov>=6,<8",
   "ruff>=0.9,<1",
 ]
 
@@ -41,7 +45,13 @@ include-package-data = true
 where = ["apps/api"]
 
 [tool.setuptools.package-data]
-app = ["static/*"]
+app = [
+  "static/*",
+  "vendor/native-skills/gc-minimal-zine-poster-v0-3/*",
+  "vendor/native-skills/gc-minimal-zine-poster-v0-3/references/*",
+  "vendor/native-skills/gc-minimal-zine-poster-v0-3/evals/*",
+  "vendor/native-skills/gc-minimal-zine-poster-v0-3/examples/*",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["apps/api"]
@@ -52,3 +62,26 @@ line-length = 100
 
 [tool.ruff.lint.per-file-ignores]
 "apps/api/app/services/guizang_native.py" = ["F401"]
+
+[tool.mypy]
+python_version = "3.12"
+check_untyped_defs = true
+follow_imports = "skip"
+ignore_missing_imports = true
+no_implicit_optional = true
+show_error_codes = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+
+[tool.coverage.run]
+branch = true
+source = ["apps/api/app"]
+
+[tool.coverage.report]
+fail_under = 70
+exclude_also = [
+  "if TYPE_CHECKING:",
+  "if __name__ == .__main__.:",
+]
+skip_covered = true
+show_missing = true

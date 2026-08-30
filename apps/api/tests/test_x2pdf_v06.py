@@ -28,6 +28,9 @@ def test_x2pdf_bridge_lifecycle_skills_and_publish_archive(
     import app.main as main_module
 
     importlib.reload(db_session)
+    from app.db.schema import upgrade_database
+
+    upgrade_database(db_session.settings.database_url)
     importlib.reload(main_module)
 
     document = {
@@ -94,6 +97,41 @@ def test_x2pdf_bridge_lifecycle_skills_and_publish_archive(
 
         active = client.get("/api/sources?workspace_state=active")
         assert any(item["id"] == source_id for item in active.json())
+
+        xhs_archived = client.post(
+            f"/api/sources/{source_id}/workbenches/xhs/archive"
+        )
+        assert xhs_archived.status_code == 200
+        assert xhs_archived.json()["workspace_state"] == "active"
+        assert xhs_archived.json()["workbench_state"] == "archived"
+        assert not any(
+            item["id"] == source_id
+            for item in client.get(
+                "/api/sources?workspace_state=active&workbench=xhs&workbench_state=active"
+            ).json()
+        )
+        assert any(
+            item["id"] == source_id
+            for item in client.get(
+                "/api/sources?workspace_state=active&workbench=xhs&workbench_state=archived"
+            ).json()
+        )
+        assert any(
+            item["id"] == source_id
+            for item in client.get(
+                "/api/sources?workspace_state=active&workbench=wechat_long&workbench_state=active"
+            ).json()
+        )
+        assert client.get(
+            f"/api/sources/{source_id}?workbench=wechat_long"
+        ).json()["workbench_state"] == "active"
+
+        xhs_restored = client.post(
+            f"/api/sources/{source_id}/workbenches/xhs/restore"
+        )
+        assert xhs_restored.status_code == 200
+        assert xhs_restored.json()["workbench_state"] == "active"
+
         archived = client.post(f"/api/sources/{source_id}/archive")
         assert archived.status_code == 200
         assert archived.json()["workspace_state"] == "archived"
@@ -162,21 +200,33 @@ def test_x2pdf_bridge_lifecycle_skills_and_publish_archive(
             json={"result_url": "https://www.xiaohongshu.com/explore/test-note"},
         )
         assert published.status_code == 200, published.text
-        after_publish = client.get(f"/api/sources/{source_id}").json()
-        assert after_publish["workspace_state"] == "archived"
+        after_publish = client.get(
+            f"/api/sources/{source_id}?workbench=xhs"
+        ).json()
+        assert after_publish["workspace_state"] == "active"
+        assert after_publish["workbench_state"] == "archived"
         assert after_publish["published_count"] == 1
         assert after_publish["last_published_at"] is not None
+        assert any(
+            item["id"] == source_id
+            for item in client.get(
+                "/api/sources?workspace_state=active&workbench=wechat_long&workbench_state=active"
+            ).json()
+        )
 
         deleted = client.delete(f"/api/sources/{source_id}")
         assert deleted.status_code == 204, deleted.text
         assert client.get(f"/api/sources/{source_id}").status_code == 404
 
         health = client.get("/health").json()
-        assert health["version"] == "0.11.0"
+        assert health["version"] == "0.12.0"
         assert health["editorial_pipeline"] == (
             "multi-agent-signal-to-story-plus-platform-skill-packs"
         )
-        assert health["writing_pipeline"].endswith("chief-editor")
+        assert "three-reviews-chief" in health["writing_pipeline"]
+        assert health["writing_pipeline"].endswith("final-claims-evidence-gate")
+        assert health["writing_schema_mode"] == "production"
+        assert health["writing_claim_gate"] is True
         assert health["platforms"] == ["xiaohongshu", "wechat"]
         assert health["wechat_workbench"] is True
         assert health["review_pipeline"] == (

@@ -3,10 +3,56 @@ from __future__ import annotations
 import importlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
 from PIL import Image, ImageStat
+
+from app.services.light_content import poster_copy_issues
+from app.services.light_content_lab import LightContentLabService
+
+
+def test_poster_copy_quality_gate_detects_shifted_carousel_chain() -> None:
+    broken = [
+        {"phrase": "没干重活，为什么下班后累得不想说话", "note": "一天下来大多是坐着看文件"},
+        {"phrase": "一天下来大多是坐着看文件", "note": "没搬砖没流汗"},
+        {"phrase": "没搬砖没流汗", "note": "真正消耗的是持续防备"},
+        {"phrase": "真正消耗的是持续防备", "note": "先给神经十分钟落地"},
+    ]
+    assert "page_1_note_repeats_page_2_phrase" in poster_copy_issues(broken)
+    assert "page_2_note_repeats_page_3_phrase" in poster_copy_issues(broken)
+
+    distinct = [
+        {"phrase": "准点下班，为什么还像逃了一天命", "note": "真正消耗的是持续防备"},
+        {"phrase": "领导一个皱眉，大脑能琢磨半天", "note": "不确定的小信号，会把神经一直吊着"},
+        {"phrase": "回家那句关心，为什么会点着你", "note": "最亲的人常替职场压力承受余波"},
+        {"phrase": "下班不是换个地方继续值班", "note": "先留十分钟独处，再把情绪带进家门"},
+    ]
+    assert poster_copy_issues(distinct) == []
+
+
+def test_corpus_batch_evidence_scope_records_full_pool_and_frozen_sources() -> None:
+    source = SimpleNamespace(
+        id="src_batch",
+        external_id="batch_01",
+        content_kind="corpus_batch",
+        structured_content_json=json.dumps(
+            {
+                "document_type": "corpus_batch",
+                "pool_id": "pool_01",
+                "batch_id": "batch_01",
+                "batch_source_ids": ["src_1", "src_2", "src_3", "src_4"],
+            }
+        ),
+    )
+    text = "【全池语义记忆】\n来源数：18\n语料字符：40280\n【本批详细来源】"
+    scope = LightContentLabService._source_evidence_scope(source, text)
+    assert scope["input_type"] == "corpus_batch"
+    assert scope["pool_source_count"] == 18
+    assert scope["pool_corpus_chars"] == 40280
+    assert scope["detailed_source_count"] == 4
+    assert scope["full_pool_memory_included"] is True
 
 
 def _luminance(path: str) -> float:
@@ -35,6 +81,9 @@ def test_light_content_lab_candidates_corpus_iteration_and_distinct_visuals(
     import app.main as main_module
 
     importlib.reload(db_session)
+    from app.db.schema import upgrade_database
+
+    upgrade_database(db_session.settings.database_url)
     importlib.reload(main_module)
 
     from app.domain.models import SourceItem
@@ -122,7 +171,14 @@ def test_light_content_lab_candidates_corpus_iteration_and_distinct_visuals(
         assert dark_created.status_code == 201, dark_created.text
         dark = dark_created.json()
         dark_meta = json.loads(dark["metadata_json"])
-        assert dark_meta["pipeline_version"] == "light-lab-v12"
+        assert dark_meta["pipeline_version"] == "light-lab-v14"
+        assert dark_meta["visual_brief_mode"] == "production"
+        assert dark_meta["visual_distinctness"]["passed"] is True
+        assert len(dark_meta["visual_distinctness"]["layout_families"]) >= 3
+        assert all(
+            len(page["candidates"]) == 3
+            for page in dark_meta["visual_brief"]["pages"]
+        )
         assert dark_meta["visual_style"] == "dark_contemplative"
         assert dark_meta["source_fit"]["score"] > 0.8
         assert len(dark_meta["candidates"]) == 3
@@ -170,8 +226,42 @@ def test_light_content_lab_candidates_corpus_iteration_and_distinct_visuals(
         assert selected.status_code == 201, selected.text
         selected_payload = selected.json()
         selected_meta = json.loads(selected_payload["metadata_json"])
+        selected_specs = selected_meta["poster_specs"]
+        selected_first_phrase = selected_specs[0]["phrase"]
         assert selected_meta["selected_candidate_index"] == 1
+        assert selected_meta["pipeline_version"] == "light-lab-v14"
+        assert all(
+            spec["page_visual_brief"]["evidence_refs"] != ["当前来源"]
+            for spec in selected_specs
+        )
         assert selected_payload["version"] > dark["version"]
+
+        invalid_storyboard = []
+        for index, spec in enumerate(selected_specs, start=1):
+            invalid_storyboard.append(
+                {
+                    "page": index,
+                    "page_visual_brief": spec.get("page_visual_brief"),
+                    "phrase": spec["phrase"],
+                    "note": spec.get("note", ""),
+                    "visual_metaphor": spec.get("visual_metaphor") or "一件日常物件",
+                    "layout": spec.get("layout") or "center-fragment",
+                    "anchor": spec.get("anchor") or "object-specimen",
+                    "accent": spec.get("accent") or "#1646d8",
+                    "texture": spec.get("texture") or "xerox-softness",
+                    "mood": spec.get("mood") or "quiet",
+                    "focus_x": spec.get("focus_x", 0.5),
+                    "focus_y": spec.get("focus_y", 0.42),
+                    "zoom": spec.get("zoom", 1),
+                }
+            )
+        invalid_storyboard[0]["note"] = invalid_storyboard[1]["phrase"]
+        rejected_storyboard = client.post(
+            f"/api/platforms/wechat/light/variants/{selected_payload['id']}/storyboard",
+            json={"pages": invalid_storyboard},
+        )
+        assert rejected_storyboard.status_code == 400, rejected_storyboard.text
+        assert "跨页重复" in rejected_storyboard.json()["detail"]
 
         edited = client.put(
             f"/api/platforms/variants/{selected_payload['id']}",
@@ -193,8 +283,10 @@ def test_light_content_lab_candidates_corpus_iteration_and_distinct_visuals(
         edited_meta = json.loads(edited_payload["metadata_json"])
         assert edited_meta["human_edited"] is True
         assert edited_meta["human_approved"] is False
-        assert edited_meta["poster_specs"][0]["phrase"] == "晚饭后，先把自己的十分钟还回来"
-        assert "晚饭收拾完" in edited_meta["poster_specs"][1]["phrase"]
+        assert edited_meta["poster_specs"] == selected_specs
+        assert edited_meta["storyboard_copy_sync"]["mode"] == "preserved-after-article-edit"
+        assert edited_meta["storyboard_copy_sync"]["copy_changed"] is False
+        assert edited_meta["storyboard_copy_sync"]["quality_issues"] == []
         assert edited_payload["output_paths_json"] == "{}"
 
         edited_rendered = client.post(
@@ -204,7 +296,7 @@ def test_light_content_lab_candidates_corpus_iteration_and_distinct_visuals(
         assert edited_rendered.status_code == 200, edited_rendered.text
         edited_fresh = client.get(f"/api/platforms/variants/{edited_payload['id']}").json()
         edited_fresh_meta = json.loads(edited_fresh["metadata_json"])
-        assert "晚饭后" in edited_fresh_meta["poster_specs"][0]["final_prompt"]
+        assert selected_first_phrase in edited_fresh_meta["poster_specs"][0]["final_prompt"]
 
         iterated = client.post(
             f"/api/platforms/wechat/light/variants/{selected_payload['id']}/iterate",

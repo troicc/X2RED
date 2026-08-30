@@ -1,5 +1,27 @@
 (() => {
-  const studioState = { targets: [], feed: [], projects: [], selectedProject: null };
+  const studioState = {
+    targets: [],
+    feed: [],
+    projects: [],
+    selectedProject: null,
+    materials: [],
+    selectedMaterialRefs: new Set(),
+  };
+  const WRITING_MATERIALS_KEY = "x2red.workspace.wechat.deep-writing.materials";
+  const WRITING_MATERIAL_GROUPS = [
+    ["pool", "语料池批次"],
+    ["x", "X / 信号台来源"],
+    ["xhs", "小红书来源"],
+    ["dy", "抖音来源"],
+    ["ks", "快手来源"],
+    ["bili", "B站来源"],
+    ["wb", "微博来源"],
+    ["tieba", "贴吧来源"],
+    ["zhihu", "知乎来源"],
+    ["web", "网页、文档与粘贴来源"],
+    ["draft_revision", "已写草稿版本"],
+    ["platform_variant", "已写平台版本"],
+  ];
 
   function createElement(tag, className = "", text = "") {
     const node = document.createElement(tag);
@@ -15,14 +37,8 @@
     const signalButton = createElement("button", "nav-item");
     signalButton.dataset.view = "signals-view";
     signalButton.innerHTML = '<span class="nav-icon">◉</span><span>信号台</span>';
-    const writingButton = createElement("button", "nav-item");
-    writingButton.dataset.view = "writing-view";
-    writingButton.innerHTML = '<span class="nav-icon">✎</span><span>写作项目</span>';
     nav.insertBefore(signalButton, publish);
-    nav.insertBefore(writingButton, publish);
-    [signalButton, writingButton].forEach((button) => {
-      button.addEventListener("click", () => window.setView(button.dataset.view));
-    });
+    signalButton.addEventListener("click", () => window.setView(signalButton.dataset.view));
   }
 
   function injectViews() {
@@ -60,14 +76,27 @@
     writing.id = "writing-view";
     writing.innerHTML = `
       <section class="page-intro studio-intro">
-        <span class="section-kicker">MULTI-AGENT WRITING ROOM</span><h2>写作项目</h2>
-        <p>总编辑、证据研究、大纲、写手、读者审稿、事实审稿、风格审稿与资深主编通过阶段产物交接。</p>
+        <span class="section-kicker">WECHAT · DEEP WRITING</span><h2>公众号深度写作</h2>
+        <p>这是公众号长文里的深度模式：先冻结多来源证据，再由总编辑、研究、写作和审稿分阶段交接。</p>
+        <button id="writing-back-wechat" class="secondary-action" type="button">返回公众号工作台</button>
       </section>
       <section class="studio-two-column writing-layout">
         <article class="surface studio-panel">
           <div class="panel-heading"><div><span class="section-kicker">NEW PROJECT</span><h3>建立写作任务</h3></div><button id="refresh-writing" class="secondary-action" type="button">刷新</button></div>
           <form id="writing-project-form" class="writing-project-form">
-            <label>来源<select id="writing-source" required></select></label>
+            <section class="writing-material-picker" aria-labelledby="writing-material-title">
+              <div class="writing-material-head"><strong id="writing-material-title">输入材料 · 来源与已写版本均可多选</strong><span id="writing-material-count">已选 0 个</span></div>
+              <div class="writing-material-tools"><input id="writing-material-search" type="search" placeholder="搜索来源、版本标题或正文" /><button id="writing-material-clear" class="tool-button" type="button">清空库内选择</button></div>
+              <div id="writing-material-list" class="writing-material-list" role="group" aria-label="深度写作可多选输入材料"></div>
+              <small>直接勾选，不需要按住 ⌘ 或 Ctrl。来源、已写版本和下方粘贴内容会同时作为本项目输入。</small>
+            </section>
+            <section class="writing-paste-panel">
+              <strong>同时补充粘贴材料（可留空）</strong>
+              <label>材料标题<input id="writing-paste-title" maxlength="200" placeholder="可选；留空则取正文首句" /></label>
+              <label>原作者<input id="writing-paste-author" maxlength="160" placeholder="可选" /></label>
+              <label>原文链接<input id="writing-paste-url" maxlength="2000" inputmode="url" placeholder="可选；http(s)://…" /></label>
+              <label>粘贴正文<textarea id="writing-paste-content" rows="7" maxlength="200000" placeholder="可以与上方所有已选材料一起提交；保存后进入标准素材库。"></textarea></label>
+            </section>
             <label>模式<select id="writing-mode"><option value="studio">工作室模式 · 人工阶段确认</option><option value="fast">快速模式 · 自动走完</option></select></label>
             <label>目标读者<textarea id="writing-reader" rows="2" placeholder="例如：关注 AI 工程但不写 CUDA 的技术读者"></textarea></label>
             <label>文章承诺<textarea id="writing-promise" rows="2" placeholder="读完后读者具体能理解什么"></textarea></label>
@@ -89,7 +118,7 @@
   const baseSetView = window.setView;
   window.setView = function setStudioView(viewId) {
     baseSetView(viewId);
-    const titles = { "signals-view": "信号台", "writing-view": "写作项目" };
+    const titles = { "signals-view": "信号台", "writing-view": "公众号深度写作" };
     if (titles[viewId]) document.getElementById("page-title").textContent = titles[viewId];
     if (viewId === "signals-view") loadSignals();
     if (viewId === "writing-view") loadWriting();
@@ -100,7 +129,7 @@
     while (Date.now() - started < timeoutMs) {
       const job = await api(`/api/jobs/${encodeURIComponent(jobId)}`);
       if (job.state === "succeeded") return job;
-      if (job.state === "failed") throw new Error(job.error || "后台任务失败");
+      if (["failed", "dead_letter"].includes(job.state)) throw new Error(job.error || "后台任务失败");
       await new Promise((resolve) => setTimeout(resolve, 700));
     }
     throw new Error("后台任务等待超时");
@@ -217,22 +246,143 @@
     });
   }
 
-  async function fillWritingSources() {
-    const sources = await api("/api/sources?workspace_state=active");
-    const select = document.getElementById("writing-source");
-    const current = select.value;
-    select.replaceChildren();
-    sources.forEach((source) => {
-      const option = document.createElement("option");
-      option.value = source.id;
-      option.textContent = `${source.author_handle ? `@${source.author_handle}` : source.author_name || "未知作者"} · ${(source.text_original || "").slice(0, 50)}`;
-      select.append(option);
+  function storedWritingMaterials() {
+    try {
+      const values = JSON.parse(window.localStorage.getItem(WRITING_MATERIALS_KEY) || "[]");
+      return new Set(
+        (Array.isArray(values) ? values : [])
+          .map((value) => String(value).includes(":") ? String(value) : `source:${value}`),
+      );
+    } catch { return new Set(); }
+  }
+
+  function saveWritingMaterials() {
+    try {
+      window.localStorage.setItem(
+        WRITING_MATERIALS_KEY,
+        JSON.stringify([...studioState.selectedMaterialRefs]),
+      );
+    } catch {
+      // Browser storage is optional.
+    }
+  }
+
+  function writingMaterialGroup(material) {
+    if (material.kind !== "source") return material.kind;
+    if (material.platform === "pool") return "pool";
+    if (["x", "xhs", "dy", "ks", "bili", "wb", "tieba", "zhihu"].includes(material.platform)) {
+      return material.platform;
+    }
+    return "web";
+  }
+
+  function renderWritingMaterials() {
+    const box = document.getElementById("writing-material-list");
+    box.replaceChildren();
+    const groups = new Map(WRITING_MATERIAL_GROUPS.map(([id, label]) => {
+      const section = createElement("section", "writing-material-group");
+      section.dataset.group = id;
+      section.append(createElement("strong", "writing-material-group-title", label));
+      section.append(createElement("div", "writing-material-group-items"));
+      return [id, section];
+    }));
+    studioState.materials.forEach((material) => {
+      const row = createElement("label", "writing-material-option");
+      row.dataset.search = `${material.title} ${material.author} ${material.excerpt}`.toLowerCase();
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.value = material.ref;
+      input.checked = studioState.selectedMaterialRefs.has(material.ref);
+      input.addEventListener("change", () => {
+        if (input.checked) studioState.selectedMaterialRefs.add(material.ref);
+        else studioState.selectedMaterialRefs.delete(material.ref);
+        saveWritingMaterials();
+        updateWritingMaterialCount();
+      });
+      const copy = createElement("span", "writing-material-copy");
+      const kind = material.kind === "source" ? "来源" : material.kind === "draft_revision" ? "草稿" : "平台稿";
+      const version = material.version ? ` · v${material.version}` : "";
+      copy.append(createElement("strong", "", `${kind}${version} · ${material.title || "未命名"}`));
+      copy.append(createElement("small", "", material.excerpt || "无正文"));
+      row.append(input, copy);
+      groups.get(writingMaterialGroup(material))?.querySelector(".writing-material-group-items")?.append(row);
     });
-    if (current && sources.some((source) => source.id === current)) select.value = current;
+    groups.forEach((group) => {
+      if (group.querySelector(".writing-material-option")) box.append(group);
+    });
+    filterWritingMaterials();
+    updateWritingMaterialCount();
+  }
+
+  function filterWritingMaterials() {
+    const query = document.getElementById("writing-material-search")?.value.trim().toLowerCase() || "";
+    document.querySelectorAll("#writing-material-list .writing-material-group").forEach((group) => {
+      let visible = 0;
+      group.querySelectorAll(".writing-material-option").forEach((row) => {
+        const show = !query || row.dataset.search.includes(query);
+        row.hidden = !show;
+        if (show) visible += 1;
+      });
+      group.hidden = visible === 0;
+    });
+  }
+
+  function updateWritingMaterialCount() {
+    const target = document.getElementById("writing-material-count");
+    if (target) target.textContent = `已选 ${studioState.selectedMaterialRefs.size} 个`;
+  }
+
+  function requiredWritingControl(form, id) {
+    const control = form?.querySelector(`#${id}`);
+    if (!control) throw new Error("深度写作表单未加载完整，请刷新页面后重试");
+    return control;
+  }
+
+  function captureWritingProjectForm(form) {
+    return {
+      materialRefs: [...studioState.selectedMaterialRefs],
+      pasteTitle: requiredWritingControl(form, "writing-paste-title").value,
+      pasteAuthor: requiredWritingControl(form, "writing-paste-author").value,
+      pasteUrl: requiredWritingControl(form, "writing-paste-url").value,
+      pasteContent: requiredWritingControl(form, "writing-paste-content").value,
+      mode: requiredWritingControl(form, "writing-mode").value,
+      reader: requiredWritingControl(form, "writing-reader").value,
+      promise: requiredWritingControl(form, "writing-promise").value,
+      mainThesis: requiredWritingControl(form, "writing-thesis").value,
+      styleProfileId: form?.querySelector("#writing-style-profile")?.value || null,
+    };
+  }
+
+  async function fillWritingMaterials() {
+    studioState.materials = await api("/api/writing/material-options?limit=500");
+    if (!studioState.selectedMaterialRefs.size) {
+      studioState.selectedMaterialRefs = storedWritingMaterials();
+    }
+    const valid = new Set(studioState.materials.map((item) => item.ref));
+    studioState.selectedMaterialRefs = new Set(
+      [...studioState.selectedMaterialRefs].filter((ref) => valid.has(ref)),
+    );
+    renderWritingMaterials();
+  }
+
+  async function materializeWritingPaste(formValues) {
+    const text = formValues.pasteContent.trim();
+    if (!text) return "";
+    if (text.length < 20) throw new Error("粘贴材料请至少输入 20 个字符，或留空只使用库内材料");
+    const source = await api("/api/sources/manual", {
+      method: "POST",
+      body: JSON.stringify({
+        title: formValues.pasteTitle,
+        author_name: formValues.pasteAuthor,
+        canonical_url: formValues.pasteUrl,
+        text_original: text,
+      }),
+    });
+    return source.id;
   }
 
   async function loadWriting(selectId = null) {
-    await fillWritingSources();
+    await fillWritingMaterials();
     studioState.projects = await api("/api/writing/projects");
     renderProjectList();
     const projectId = selectId || studioState.selectedProject?.id;
@@ -249,10 +399,26 @@
     studioState.projects.forEach((project) => {
       const button = createElement("button", `writing-project-item${studioState.selectedProject?.id === project.id ? " active" : ""}`);
       button.type = "button";
-      button.innerHTML = `<strong>${project.promise || project.main_thesis || "未命名写作任务"}</strong><span>${project.mode === "studio" ? "工作室" : "快速"} · ${project.state}</span><small>${project.spent_estimate_cents}/${project.budget_limit_cents} 预算单位</small>`;
+      button.dataset.projectId = project.id;
+      button.innerHTML = `<strong>${project.promise || project.main_thesis || "未命名写作任务"}</strong><span>${project.mode === "studio" ? "工作室" : "快速"} · ${project.state}</span><small>${writingCostLabel(project)}</small>`;
       button.addEventListener("click", () => selectProject(project.id));
       box.append(button);
     });
+  }
+
+  function writingCostLabel(project) {
+    const status = project.cost_status || "unavailable";
+    if (status === "not_used") return `尚未调用模型 · 上限 US$${(Number(project.budget_limit_cents || 0) / 100).toFixed(2)}`;
+    if (status === "unavailable") return "模型已调用 · provider 未返回成本，且未配置估价";
+    const amount = Number(project.usage_summary?.cost_usd ?? project.spent_cost_usd ?? 0);
+    const prefix = {
+      provider_reported: "Provider 实报",
+      provider_estimate: "Provider 估算",
+      catalog_estimate: "本地费率估算",
+      partial: "部分成本已知",
+      mixed_estimate: "混合口径估算",
+    }[status] || "估算";
+    return `${prefix} US$${amount.toFixed(4)} · 上限 US$${(Number(project.budget_limit_cents || 0) / 100).toFixed(2)}`;
   }
 
   async function selectProject(projectId) {
@@ -264,11 +430,198 @@
 
   function artifactLabel(type) {
     return {
-      editorial_brief: "总编辑任务单", evidence_pack: "证据包", outline: "文章大纲",
+      source_selection: "冻结的输入材料与事实来源", editorial_brief: "总编辑任务单", evidence_pack: "证据包", outline: "文章大纲",
+      style_exemplar_bundle: "冻结的授权风格短范例", title_candidates: "标题候选", title_tournament: "标题锦标赛",
+      title_preference: "作者标题选择",
       draft: "初稿", reader_review: "读者审稿", fact_review: "事实审稿",
       style_review: "风格审稿", revision_plan: "主编修改计划", final_draft: "终稿",
+      final_claims: "终稿 Claims", claim_evidence_matrix: "Claim-Evidence Matrix",
       author_decision: "作者决定",
     }[type] || type;
+  }
+
+  function artifactPayload(artifact) {
+    try { return JSON.parse(artifact?.content_json || "{}"); }
+    catch { return {}; }
+  }
+
+  function latestProjectArtifact(project, type) {
+    return [...(project.artifacts || [])].reverse().find((item) => item.artifact_type === type) || null;
+  }
+
+  function renderTitleTournament(project, artifact, payload) {
+    const panel = createElement("section", "title-tournament-panel");
+    const head = createElement("div", "title-tournament-head");
+    head.innerHTML = `<strong>读者第一眼 Top ${payload.top_five?.length || 0}</strong><span>${payload.quality_gate_passed ? "质量门通过" : "候选不足，当前为降级结果"}</span>`;
+    panel.append(head);
+    const preferenceArtifact = latestProjectArtifact(project, "title_preference");
+    const preference = artifactPayload(preferenceArtifact);
+    const list = createElement("ol", "title-tournament-list");
+    (payload.top_five || []).forEach((item) => {
+      const candidate = item.candidate || {};
+      const row = createElement("li", "title-tournament-option");
+      const copy = createElement("div");
+      copy.append(
+        createElement("strong", "", candidate.title || "未命名候选"),
+        createElement("small", "", `${candidate.mechanism || "unknown"} · 第一眼 ${Number(item.reader_first_glance?.total_score || 0).toFixed(1)} · ${candidate.reader_promise || ""}`),
+      );
+      const selected = preference.tournament_artifact_id === artifact.id && preference.candidate_id === candidate.candidate_id;
+      const qualityReady = Boolean(payload.quality_gate_passed);
+      const button = createElement("button", selected ? "primary-action" : "secondary-action", selected ? "已选择" : qualityReady ? "选择这个标题" : "质量门未通过");
+      button.type = "button";
+      button.disabled = selected || !qualityReady;
+      button.addEventListener("click", async () => {
+        button.disabled = true;
+        try {
+          await api(`/api/writing/projects/${encodeURIComponent(project.id)}/titles/select`, {
+            method: "POST",
+            body: JSON.stringify({
+              tournament_artifact_id: artifact.id,
+              candidate_id: candidate.candidate_id,
+              note: "作者在标题锦标赛 top 5 中明确选择",
+            }),
+          });
+          await loadWriting(project.id);
+        } catch (error) {
+          window.alert(error.message);
+          button.disabled = false;
+        }
+      });
+      row.append(copy, button);
+      list.append(row);
+    });
+    if (!list.children.length) {
+      list.append(createElement("li", "card-empty", "当前没有通过证据与标题质量过滤的候选；写作仍可降级继续，但不会伪称标题锦标赛已通过。"));
+    }
+    panel.append(list);
+    return panel;
+  }
+
+  function feedbackArticleType(project) {
+    const brief = artifactPayload(latestProjectArtifact(project, "editorial_brief"));
+    return brief.article_type || "technical_explainer";
+  }
+
+  async function hydrateWritingFeedback(project, panel) {
+    if (!project.output_draft_id) return;
+    try {
+      const [drafts, feedbacks] = await Promise.all([
+        api(`/api/sources/${encodeURIComponent(project.source_id)}/drafts`),
+        api(`/api/writing/projects/${encodeURIComponent(project.id)}/feedback`),
+      ]);
+      const modelDraft = drafts.find((item) => item.id === project.output_draft_id);
+      if (!modelDraft) throw new Error("没有找到当前项目冻结的模型终稿");
+      panel.replaceChildren();
+      const heading = createElement("div", "panel-heading");
+      heading.innerHTML = '<div><span class="section-kicker">REAL REVISION FEEDBACK</span><h4>人工终稿与真实改稿反馈</h4><p>先保存人工版本，再由服务端计算不可伪造的 diff；之后可单独批准进入池子记忆。</p></div>';
+      panel.append(heading);
+
+      const form = createElement("form", "writing-feedback-form");
+      const titleLabel = createElement("label", "", "人工终稿标题");
+      const titleInput = document.createElement("input");
+      titleInput.maxLength = 80;
+      titleInput.required = true;
+      titleInput.value = modelDraft.title || "";
+      titleLabel.append(titleInput);
+      const bodyLabel = createElement("label", "", "人工终稿正文");
+      const bodyInput = document.createElement("textarea");
+      bodyInput.rows = 16;
+      bodyInput.maxLength = 50000;
+      bodyInput.required = true;
+      bodyInput.value = modelDraft.body || "";
+      bodyLabel.append(bodyInput);
+      const tagsLabel = createElement("label", "", "标签");
+      const tagsInput = document.createElement("input");
+      tagsInput.maxLength = 500;
+      tagsInput.value = modelDraft.tags || "";
+      tagsLabel.append(tagsInput);
+      const reasonLabel = createElement("label", "", "为什么这样改");
+      const reasonInput = document.createElement("textarea");
+      reasonInput.rows = 4;
+      reasonInput.maxLength = 4000;
+      reasonInput.required = true;
+      reasonInput.placeholder = "指出标题、开头、节奏、判断或禁用表达中哪些变化代表你的真实偏好。";
+      reasonLabel.append(reasonInput);
+      const articleTypeLabel = createElement("label", "", "文章类型");
+      const articleTypeInput = document.createElement("input");
+      articleTypeInput.maxLength = 80;
+      articleTypeInput.required = true;
+      articleTypeInput.value = feedbackArticleType(project);
+      articleTypeLabel.append(articleTypeInput);
+      const dimensions = [
+        ["title", "标题"], ["opening", "开头"], ["tone", "语气"],
+        ["sentence_rhythm", "句子节奏"], ["paragraph_rhythm", "段落节奏"],
+        ["structure", "结构"], ["transition", "转场"], ["judgment", "判断方式"],
+        ["ending", "结尾"], ["forbidden_expression", "禁用表达"],
+        ["reader_relationship", "读者关系"], ["identity", "作者身份"],
+        ["positive_phrase", "正向表达"],
+      ];
+      const dimensionField = createElement("fieldset", "writing-feedback-dimensions");
+      dimensionField.append(createElement("legend", "", "受影响维度（至少一项）"));
+      dimensions.forEach(([value, label], index) => {
+        const option = createElement("label", "", label);
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.value = value;
+        input.checked = index < 3;
+        option.prepend(input);
+        dimensionField.append(option);
+      });
+      const submit = createElement("button", "primary-action", "保存人工版本并记录反馈");
+      submit.type = "submit";
+      form.append(titleLabel, bodyLabel, tagsLabel, articleTypeLabel, reasonLabel, dimensionField, submit);
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const selected = [...dimensionField.querySelectorAll('input[type="checkbox"]:checked')].map((item) => item.value);
+        if (!selected.length) {
+          window.alert("请至少选择一个受影响维度");
+          return;
+        }
+        submit.disabled = true;
+        try {
+          const humanDraft = await api(`/api/drafts/${encodeURIComponent(modelDraft.id)}`, {
+            method: "PUT",
+            body: JSON.stringify({ title: titleInput.value, body: bodyInput.value, tags: tagsInput.value }),
+          });
+          await api(`/api/writing/projects/${encodeURIComponent(project.id)}/feedback`, {
+            method: "POST",
+            body: JSON.stringify({
+              draft_before_id: modelDraft.id,
+              draft_after_id: humanDraft.id,
+              article_type: articleTypeInput.value,
+              feedback_reason: reasonInput.value,
+              affected_dimensions: selected,
+            }),
+          });
+          await loadWriting(project.id);
+        } catch (error) {
+          window.alert(error.message);
+          submit.disabled = false;
+        }
+      });
+      panel.append(form);
+
+      const history = createElement("div", "writing-feedback-history");
+      if (!feedbacks.length) history.append(createElement("div", "card-empty", "尚未记录真实改稿反馈。"));
+      feedbacks.forEach((feedback) => {
+        const card = createElement("article", "writing-feedback-card");
+        const delta = Number(feedback.diff?.changes?.body_character_delta || 0);
+        card.append(
+          createElement("strong", "", feedback.feedback_reason || "真实改稿反馈"),
+          createElement("small", "", `${feedback.article_type || "未分类"} · ${feedback.affected_dimensions.join(" / ")} · 正文 ${delta >= 0 ? "+" : ""}${delta} 字符`),
+        );
+        const memory = createElement("button", feedback.approved_to_memory ? "primary-action" : "secondary-action", feedback.approved_to_memory ? "已批准进入记忆" : "预览并决定是否进入记忆");
+        memory.type = "button";
+        memory.disabled = feedback.approved_to_memory;
+        memory.dataset.memorySourceKind = "writing_feedback";
+        memory.dataset.memorySourceId = feedback.id;
+        card.append(memory);
+        history.append(card);
+      });
+      panel.append(history);
+    } catch (error) {
+      panel.replaceChildren(createElement("div", "card-empty", `真实反馈面板加载失败：${error.message}`));
+    }
   }
 
   function renderProjectDetail(project) {
@@ -279,8 +632,8 @@
     const header = createElement("div", "project-detail-header");
     header.innerHTML = `<div><span class="section-kicker">${project.mode.toUpperCase()} MODE</span><h3>${project.promise || "写作项目"}</h3><p>${project.reader || "尚未明确读者"}</p></div><div class="project-state"><strong>${project.state}</strong><small>${project.current_stage}</small></div>`;
     const actions = createElement("div", "project-run-actions");
-    const run = createElement("button", "primary-action", project.state.startsWith("awaiting_") ? "等待作者确认" : project.state === "completed" ? "已完成" : "运行下一阶段");
-    run.disabled = project.state.startsWith("awaiting_") || ["completed", "failed", "canceled"].includes(project.state);
+    const run = createElement("button", "primary-action", project.state.startsWith("awaiting_") ? "等待作者确认" : project.state === "claims_blocked" ? "证据闸门阻断" : project.state === "completed" ? "已完成" : "运行下一阶段");
+    run.disabled = project.state.startsWith("awaiting_") || ["claims_blocked", "completed", "failed", "canceled"].includes(project.state);
     run.addEventListener("click", async () => {
       run.disabled = true;
       try {
@@ -293,15 +646,25 @@
     actions.append(run);
     header.append(actions);
     box.append(header);
+    if (project.material_summaries?.length || project.source_summaries?.length) {
+      const evidence = createElement("div", "platform-helper");
+      const values = project.material_summaries?.length ? project.material_summaries : project.source_summaries;
+      evidence.textContent = `冻结输入：${values
+        .map((item) => `${item.kind === "draft_revision" ? "草稿" : item.kind === "platform_variant" ? "平台稿" : item.role === "primary" ? "主来源" : "来源"}·${item.title || item.author || item.id}`)
+        .join(" ｜ ")}`;
+      box.append(evidence);
+    }
 
     const timeline = createElement("div", "artifact-timeline");
     project.artifacts.forEach((artifact) => {
       const item = createElement("article", "artifact-card");
       const itemHeader = createElement("div", "artifact-header");
       itemHeader.innerHTML = `<div><span>${artifactLabel(artifact.artifact_type)}</span><small>${artifact.created_by_role} · v${artifact.version}</small></div><strong>${artifact.approved ? "已确认" : "待确认"}</strong>`;
-      const content = createElement("pre", "artifact-content");
-      try { content.textContent = JSON.stringify(JSON.parse(artifact.content_json), null, 2); }
-      catch { content.textContent = artifact.content_json; }
+      const parsed = artifactPayload(artifact);
+      const content = artifact.artifact_type === "title_tournament"
+        ? renderTitleTournament(project, artifact, parsed)
+        : createElement("pre", "artifact-content");
+      if (artifact.artifact_type !== "title_tournament") content.textContent = JSON.stringify(parsed, null, 2);
       item.append(itemHeader, content);
       if (["editorial_brief", "outline", "revision_plan"].includes(artifact.artifact_type) && !artifact.approved) {
         const approval = createElement("div", "artifact-approval");
@@ -312,9 +675,24 @@
         approval.append(reject, approve);
         item.append(approval);
       }
+      if (artifact.artifact_type === "final_draft") {
+        const memoryAction = createElement("div", "artifact-approval");
+        const memoryButton = createElement("button", "secondary-action", "提炼为写作偏好");
+        memoryButton.type = "button";
+        memoryButton.dataset.memorySourceKind = "writing_artifact";
+        memoryButton.dataset.memorySourceId = artifact.id;
+        memoryAction.append(memoryButton);
+        item.append(memoryAction);
+      }
       timeline.append(item);
     });
     box.append(timeline);
+    if (project.output_draft_id) {
+      const feedbackPanel = createElement("section", "surface studio-panel writing-feedback-panel");
+      feedbackPanel.append(createElement("div", "card-empty", "正在加载人工终稿与真实反馈…"));
+      box.append(feedbackPanel);
+      void hydrateWritingFeedback(project, feedbackPanel);
+    }
   }
 
   async function approveArtifact(projectId, artifactId, approved) {
@@ -329,7 +707,7 @@
     document.getElementById("monitor-form").addEventListener("submit", async (event) => {
       event.preventDefault();
       const button = event.submitter;
-      button.disabled = true;
+      if (button) button.disabled = true;
       try {
         const target = await api("/api/signals/targets", {
           method: "POST",
@@ -348,34 +726,110 @@
         await waitJob(job.id);
         await loadSignals();
       } catch (error) { window.alert(error.message); }
-      finally { button.disabled = false; }
+      finally { if (button) button.disabled = false; }
     });
     document.getElementById("refresh-writing").addEventListener("click", () => loadWriting());
+    document.getElementById("writing-back-wechat").addEventListener("click", () => window.setView?.("wechat-view"));
+    document.getElementById("writing-material-search").addEventListener("input", filterWritingMaterials);
+    document.getElementById("writing-material-clear").addEventListener("click", () => {
+      studioState.selectedMaterialRefs.clear();
+      saveWritingMaterials();
+      renderWritingMaterials();
+    });
     document.getElementById("writing-project-form").addEventListener("submit", async (event) => {
       event.preventDefault();
       const button = event.submitter;
-      button.disabled = true;
+      if (button) button.disabled = true;
       try {
+        const formValues = captureWritingProjectForm(event.currentTarget);
+        const pastedSourceId = await materializeWritingPaste(formValues);
+        const materialRefs = [...formValues.materialRefs];
+        if (pastedSourceId) materialRefs.push(`source:${pastedSourceId}`);
+        const uniqueRefs = [...new Set(materialRefs)];
+        if (!uniqueRefs.length) throw new Error("请至少选择一个库内材料或粘贴一段内容");
+        const selectedOptions = uniqueRefs
+          .map((ref) => studioState.materials.find((item) => item.ref === ref))
+          .filter(Boolean);
+        const sourceId = selectedOptions[0]?.source_id || pastedSourceId;
+        if (!sourceId) throw new Error("输入材料没有可追溯的来源");
+        const supportingSourceIds = [...new Set([
+          ...selectedOptions
+            .filter((item) => item.kind === "source" && item.source_id !== sourceId)
+            .map((item) => item.source_id),
+          ...(pastedSourceId && pastedSourceId !== sourceId ? [pastedSourceId] : []),
+        ])];
         const project = await api("/api/writing/projects", {
           method: "POST",
           body: JSON.stringify({
-            source_id: document.getElementById("writing-source").value,
-            mode: document.getElementById("writing-mode").value,
-            reader: document.getElementById("writing-reader").value,
-            promise: document.getElementById("writing-promise").value,
-            main_thesis: document.getElementById("writing-thesis").value,
-            budget_limit_cents: document.getElementById("writing-mode").value === "studio" ? 20 : 10,
+            source_id: sourceId,
+            supporting_source_ids: supportingSourceIds,
+            material_refs: uniqueRefs,
+            mode: formValues.mode,
+            reader: formValues.reader,
+            promise: formValues.promise,
+            main_thesis: formValues.mainThesis,
+            style_profile_id: formValues.styleProfileId,
+            budget_limit_cents: formValues.mode === "studio" ? 20 : 10,
           }),
         });
         const job = await api(`/api/writing/projects/${encodeURIComponent(project.id)}/run`, { method: "POST", body: JSON.stringify({ continuous: true }) });
         await waitJob(job.id, 300000);
         await loadWriting(project.id);
       } catch (error) { window.alert(error.message); }
-      finally { button.disabled = false; }
+      finally { if (button) button.disabled = false; }
     });
   }
 
   injectNavigation();
   injectViews();
   bindStudioEvents();
+  window.openX2redDeepWriting = async (sourceId = "", supportingIds = [], materialRefs = []) => {
+    window.setView?.("writing-view");
+    const selected = new Set(
+      (Array.isArray(materialRefs) && materialRefs.length
+        ? materialRefs
+        : [sourceId, ...(Array.isArray(supportingIds) ? supportingIds : [])]
+      )
+        .filter(Boolean)
+        .map((value) => String(value).includes(":") ? String(value) : `source:${value}`),
+    );
+    studioState.selectedMaterialRefs = selected;
+    saveWritingMaterials();
+    await loadWriting();
+    renderWritingMaterials();
+    const seed = window.__x2redCreativeWritingSeed;
+    if (seed) {
+      const mode = document.getElementById("writing-mode");
+      const reader = document.getElementById("writing-reader");
+      const promise = document.getElementById("writing-promise");
+      if (mode && ["studio", "fast"].includes(seed.writingMode)) mode.value = seed.writingMode;
+      if (reader && seed.reader) reader.value = seed.reader;
+      if (promise && seed.promise) promise.value = seed.promise;
+    }
+    document.getElementById("writing-project-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  window.openX2redWritingProject = async (projectId) => {
+    if (!projectId) return;
+    window.setView?.("writing-view");
+    await loadWriting(projectId);
+    const detail = document.getElementById("writing-detail");
+    const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+    detail?.scrollIntoView({ behavior, block: "start" });
+    detail?.querySelector("button:not(:disabled), [tabindex]")?.focus({ preventScroll: true });
+  };
+  document.addEventListener("x2red:creative-task-handoff", (event) => {
+    const detail = event.detail;
+    if (!detail || detail.platform !== "wechat_long") return;
+    window.__x2redCreativeWritingSeed = {
+      writingMode: detail.writingMode,
+      reader: detail.reader,
+      promise: detail.promise,
+    };
+    const mode = document.getElementById("writing-mode");
+    const reader = document.getElementById("writing-reader");
+    const promise = document.getElementById("writing-promise");
+    if (mode && ["studio", "fast"].includes(detail.writingMode)) mode.value = detail.writingMode;
+    if (reader && detail.reader) reader.value = detail.reader;
+    if (promise && detail.promise) promise.value = detail.promise;
+  });
 })();
