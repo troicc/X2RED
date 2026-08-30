@@ -84,6 +84,7 @@ PR #19 属于 C0 的基线功能分支，不是 C0 分支本身。
 - PR CI 显式清空所有付费模型配置，加入 70% coverage、Mypy、Bandit、pip/npm audit、ESLint/JSDoc、空库/旧快照迁移、离线 Prompt eval、Playwright E2E 与 visual contact sheet。独立 nightly canary 只有专用 secret 存在才调用模型，要求显式费率，并把全部最大重试尝试计入预检；默认 cap US$0.05、硬上限 US$0.10，artifact 不保存原始响应。
 - 完整操作、迁移、回滚、配置和已知限制记录在 `docs/ai-context/OPS1_OBSERVABILITY_CI_SECURITY.md`。离线 Prompt eval 和自动测试不替代 W3 标题 ≥65% / 风格 ≥70% 的真实成对人工盲评。
 - 2026-08-30 13:37 提交前重新 fetch：远端功能分支仍为准确基线 `c9e4b74a133b9543040c3e02cb13356c80f1cbef`；PR #19 为 open、draft、CLEAN、MERGEABLE，同 head 的 CI run `33292708661` 成功。13:45 当前精确本地 head 的最终套件 `220 passed, 55 warnings`，branch-aware coverage `72.05%`；三个 OPS1 测试文件 `23 passed`。Mypy、Bandit、Ruff、ESLint/JSDoc、Python/JavaScript/Shell/JSON、pip/npm audit、离线 Prompt eval、空库 CLI、`0013→0012→0013` 往返迁移和离线 wheel 均通过。桌面受管沙箱拒绝临时 loopback 端口，当前 OPS1 head 的 Playwright/contact sheet 由 GitHub latest-head CI 作为合并硬门禁；此前 UI1 基线 E2E 已通过，不能替代本次 CI 结果。
+- 2026-08-30 13:51：OPS1 实现提交 `0629c5f87a73ef6c5e70087d2d24aeda8af7976d` 已推送，独立 Draft PR #29 指向功能基线。创建后查询为 open、draft、MERGEABLE；初始 CI run `33295579345` 正在执行。此状态文档更新会形成新 latest head，合并只认新 head 的完整 CI，不沿用初始 run。
 
 ### 2026-08-30 UI1 统一创作任务与视觉工作流
 

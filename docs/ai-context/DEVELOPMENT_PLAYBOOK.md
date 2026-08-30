@@ -8,9 +8,10 @@
 - 基线 SHA：`c9e4b74a133b9543040c3e02cb13356c80f1cbef`（UI1 PR #28 squash merge）
 - 当前本地任务分支：`codex/x2red-ops1-observability-ci-security`
 - PR #19 仍是基线功能 PR；OPS1 使用独立分支和独立 PR
+- OPS1 Draft PR #29 已创建，初始实现 head 为 `0629c5f87a73ef6c5e70087d2d24aeda8af7976d`；状态文档提交后必须只认新 latest head 的 CI
 - C0、V1、V2、V3、V4、W1、W2、W3 和 UI1 已依次经独立 PR 合并到基线分支
 - OPS1 已完成真实模型用量与成本、可靠重试、Alembic revision gate、任务租约、CI 门禁和本地安全闭环；本地完整套件为 `220 passed`，分支覆盖率 `72.05%`，静态检查、迁移、依赖审计、Prompt eval 和 wheel 构建已通过
-- 受本地托管沙箱禁止监听回环端口影响，Playwright 与视觉 contact sheet 必须由 OPS1 最新 head 的 GitHub CI 完成硬门禁；剩余提交、独立 PR、latest-head CI 和合并
+- 受本地托管沙箱禁止监听回环端口影响，Playwright 与视觉 contact sheet 必须由 OPS1 最新 head 的 GitHub CI 完成硬门禁；剩余 latest-head CI、转 Ready 和合并
 - OPS1 合并前不得将 PR #19 合入 `main`
 
 任务书后续阶段必须从最新已合并的前一阶段创建独立分支；C0 后依次为 V1、V2、V3、V4、W1、W2、W3、UI1、OPS1。
