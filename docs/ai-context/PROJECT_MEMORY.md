@@ -6,13 +6,15 @@
 
 仓库：`troicc/X2RED`
 
-当前本地任务分支：`agent/replace-crawlers-with-api-adapters`
+当前本地收尾分支：`codex/x2red-final-delivery-memory`
+
+当前生产基线：`main`，产品合并 commit `02201a281b5bd304bf4e68a57deae1b9c72f685e`
 
 OPS1 分支来源：已合并 UI1 的 `agent/replace-crawlers-with-api-adapters`，准确基线 SHA `c9e4b74a133b9543040c3e02cb13356c80f1cbef`
 
 OPS1 PR #29 已在 latest head `b3ed174a97ac292fc7db90e5d087d0b055ca9b81` 的 CI run `33295636707` 全部成功后 squash merge；当前功能基线为 `4f6ac5c21144bbed4905f4ebbcfdbfb9a38707d3`。
 
-基线 PR：`#19 重构简中素材采集、语料池与三层创作工作区`
+总 PR：`#19 重构简中素材采集、语料池与三层创作工作区`，已 squash merge 到 `main`。
 
 C0 PR：`#20 C0：冻结创作质量基线与可重放评测夹具`，已于 2026-08-09 squash merge 到功能基线分支。
 
@@ -87,7 +89,8 @@ PR #19 属于 C0 的基线功能分支，不是 C0 分支本身。
 - 完整操作、迁移、回滚、配置和已知限制记录在 `docs/ai-context/OPS1_OBSERVABILITY_CI_SECURITY.md`。离线 Prompt eval 和自动测试不替代 W3 标题 ≥65% / 风格 ≥70% 的真实成对人工盲评。
 - 2026-08-30 13:37 提交前重新 fetch：远端功能分支仍为准确基线 `c9e4b74a133b9543040c3e02cb13356c80f1cbef`；PR #19 为 open、draft、CLEAN、MERGEABLE，同 head 的 CI run `33292708661` 成功。13:45 当前精确本地 head 的最终套件 `220 passed, 55 warnings`，branch-aware coverage `72.05%`；三个 OPS1 测试文件 `23 passed`。Mypy、Bandit、Ruff、ESLint/JSDoc、Python/JavaScript/Shell/JSON、pip/npm audit、离线 Prompt eval、空库 CLI、`0013→0012→0013` 往返迁移和离线 wheel 均通过。桌面受管沙箱拒绝临时 loopback 端口，当前 OPS1 head 的 Playwright/contact sheet 由 GitHub latest-head CI 作为合并硬门禁；此前 UI1 基线 E2E 已通过，不能替代本次 CI 结果。
 - 2026-08-30 13:51：OPS1 实现提交 `0629c5f87a73ef6c5e70087d2d24aeda8af7976d` 已推送，独立 Draft PR #29 指向功能基线。创建后查询为 open、draft、MERGEABLE；初始 CI run `33295579345` 正在执行。此状态文档更新会形成新 latest head，合并只认新 head 的完整 CI，不沿用初始 run。
-- 2026-08-30 13:59：OPS1 PR #29 的 latest head `b3ed174a97ac292fc7db90e5d087d0b055ca9b81` 在 GitHub CI run `33295636707` 全部成功，包括迁移、Mypy、pip/npm audit、Bandit、ESLint/JSDoc、Prompt eval、220 项覆盖率门禁、Playwright、contact sheet artifact 和 Ruff。PR 转 Ready 后已 squash merge，merge commit 为 `4f6ac5c21144bbed4905f4ebbcfdbfb9a38707d3`。PR #19 当前为 open、draft、MERGEABLE；本状态提交会产生新 latest head，只有其完整 CI 可授权合入 `main`。
+- 2026-08-30 13:59：OPS1 PR #29 的 latest head `b3ed174a97ac292fc7db90e5d087d0b055ca9b81` 在 GitHub CI run `33295636707` 全部成功，包括迁移、Mypy、pip/npm audit、Bandit、ESLint/JSDoc、Prompt eval、220 项覆盖率门禁、Playwright、contact sheet artifact 和 Ruff。PR 转 Ready 后已 squash merge，merge commit 为 `4f6ac5c21144bbed4905f4ebbcfdbfb9a38707d3`。当时 PR #19 仍为 open、draft、MERGEABLE；随后状态提交形成了新的受检 head，最终结果见下一条记录。
+- 2026-08-30 14:15：总 PR #19 的最终 head `167e6cf52c3c4ae5830b057fdee0135e2c64ce5e` 在 GitHub CI run `33296009356` 全部成功后转 Ready，并锁定该 head squash merge 到 `main`；产品 merge commit 为 `02201a281b5bd304bf4e68a57deae1b9c72f685e`。该 main commit 的 CI run `33296268204` 随后在 Python 3.12 / 3.13 矩阵全部成功。C0 至 OPS1 的自动化工程交付完成；W3 标题 ≥65% / 风格 ≥70% 的真实成对人工盲评仍是独立产品验收，不得由 CI 结果替代。
 
 ### 2026-08-30 UI1 统一创作任务与视觉工作流
 
