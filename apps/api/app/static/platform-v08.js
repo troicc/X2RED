@@ -1367,6 +1367,28 @@
     renderProductionPipeline();
   };
 
+  async function applyCreativeTaskHandoff(detail) {
+    if (!detail || detail.platform !== "wechat_long") return;
+    const refs = Array.isArray(detail.materialRefs) ? detail.materialRefs.map(String) : [];
+    const sourceId = detail.sourceId || refs.find((value) => value.startsWith("source:"))?.slice(7) || "";
+    await openWechatForSource(sourceId);
+    const desired = new Set(refs);
+    document.querySelectorAll('#wechat-supporting-sources input[type="checkbox"]').forEach((input) => {
+      input.checked = desired.has(input.value) && !input.disabled;
+    });
+    const mode = document.getElementById("wechat-mode");
+    if (mode) mode.value = "adapt";
+    const illustrations = document.getElementById("wechat-illustrations");
+    if (illustrations) illustrations.checked = detail.visualRoute !== "none";
+    syncSupportingSources();
+    updateSupportingCount();
+    saveArticleSelection();
+    renderProductionPipeline();
+    showStatus("统一创作简报已交接：材料与视觉路线已预填，请确认后进入深度写作或生成公众号成稿。", "ok");
+    document.getElementById(detail.writingMode === "studio" ? "wechat-deep-writing" : "wechat-create-article")
+      ?.focus({ preventScroll: true });
+  }
+
   function bindEvents() {
     document.getElementById("wechat-create-form").addEventListener("submit", createVariant);
     document.getElementById("wechat-editor").addEventListener("submit", saveVariant);
@@ -1430,6 +1452,9 @@
       } catch (error) {
         showStatus(error.message, "error");
       }
+    });
+    document.addEventListener("x2red:creative-task-handoff", (event) => {
+      void applyCreativeTaskHandoff(event.detail).catch((error) => showStatus(error.message, "error"));
     });
     syncSupportingSources();
   }

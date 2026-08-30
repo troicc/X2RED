@@ -15,7 +15,9 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # The UI1 gate runs the full API suite before installing Chromium and
+    # exercising the browser workflow. Keep enough headroom for cold runners.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -56,11 +58,23 @@ jobs:
       - run: node --check apps/api/app/static/light-content-v15.js
       - run: node --check apps/api/app/static/native-skills-v11.js
       - run: node --check apps/api/app/static/product-ui-v17.js
+      - run: node --check apps/api/app/static/api-client.js
+      - run: node --check apps/api/app/static/creative-store.js
+      - run: node --check apps/api/app/static/writing-view.js
+      - run: node --check apps/api/app/static/visual-view.js
+      - run: node --check apps/api/app/static/candidate-view.js
+      - run: node --check apps/api/app/static/prompt-view.js
+      - run: node --check apps/api/app/static/publish-view.js
+      - run: node --check apps/api/app/static/creative-workflow-v18.js
       - run: node --check apps/api/extensions/wechat-publisher-assistant/popup.js
       - run: node --check apps/api/extensions/wechat-publisher-assistant/content.js
       - run: node --check apps/api/extensions/wechat-publisher-assistant/page-bridge.js
       - run: node apps/api/extensions/wechat-publisher-assistant/content.test.mjs
       - run: pytest -q
+      - if: matrix.python-version == '3.12'
+        run: python -m playwright install --with-deps chromium
+      - if: matrix.python-version == '3.12'
+        run: python scripts/ui1_playwright_e2e.py
       # FastAPI requires Depends(...) defaults. E701/E702 only enforce line
       # layout; compileall and tests remain the semantic gate for these services.
       - run: ruff check apps/api --select E,F,I,B,UP --ignore E501,E701,E702,UP035,UP042,B008,I001

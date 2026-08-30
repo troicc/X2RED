@@ -1,6 +1,6 @@
 # X2RED 未完成事项和风险
 
-更新时间：2026-08-29 +08:00
+更新时间：2026-08-30 +08:00
 
 ## P0：合并前必须确认
 
@@ -19,13 +19,14 @@
 - V4 PR #24 的修复 head `0b87097865dc6d57b1bb082cb12b37e938a4e9bb` 已通过 CI run `823`，随后转 Ready 并 squash merge；功能基线准确前进到 `012299e2c77a02b076eb15aed33e17ad6196ce38`。首轮 CI run `822` 的 Linux CJK 字体失败只通过显式 legacy 测试隔离修复，production fail-closed 未放宽。
 - W1 PR #25 已在 latest head `9085faf29b8b86d47cfcd4a1a2cd93c3cc9a7158` 的 CI run `826` 全部成功后转 Ready 并 squash merge；准确功能基线为 `88b995bfc75f25673e78777ee6f575fc2a5eb666`。
 - W2 PR #26 已在 latest head `4027d0c26ef9b76f4c976231322bca18cac1bb69` 的 CI run `33249003306` / job `99091311679` 成功后转 Ready 并 squash merge；准确功能基线为 `f6dd3bbb747cdfd1758f0542f6977f6f58dd4103`。
-- W3 已从该准确 W2 merge head 创建独立分支 `codex/x2red-w3-title-style-quality`。12—20 标题候选、证据/套路/同质化过滤、读者第一眼 top 5、人工标题 preference、逐字标题合同、授权短范例、author override、模型稿到 direct human revision 的服务端 diff 和动态记忆批准状态已实现；完整 API 套件 `191 passed, 8 warnings`，Ruff、Python/JavaScript/Shell 编译、发布助手回归、全新迁移和 wheel 门禁均通过。实现提交 `0750999eb305f203d417c1066e9fcdb2e1de9bdf` 已推送并创建 Draft PR #27；当前剩余项是状态文档 latest head、对应 CI、Ready 与 squash merge。
+- W3 PR #27 已在 latest head `1cee81507088f09eed6d2f17bf1efbd8c0810780` 的 CI 成功后转 Ready 并 squash merge；准确功能基线为 `519228354279fc1641bef2fe19a08991b9ed4731`。标题/风格人工盲评仍是独立验收项，不能被合并状态或自动测试替代。
+- UI1 已从该准确 W3 merge head 创建独立分支 `codex/x2red-ui1-unified-creative-workflow`。六组导航、六步创作任务、旧工作台 handoff、焦点恢复、视觉系列总览、Prompt provenance/diff、Contact Sheet、批量上传、重复警告、质量分和候选状态已实现；控制器均低于 1000 行，旧 DOM ID 保持一个版本兼容。真实 Playwright E2E 已覆盖 860/1360/1800、方向键、减少动态效果和 console/page error；UI1 定向 `5 passed`，完整套件 `196 passed, 8 warnings`，Ruff、编译、迁移和 wheel 门禁通过。实现提交 `039f85d1bf9c481d146a383eea906919fa586b02` 已推送并创建 Draft PR #28；当前剩余项是状态文档 latest head、对应 CI、Ready 与 squash merge。
 - C0 修改前完整测试为 `94 passed, 8 warnings`；C0 修改后完整套件为 `99 passed, 8 warnings`，新增 C0 定向测试为 `5 passed`。全仓 CI 范围 Ruff、compileall、导出脚本 py_compile、JSON 校验、敏感信息扫描和 diff check 通过。
 - 12 个写作 fixture、20 个视觉页、两套 rubric、Pydantic schema、旧 Prompt 逐字重放和只读脱敏导出器已经落地；未修改生产行为。
 - 已冻结的关键旧缺陷：`visual-firewall-03-comparison` 与 `visual-firewall-04-conclusion` 的 phrase、note、evidence 和 visual role 不同，但现有 Prompt 与 model fingerprint 相同。
-- 当前阶段只能完成 W3 `title-style-feedback-quality`；UI1 必须等待 W3 独立 PR 的 latest-head CI 通过并合入功能基线后再创建新分支，不得把 UI1 堆进 W3。
+- 当前阶段只能完成 UI1 `unified-creative-workflow`；OPS1 必须等待 UI1 独立 PR 的 latest-head CI 通过并合入功能基线后再创建新分支，不得把 OPS1 堆进 UI1。
 - C0 fixture 是合成防回归材料，不是视觉质量已达标的证据；真实图片、真实长文和模型盲评仍须在后续阶段按权利与成本边界完成。
-- 标题相对旧基线 ≥65% 与风格相对旧基线 ≥70% 仍需真实模型成对输出、隐藏标签和人工记录；自动排序器、合成测试或模型自评不得替代该结果。W3 PR 当前只声明结构、防火墙和可回放路径通过。
+- 标题相对旧基线 ≥65% 与风格相对旧基线 ≥70% 仍需真实模型成对输出、隐藏标签和人工记录；自动排序器、合成测试或模型自评不得替代该结果。W3 只声明结构、防火墙和可回放路径通过。
 
 ### 1. 真实浏览器端到端 smoke test（本轮已完成最新基线，仍需后续回归）
 
@@ -59,19 +60,23 @@
 
 2026-08-09 00:43 轻内容文案与成图专项验收：已定位并删除“保存文章即从正文连续切句覆盖分镜”的破坏性同步，四页文案现在经过生成、候选采用和 storyboard API 三层跨页去重门禁；真实语料池范围（18 条全池记忆、40280 字、6 条详细来源）与逐页取材依据可追溯。旧 v10 保留，修复后的不可变 v11 使用四组互异文案；已有 raw anchor 的第 1、3 页由 compositor v6 重合成，主体完整、边缘裁切为 0、无本地伪造强调标记。第 2、4 页没有 raw anchor，继续标为待回传且不生成 ZIP。真实浏览器 console 0 error；完整套件 `94 passed, 8 warnings`，CI Ruff、compileall、JavaScript 语法、context JSON 和 diff check 通过。
 
-### 2. PR #19 仍需重查；C0 #20 / V1 #21 / V2 #22 / V3 #23 / V4 #24 / W1 #25 / W2 #26 已合并，W3 Draft PR #27 等待 latest-head CI
+2026-08-30 UI1 浏览器回归：隔离脚本从空 SQLite 迁移 `0001→0012` 并种入合成来源和确定性公众号图组，在真实 Chromium 中走完六步创作任务、公众号轻内容 handoff、返回焦点恢复、方向键切换、视觉页/槽位、Prompt provenance/diff、候选状态和批量上传合同。860×900、1360×960、1800×1100 均无页面横向溢出，减少动态效果生效，console/page error 为零。视觉截图人工检查后修复了系列总览标签和值分属两行的问题，并重跑 Playwright 与 UI1 定向测试。未调用模型、未上传用户素材或写用户数据库。
+
+### 2. PR #19 仍需重查；C0 #20 至 W3 #27 已合并，UI1 Draft PR #28 等待 latest-head CI
 
 2026-08-09 重新查询后，PR #19 仍为 open、draft、mergeable，head 已为 `9073a4bc8a71a76dbf6762d7fc64a425eb3c99fe`，该 head 的 PR CI run `811` 成功，尚未进入 `main`。C0 从这一 head 建立独立分支，不继续堆入 PR #19。
 
 2026-08-29 16:45 最新查询：PR #19 仍为 open、draft、mergeable，head 已前进到 `bd77743808a3eb1ccb0bfa29efa959c0aee2b33a`；V3 PR #23 已合并。下方 2026-08-09 记录只保留为历史时间线，不再代表当前 head。
 
-2026-08-29，C0 PR #20、V1 PR #21、V2 PR #22、V3 PR #23、V4 PR #24、W1 PR #25 和 W2 PR #26 均已按顺序通过各自 latest-head CI 后 squash merge。W2 合并后的功能基线为 `f6dd3bbb747cdfd1758f0542f6977f6f58dd4103`。W3 已从该准确 head 建立独立分支。因此：
+2026-08-30 12:24 最新查询：PR #19 仍为 open、draft、mergeable，head 为准确 W3 merge commit `519228354279fc1641bef2fe19a08991b9ed4731`，该 head 的 `test (3.12)` 成功；PR #27 已合并。UI1 本地 base 与远端一致，创建 UI1 PR 和后续合并时仍只认其最新 head 对应 CI。
+
+2026-08-30，C0 PR #20、V1 PR #21、V2 PR #22、V3 PR #23、V4 PR #24、W1 PR #25、W2 PR #26 和 W3 PR #27 均已按顺序通过各自 latest-head CI 后 squash merge。W3 合并后的功能基线为 `519228354279fc1641bef2fe19a08991b9ed4731`。UI1 已从该准确 head 建立独立分支。因此：
 
 - `git pull main` 不会获得本轮功能；
-- C0 / V1 / V2 / V3 / V4 / W1 / W2 历史评审查看已合并 PR #20 / #21 / #22 / #23 / #24 / #25 / #26，不继续扩大 PR #19；
-- W3 独立 Draft PR #27 已指向 `agent/replace-crawlers-with-api-adapters`，状态文档推送后的 latest-head CI 通过后才能转 Ready 并合并；
-- W3 合并完成前不得创建 UI1 分支；
-- 每次准备合并仍要重新确认 PR #19、W3 PR 的 base/head、mergeability 和 CI 是否对应最新 head。
+- C0 / V1 / V2 / V3 / V4 / W1 / W2 / W3 历史评审查看已合并 PR #20 / #21 / #22 / #23 / #24 / #25 / #26 / #27，不继续扩大 PR #19；
+- UI1 独立 Draft PR #28 已指向 `agent/replace-crawlers-with-api-adapters`，状态文档推送后的 latest-head CI 通过后才能转 Ready 并合并；
+- UI1 合并完成前不得创建 OPS1 分支；
+- 每次准备合并仍要重新确认 PR #19、UI1 PR #28 的 base/head、mergeability 和 CI 是否对应最新 head。
 
 ## P1：高价值后续工作
 

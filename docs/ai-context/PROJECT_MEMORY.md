@@ -1,14 +1,14 @@
 # X2RED 项目记忆
 
-更新时间：2026-08-29 +08:00
+更新时间：2026-08-30 +08:00
 
 ## 一、当前快照
 
 仓库：`troicc/X2RED`
 
-当前本地任务分支：`codex/x2red-w3-title-style-quality`
+当前本地任务分支：`codex/x2red-ui1-unified-creative-workflow`
 
-W3 分支来源：已合并 W2 的 `agent/replace-crawlers-with-api-adapters`，准确基线 SHA `f6dd3bbb747cdfd1758f0542f6977f6f58dd4103`
+UI1 分支来源：已合并 W3 的 `agent/replace-crawlers-with-api-adapters`，准确基线 SHA `519228354279fc1641bef2fe19a08991b9ed4731`
 
 基线 PR：`#19 重构简中素材采集、语料池与三层创作工作区`
 
@@ -26,7 +26,9 @@ W1 PR：`#25 W1：证据编译与混合检索`，latest head `9085faf29b8b86d47c
 
 W2 PR：`#26 W2：结构化 Agent 输出与最终主张矩阵`，latest head `4027d0c26ef9b76f4c976231322bca18cac1bb69` 的 CI run `33249003306` / job `99091311679` 成功后已 squash merge；功能基线前进到 `f6dd3bbb747cdfd1758f0542f6977f6f58dd4103`。
 
-W3 当前在独立分支 `codex/x2red-w3-title-style-quality` 实施，准确 base 为上述 W2 merge commit；实现提交 `0750999eb305f203d417c1066e9fcdb2e1de9bdf` 已推送并创建 Draft PR #27，状态文档提交后只认新的 latest-head CI。
+W3 PR：`#27 W3：标题竞赛、授权风格范例与真实反馈`，latest head `1cee81507088f09eed6d2f17bf1efbd8c0810780` 的 CI 成功后已 squash merge；功能基线前进到 `519228354279fc1641bef2fe19a08991b9ed4731`。
+
+UI1 当前在独立分支 `codex/x2red-ui1-unified-creative-workflow` 实施，准确 base 为上述 W3 merge commit；实现提交 `039f85d1bf9c481d146a383eea906919fa586b02` 已推送并创建 Draft PR #28，状态文档提交后只认新的 latest-head CI。
 
 C0 首个提交：`08c0920f154d51a7cdfa5d35a604d48b3d393672`
 
@@ -64,6 +66,21 @@ PR #19 属于 C0 的基线功能分支，不是 C0 分支本身。
 
 2026-08-29 19:46：W3 实现提交 `0750999eb305f203d417c1066e9fcdb2e1de9bdf` 已推送并创建 Draft PR #27，base 为准确 W2 合并 head `f6dd3bbb747cdfd1758f0542f6977f6f58dd4103`。PR 创建前再次确认 PR #19 仍为 open、draft、mergeable，功能分支 head 未漂移。状态文档提交会产生新 head，下一次合并只认该 head 对应的 CI。
 
+2026-08-30：W3 latest head `1cee81507088f09eed6d2f17bf1efbd8c0810780` 的 CI 成功后，PR #27 已转 Ready 并按该 expected head squash merge；功能基线 commit 为 `519228354279fc1641bef2fe19a08991b9ed4731`。UI1 从这一准确远端 head 建立独立分支。
+
+2026-08-30 12:24：UI1 提交前重新 fetch 并查询 GitHub；PR #19 仍为 open、draft、mergeable，head 与 UI1 base 均为 `519228354279fc1641bef2fe19a08991b9ed4731`，该 head 的 `test (3.12)` 成功。PR #27 状态为 merged，记录的 head/merge commit 分别为 `1cee81507088f09eed6d2f17bf1efbd8c0810780` / `519228354279fc1641bef2fe19a08991b9ed4731`。UI1 创建 PR 后仍须按其最新 head 重新判断 CI。
+
+2026-08-30 12:25：UI1 实现提交 `039f85d1bf9c481d146a383eea906919fa586b02` 已推送并创建 Draft PR #28，base 为准确 W3 合并 head `519228354279fc1641bef2fe19a08991b9ed4731`；PR 创建后查询为 open、draft、mergeable，初始 `test (3.12)` 正在运行。状态文档提交会产生新 head，合并只认该 latest head 对应的 CI。
+
+### 2026-08-30 UI1 统一创作任务与视觉工作流
+
+- 全局导航收拢为 `收集 / 创作 / 视觉 / 发布 / 资产与偏好 / 设置` 六组，但信号台、原料库、语料池、小红书、公众号、发布、池子记忆、写作偏好和设置等旧入口全部保留。视图切换发出单一 `x2red:view-changed` 事件，返回时恢复原导航焦点。
+- 新增可自动保存的六步创作任务：选择材料、文章类型、平台、读者与承诺、写作模式、视觉路线。向导只保存选择与意图，通过稳定 handoff 事件把数据填入现有小红书、公众号长文、公众号轻内容或深度写作控件；生成、保存和不可变版本合同仍由原工作台负责。
+- 前端按职责拆成 `api-client`、`creative-store`、`writing-view`、`visual-view`、`candidate-view`、`prompt-view`、`publish-view` 和轻量入口；最大控制器 448 行，低于任务书 1000 行上限。旧 DOM ID 保持一个版本兼容，没有新建第二套生成链路。
+- 视觉工作流统一展示系列总览、页/槽位导航、Prompt provenance、完整 Prompt、diff、重复警告、Contact Sheet、批量上传、质量分和候选状态；选择、保留、驳回与修复继续调用现有 V3 候选生命周期，不删除竞争候选或绕过本地排版与人工发布门禁。
+- UI 只在现有暖白/炭黑/赤陶 token 上增加渐进模块，没有 CSS 全量重写、渐变或结构 emoji。设计覆盖见 `design-system/x2red/pages/unified-creative-workflow.md`。
+- 新增独立 Playwright E2E：自建临时数据库和服务，迁移 `0001→0012`，验证六组导航与所有旧入口、六步向导交接、焦点恢复、方向键、视觉候选/Prompt/批量上传合同、860/1360/1800 响应式、减少动态效果，以及 console/page error 为零。最终布局与 44px 交互目标修复后，E2E、UI1 定向 `5 passed` 和完整 API 套件 `196 passed, 8 warnings` 均通过。Ruff、Python/JavaScript/Shell 编译、发布助手、全新迁移和离线 wheel 构建通过；验证只使用临时数据库和合成图片，没有调用真实模型或修改用户数据库。
+
 ### 2026-08-29 W3 标题、授权短范例与真实反馈
 
 - 大纲后由严格 Schema 的 `title_strategist` 生成 12—20 个候选，覆盖结果、冲突、反常识、场景、问题、数字与判断；候选必须使用当前 W1 evidence refs。确定性 tournament 过滤空泛承诺、未知或不相干证据、无支持数字、过度悬念、套路词、无支持绝对承诺和近似同质标题。
@@ -72,7 +89,7 @@ PR #19 属于 C0 的基线功能分支，不是 C0 分支本身。
 - 普通池子记忆 Prompt 不再注入原句；专用短范例只进入 title/writer/final 角色，事实研究、事实审稿和 claim extractor 继续只接收当前 evidence。原始风格样本与历史文章不整包注入。
 - `EditorialService.revise()` 为人工 revision 保存直接父版本；反馈接口只接受当前项目的模型/多 Agent 原稿与其 direct human revision。模型全文、用户全文、版本、角色、hash、服务端 unified diff、原因、文章类型和受影响维度均被冻结；是否进入记忆由 append-only candidate/approval 状态动态反映。
 - `X2RED_WRITING_QUALITY_MODE=production|legacy` 默认 production；legacy 跳过 W3 标题/范例层但保留全部历史 artifact、revision、feedback 和 memory。无数据库迁移，详细合同见 `TITLE_STYLE_FEEDBACK_W3.md`。
-- 新增专项覆盖全部标题过滤类别、确定性 top 5、多样性补位、降级竞赛拒绝选择、过期选择、逐字标题合同、授权与人工批准、四例上限、修辞职责、事实风险、服务端 diff、版本血缘和记忆状态。完整 API 套件为 `191 passed, 8 warnings`；Ruff、Python/JavaScript/Shell 编译、发布助手回归、全新 SQLite `0001→0012` 迁移和 wheel 构建通过。尚未调用真实模型或写用户数据库。任务书标题 ≥65% / 风格 ≥70% 只能由真实成对人工盲评确认，当前自动测试不作达标声明。
+- 新增专项覆盖全部标题过滤类别、确定性 top 5、多样性补位、降级竞赛拒绝选择、过期选择、逐字标题合同、授权与人工批准、四例上限、修辞职责、事实风险、服务端 diff、版本血缘和记忆状态。完整 API 套件为 `191 passed, 8 warnings`；Ruff、Python/JavaScript/Shell 编译、发布助手回归、全新 SQLite `0001→0012` 迁移和 wheel 构建通过。latest head `1cee81507088f09eed6d2f17bf1efbd8c0810780` 的 CI 成功后已通过 PR #27 合并为 `519228354279fc1641bef2fe19a08991b9ed4731`。尚未调用真实模型或写用户数据库。任务书标题 ≥65% / 风格 ≥70% 只能由真实成对人工盲评确认，当前自动测试不作达标声明。
 
 ### 2026-08-29 W2 结构化写作 Agent 与 Claim-Evidence Matrix
 

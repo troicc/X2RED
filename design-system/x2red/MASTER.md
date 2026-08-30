@@ -3,7 +3,7 @@
 > 全站网页端唯一视觉与交互来源。页面级规则如存在于 `pages/<page>.md`，只覆盖明确列出的差异，其余继续继承本文件。
 
 - **Project:** X2RED
-- **Updated:** 2026-08-06
+- **Updated:** 2026-08-30
 - **Product:** 本地优先的内容研究、语料组织、多工作台创作与人工发布工具
 - **Reference:** Claude 式暖白、低噪声、纸张感生产力界面
 - **Design dials:** Variance 2/10 · Motion 2/10 · Density 4/10
@@ -129,6 +129,8 @@ Required viewport checks: 320, 375, 414, 768, 1024, 1440 and 1600px.
 - Active navigation uses subtle warm fill and a 3px accent indicator.
 - Group headings are collapsible buttons with `aria-expanded`.
 - Mobile drawer traps no content behind it and closes after route selection or Escape.
+- Product navigation is grouped as `收集 / 创作 / 视觉 / 发布 / 资产与偏好 / 设置`; existing workbench entries remain available inside those six groups.
+- Returning from a workbench restores focus to the route control that opened it. Route changes emit one stable view event so progressive modules do not simulate unrelated clicks.
 
 ### Progress and workflow
 
