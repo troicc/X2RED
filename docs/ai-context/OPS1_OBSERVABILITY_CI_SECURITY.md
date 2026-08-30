@@ -126,4 +126,4 @@ OPS1 的 Prompt eval 是离线 fixture/fingerprint 门禁，不代替模型输�
 
 ## PR 状态
 
-2026-08-30 13:51，初始实现提交 `0629c5f87a73ef6c5e70087d2d24aeda8af7976d` 已推送并创建 Draft PR #29，base 为 UI1 合并后的功能分支。创建后 PR 为 MERGEABLE，初始 CI run `33295579345` 正在执行；本状态提交将产生新 latest head，因此只有新 head 的完整 CI 可作为转 Ready 和合并依据。
+2026-08-30 13:59，PR #29 的 latest head `b3ed174a97ac292fc7db90e5d087d0b055ca9b81` 已通过 GitHub CI run `33295636707`。迁移、Mypy、pip/npm audit、Bandit、ESLint/JSDoc、Prompt eval、覆盖率、Playwright、视觉 contact sheet、artifact 和 Ruff 均成功。PR 随后转 Ready 并 squash merge到功能基线，merge commit 为 `4f6ac5c21144bbed4905f4ebbcfdbfb9a38707d3`；OPS1 自动化交付完成。
