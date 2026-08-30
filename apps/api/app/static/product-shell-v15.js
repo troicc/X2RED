@@ -16,62 +16,74 @@
 
   const NAVIGATION = [
     {
-      group: "library",
-      layer: "01 · 语料素材库",
+      group: "collect",
+      layer: "收集",
       view: "signals-view",
       label: "X 信号发现",
     },
     {
-      group: "library",
-      layer: "01 · 语料素材库",
+      group: "collect",
+      layer: "收集",
       view: "materials-view",
       label: "简中原料发现",
     },
     {
-      group: "library",
-      layer: "01 · 语料素材库",
+      group: "collect",
+      layer: "收集",
       view: "corpus-pools-view",
       label: "语料素材库",
     },
     {
-      group: "workspace",
-      layer: "02 · 内容工作台",
+      group: "create",
+      layer: "创作",
+      view: "creative-task-view",
+      label: "新建创作任务",
+    },
+    {
+      group: "create",
+      layer: "创作",
       view: "workbench-view",
       label: "小红书工作台",
     },
     {
-      group: "workspace",
-      layer: "02 · 内容工作台",
+      group: "create",
+      layer: "创作",
       view: "wechat-view",
       label: "公众号工作台",
     },
     {
-      group: "workspace",
-      layer: "02 · 内容工作台",
+      group: "visual",
+      layer: "视觉",
+      view: "visual-workflow-view",
+      label: "视觉任务",
+    },
+    {
+      group: "publish",
+      layer: "发布",
       view: "publish-view",
       label: "发布任务",
     },
     {
-      group: "models",
-      layer: "03 · 模型与 Skill",
+      group: "assets",
+      layer: "资产与偏好",
       view: "pool-memory-view",
       label: "写作偏好",
     },
     {
-      group: "models",
-      layer: "03 · 模型与 Skill",
+      group: "assets",
+      layer: "资产与偏好",
       view: "style-lab-view",
       label: "风格配置",
     },
     {
-      group: "models",
-      layer: "03 · 模型与 Skill",
+      group: "settings",
+      layer: "设置",
       view: "settings-view",
       label: "模型与 Skill",
     },
   ];
 
-  const GROUP_ORDER = ["library", "workspace", "models"];
+  const GROUP_ORDER = ["collect", "create", "visual", "publish", "assets", "settings"];
   const GROUP_LABELS = new Map(NAVIGATION.map((item) => [item.group, item.layer]));
   const BY_VIEW = new Map(NAVIGATION.map((item) => [item.view, item]));
   const SOURCE_LABELS = Object.fromEntries(GROUPS);
@@ -87,6 +99,7 @@
     sourceRailPatched: false,
     scheduled: false,
     booted: false,
+    viewFocus: new Map(),
   };
 
   window.__x2redProductShellV15 = shellState;
@@ -222,7 +235,7 @@
     if (!item && active === "writing-view") {
       shellState.activeView = active;
       const context = node("global-context");
-      if (context) context.textContent = "02 · 内容工作台 / 公众号工作台 / 深度写作";
+      if (context) context.textContent = "创作 / 公众号工作台 / 深度写作";
       const legacyTitle = node("page-title");
       if (legacyTitle) legacyTitle.textContent = "公众号深度写作";
       contentTitle(active, "公众号深度写作");
@@ -242,12 +255,31 @@
     window.__x2redProductSetViewV15 = true;
     const previous = window.setView;
     window.setView = function setProductView(viewId, ...args) {
+      const previousView = document.querySelector(".app-view.active")?.id || shellState.activeView;
       const changed = shellState.activeView !== viewId;
+      const focused = document.activeElement;
+      if (changed && focused instanceof HTMLElement && focused.closest(".app-view")?.id === previousView) {
+        shellState.viewFocus.set(previousView, focused);
+      }
       const result = previous?.call(this, viewId, ...args);
       updateIdentity(viewId);
       if (changed) {
         const main = document.querySelector(".app-main");
         if (main) main.scrollTop = 0;
+        window.requestAnimationFrame(() => {
+          const view = node(viewId);
+          const saved = shellState.viewFocus.get(viewId);
+          const target = saved?.isConnected && view?.contains(saved)
+            ? saved
+            : view?.querySelector(".page-intro h2, .page-intro h1, h2, h1");
+          if (target instanceof HTMLElement) {
+            if (!target.matches("button,input,select,textarea,a[href]")) target.tabIndex = -1;
+            target.focus({ preventScroll: true });
+          }
+          document.dispatchEvent(new CustomEvent("x2red:view-changed", {
+            detail: { previousView, viewId },
+          }));
+        });
       }
       schedule();
       return result;

@@ -782,6 +782,15 @@
     saveWritingMaterials();
     await loadWriting();
     renderWritingMaterials();
+    const seed = window.__x2redCreativeWritingSeed;
+    if (seed) {
+      const mode = document.getElementById("writing-mode");
+      const reader = document.getElementById("writing-reader");
+      const promise = document.getElementById("writing-promise");
+      if (mode && ["studio", "fast"].includes(seed.writingMode)) mode.value = seed.writingMode;
+      if (reader && seed.reader) reader.value = seed.reader;
+      if (promise && seed.promise) promise.value = seed.promise;
+    }
     document.getElementById("writing-project-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
   window.openX2redWritingProject = async (projectId) => {
@@ -793,4 +802,19 @@
     detail?.scrollIntoView({ behavior, block: "start" });
     detail?.querySelector("button:not(:disabled), [tabindex]")?.focus({ preventScroll: true });
   };
+  document.addEventListener("x2red:creative-task-handoff", (event) => {
+    const detail = event.detail;
+    if (!detail || detail.platform !== "wechat_long") return;
+    window.__x2redCreativeWritingSeed = {
+      writingMode: detail.writingMode,
+      reader: detail.reader,
+      promise: detail.promise,
+    };
+    const mode = document.getElementById("writing-mode");
+    const reader = document.getElementById("writing-reader");
+    const promise = document.getElementById("writing-promise");
+    if (mode && ["studio", "fast"].includes(detail.writingMode)) mode.value = detail.writingMode;
+    if (reader && detail.reader) reader.value = detail.reader;
+    if (promise && detail.promise) promise.value = detail.promise;
+  });
 })();
