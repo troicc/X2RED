@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-30T12:24:06+08:00",
+  "updated_at": "2026-08-30T12:25:43+08:00",
   "repository": "troicc/X2RED",
   "application_version": "0.12.0",
   "snapshot": {
@@ -57,13 +57,16 @@
     "w3_state_at_snapshot": "merged_after_latest_head_ci",
     "ui1_branch": "codex/x2red-ui1-unified-creative-workflow",
     "ui1_base_commit": "519228354279fc1641bef2fe19a08991b9ed4731",
-    "ui1_state_at_snapshot": "local_implementation_verified_commit_and_pr_pending",
-    "state_at_snapshot": "pr19_open_draft_mergeable_at_51922835_with_successful_python_3_12_ci_rechecked_before_ui1_commit",
-    "code_head_at_inspection": "519228354279fc1641bef2fe19a08991b9ed4731",
+    "ui1_pull_request": 28,
+    "ui1_pull_request_url": "https://github.com/troicc/X2RED/pull/28",
+    "ui1_initial_commit": "039f85d1bf9c481d146a383eea906919fa586b02",
+    "ui1_state_at_snapshot": "draft_pr_created_status_commit_pending",
+    "state_at_snapshot": "ui1_pr28_open_draft_mergeable_initial_ci_in_progress_status_commit_pending",
+    "code_head_at_inspection": "039f85d1bf9c481d146a383eea906919fa586b02",
     "implementation_commit": "f48fff4",
     "ci_portability_fix_commit": "3063a9e",
     "verified_remote_ci_head": "1cee81507088f09eed6d2f17bf1efbd8c0810780",
-    "github_checks_at_inspection": "2026-08-30 12:24 +08:00: PR 19 was open, draft and mergeable at exact feature head 51922835 with successful test (3.12); PR 27 was merged from 1cee8150 as 51922835; UI1 still requires its own latest-head CI before merge",
+    "github_checks_at_inspection": "2026-08-30 12:25 +08:00: PR 19 was open, draft and mergeable at exact feature head 51922835; PR 27 was merged; UI1 PR 28 was open, draft and mergeable at implementation head 039f85d1 with initial test (3.12) in progress, but the forthcoming status commit requires a new latest-head CI",
     "last_verified_test_result": "UI1 final full API suite: 196 passed, 8 warnings; UI1 targeted 5 passed and the complete Playwright workflow passed after the final layout and 44px target fixes; all local CI-equivalent and package gates passed",
     "v2_browser_smoke": "temporary database copy at 1280x800 and 375x812: four unique subjects, four unique layouts, cover/scene/evidence/conclusion roles, frozen brief/candidate/evidence/Bible UI visible, no horizontal overflow and zero console errors; no model calls or writes to the user database",
     "v3_browser_smoke": "isolated temporary database at 1280x800 and 375x812: three image candidates, numbered Contact Sheet, ten review dimensions, cost/call counts, candidate selection and reasoned rejection all visible and operable; no horizontal overflow, zero console errors, no real model calls or writes to the user database",
@@ -320,8 +323,11 @@
     "browser_e2e": "isolated temporary service and fresh 0001-to-0012 SQLite migration; verifies six groups and all legacy entries, six-step handoff, focus restoration, arrow-key navigation, visual inspection contracts, 860/1360/1800 responsiveness, reduced motion and zero console/page errors",
     "local_verification": "final full API suite 196 passed, 8 warnings; UI1 targeted 5 passed and complete Playwright E2E passed after final layout and 44px target fixes; Ruff, Python/JavaScript/Shell compilation, publisher regression, fresh migration and offline wheel build passed",
     "runtime_safety": "temporary database and synthetic images only; no real model call, user upload or user database mutation",
-    "state": "local_implementation_verified_commit_and_pr_pending",
-    "remaining_before_merge": ["implementation commit and push", "independent pull request", "latest-head CI", "PR ready and squash merge"]
+    "pull_request": 28,
+    "pull_request_url": "https://github.com/troicc/X2RED/pull/28",
+    "initial_implementation_commit": "039f85d1bf9c481d146a383eea906919fa586b02",
+    "state": "draft_pr_created_status_commit_pending",
+    "remaining_before_merge": ["status-document commit and push", "latest-head CI", "PR ready and squash merge"]
   },
   "ci_policy": {
     "reason": "private-repository Actions quota conservation",

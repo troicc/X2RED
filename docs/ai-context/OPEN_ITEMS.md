@@ -20,7 +20,7 @@
 - W1 PR #25 已在 latest head `9085faf29b8b86d47cfcd4a1a2cd93c3cc9a7158` 的 CI run `826` 全部成功后转 Ready 并 squash merge；准确功能基线为 `88b995bfc75f25673e78777ee6f575fc2a5eb666`。
 - W2 PR #26 已在 latest head `4027d0c26ef9b76f4c976231322bca18cac1bb69` 的 CI run `33249003306` / job `99091311679` 成功后转 Ready 并 squash merge；准确功能基线为 `f6dd3bbb747cdfd1758f0542f6977f6f58dd4103`。
 - W3 PR #27 已在 latest head `1cee81507088f09eed6d2f17bf1efbd8c0810780` 的 CI 成功后转 Ready 并 squash merge；准确功能基线为 `519228354279fc1641bef2fe19a08991b9ed4731`。标题/风格人工盲评仍是独立验收项，不能被合并状态或自动测试替代。
-- UI1 已从该准确 W3 merge head 创建独立分支 `codex/x2red-ui1-unified-creative-workflow`。六组导航、六步创作任务、旧工作台 handoff、焦点恢复、视觉系列总览、Prompt provenance/diff、Contact Sheet、批量上传、重复警告、质量分和候选状态已实现；控制器均低于 1000 行，旧 DOM ID 保持一个版本兼容。真实 Playwright E2E 已覆盖 860/1360/1800、方向键、减少动态效果和 console/page error；UI1 定向 `5 passed`，完整套件 `196 passed, 8 warnings`，Ruff、编译、迁移和 wheel 门禁通过。当前剩余项是提交、独立 PR、latest-head CI、Ready 与 squash merge。
+- UI1 已从该准确 W3 merge head 创建独立分支 `codex/x2red-ui1-unified-creative-workflow`。六组导航、六步创作任务、旧工作台 handoff、焦点恢复、视觉系列总览、Prompt provenance/diff、Contact Sheet、批量上传、重复警告、质量分和候选状态已实现；控制器均低于 1000 行，旧 DOM ID 保持一个版本兼容。真实 Playwright E2E 已覆盖 860/1360/1800、方向键、减少动态效果和 console/page error；UI1 定向 `5 passed`，完整套件 `196 passed, 8 warnings`，Ruff、编译、迁移和 wheel 门禁通过。实现提交 `039f85d1bf9c481d146a383eea906919fa586b02` 已推送并创建 Draft PR #28；当前剩余项是状态文档 latest head、对应 CI、Ready 与 squash merge。
 - C0 修改前完整测试为 `94 passed, 8 warnings`；C0 修改后完整套件为 `99 passed, 8 warnings`，新增 C0 定向测试为 `5 passed`。全仓 CI 范围 Ruff、compileall、导出脚本 py_compile、JSON 校验、敏感信息扫描和 diff check 通过。
 - 12 个写作 fixture、20 个视觉页、两套 rubric、Pydantic schema、旧 Prompt 逐字重放和只读脱敏导出器已经落地；未修改生产行为。
 - 已冻结的关键旧缺陷：`visual-firewall-03-comparison` 与 `visual-firewall-04-conclusion` 的 phrase、note、evidence 和 visual role 不同，但现有 Prompt 与 model fingerprint 相同。
@@ -62,7 +62,7 @@
 
 2026-08-30 UI1 浏览器回归：隔离脚本从空 SQLite 迁移 `0001→0012` 并种入合成来源和确定性公众号图组，在真实 Chromium 中走完六步创作任务、公众号轻内容 handoff、返回焦点恢复、方向键切换、视觉页/槽位、Prompt provenance/diff、候选状态和批量上传合同。860×900、1360×960、1800×1100 均无页面横向溢出，减少动态效果生效，console/page error 为零。视觉截图人工检查后修复了系列总览标签和值分属两行的问题，并重跑 Playwright 与 UI1 定向测试。未调用模型、未上传用户素材或写用户数据库。
 
-### 2. PR #19 仍需重查；C0 #20 至 W3 #27 已合并，UI1 等待独立 PR 与 latest-head CI
+### 2. PR #19 仍需重查；C0 #20 至 W3 #27 已合并，UI1 Draft PR #28 等待 latest-head CI
 
 2026-08-09 重新查询后，PR #19 仍为 open、draft、mergeable，head 已为 `9073a4bc8a71a76dbf6762d7fc64a425eb3c99fe`，该 head 的 PR CI run `811` 成功，尚未进入 `main`。C0 从这一 head 建立独立分支，不继续堆入 PR #19。
 
@@ -74,9 +74,9 @@
 
 - `git pull main` 不会获得本轮功能；
 - C0 / V1 / V2 / V3 / V4 / W1 / W2 / W3 历史评审查看已合并 PR #20 / #21 / #22 / #23 / #24 / #25 / #26 / #27，不继续扩大 PR #19；
-- UI1 必须使用独立 PR 指向 `agent/replace-crawlers-with-api-adapters`，latest-head CI 通过后才能转 Ready 并合并；
+- UI1 独立 Draft PR #28 已指向 `agent/replace-crawlers-with-api-adapters`，状态文档推送后的 latest-head CI 通过后才能转 Ready 并合并；
 - UI1 合并完成前不得创建 OPS1 分支；
-- 每次准备合并仍要重新确认 PR #19、UI1 PR 的 base/head、mergeability 和 CI 是否对应最新 head。
+- 每次准备合并仍要重新确认 PR #19、UI1 PR #28 的 base/head、mergeability 和 CI 是否对应最新 head。
 
 ## P1：高价值后续工作
 

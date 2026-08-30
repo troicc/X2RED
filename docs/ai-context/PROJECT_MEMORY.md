@@ -28,7 +28,7 @@ W2 PR：`#26 W2：结构化 Agent 输出与最终主张矩阵`，latest head `40
 
 W3 PR：`#27 W3：标题竞赛、授权风格范例与真实反馈`，latest head `1cee81507088f09eed6d2f17bf1efbd8c0810780` 的 CI 成功后已 squash merge；功能基线前进到 `519228354279fc1641bef2fe19a08991b9ed4731`。
 
-UI1 当前在独立分支 `codex/x2red-ui1-unified-creative-workflow` 实施，准确 base 为上述 W3 merge commit；实现、状态文档和远端 latest-head CI 尚待提交。
+UI1 当前在独立分支 `codex/x2red-ui1-unified-creative-workflow` 实施，准确 base 为上述 W3 merge commit；实现提交 `039f85d1bf9c481d146a383eea906919fa586b02` 已推送并创建 Draft PR #28，状态文档提交后只认新的 latest-head CI。
 
 C0 首个提交：`08c0920f154d51a7cdfa5d35a604d48b3d393672`
 
@@ -69,6 +69,8 @@ PR #19 属于 C0 的基线功能分支，不是 C0 分支本身。
 2026-08-30：W3 latest head `1cee81507088f09eed6d2f17bf1efbd8c0810780` 的 CI 成功后，PR #27 已转 Ready 并按该 expected head squash merge；功能基线 commit 为 `519228354279fc1641bef2fe19a08991b9ed4731`。UI1 从这一准确远端 head 建立独立分支。
 
 2026-08-30 12:24：UI1 提交前重新 fetch 并查询 GitHub；PR #19 仍为 open、draft、mergeable，head 与 UI1 base 均为 `519228354279fc1641bef2fe19a08991b9ed4731`，该 head 的 `test (3.12)` 成功。PR #27 状态为 merged，记录的 head/merge commit 分别为 `1cee81507088f09eed6d2f17bf1efbd8c0810780` / `519228354279fc1641bef2fe19a08991b9ed4731`。UI1 创建 PR 后仍须按其最新 head 重新判断 CI。
+
+2026-08-30 12:25：UI1 实现提交 `039f85d1bf9c481d146a383eea906919fa586b02` 已推送并创建 Draft PR #28，base 为准确 W3 合并 head `519228354279fc1641bef2fe19a08991b9ed4731`；PR 创建后查询为 open、draft、mergeable，初始 `test (3.12)` 正在运行。状态文档提交会产生新 head，合并只认该 latest head 对应的 CI。
 
 ### 2026-08-30 UI1 统一创作任务与视觉工作流
 
