@@ -21,12 +21,12 @@
 - W2 PR #26 已在 latest head `4027d0c26ef9b76f4c976231322bca18cac1bb69` 的 CI run `33249003306` / job `99091311679` 成功后转 Ready 并 squash merge；准确功能基线为 `f6dd3bbb747cdfd1758f0542f6977f6f58dd4103`。
 - W3 PR #27 已在 latest head `1cee81507088f09eed6d2f17bf1efbd8c0810780` 的 CI 成功后转 Ready 并 squash merge；准确功能基线为 `519228354279fc1641bef2fe19a08991b9ed4731`。标题/风格人工盲评仍是独立验收项，不能被合并状态或自动测试替代。
 - UI1 PR #28 的 latest-head GitHub Actions run `33292506967` 成功后已转 Ready 并 squash merge；准确功能基线为 `c9e4b74a133b9543040c3e02cb13356c80f1cbef`。六组导航、六步任务、旧工作台 handoff、视觉检查器和真实 Playwright E2E 合同保持不变。
-- OPS1 PR #29 的 latest head `b3ed174a97ac292fc7db90e5d087d0b055ca9b81` 已通过 GitHub CI run `33295636707`：usage/cost 真值、重试/idempotency、Alembic revision 门禁、job lease/dead letter、CI/nightly、安全路径/token/Origin/脱敏和发布审计，以及 Playwright/contact sheet 均通过门禁。随后已转 Ready 并 squash merge；功能基线准确前进到 `4f6ac5c21144bbed4905f4ebbcfdbfb9a38707d3`。当前状态文档提交会成为 PR #19 的新 latest head，剩余仅为该 head 完整 CI、转 Ready 和合入 `main`。
+- OPS1 PR #29 的 latest head `b3ed174a97ac292fc7db90e5d087d0b055ca9b81` 已通过 GitHub CI run `33295636707` 后 squash merge为 `4f6ac5c21144bbed4905f4ebbcfdbfb9a38707d3`。总 PR #19 的 latest head `167e6cf52c3c4ae5830b057fdee0135e2c64ce5e` 又通过完整 CI run `33296009356`，随后 squash merge 到 `main`，产品合并 commit 为 `02201a281b5bd304bf4e68a57deae1b9c72f685e`。该 main commit 的 Python 3.12 / 3.13 CI run `33296268204` 全部成功。
 - C0 修改前完整测试为 `94 passed, 8 warnings`；C0 修改后完整套件为 `99 passed, 8 warnings`，新增 C0 定向测试为 `5 passed`。全仓 CI 范围 Ruff、compileall、导出脚本 py_compile、JSON 校验、敏感信息扫描和 diff check 通过。
 - 12 个写作 fixture、20 个视觉页、两套 rubric、Pydantic schema、旧 Prompt 逐字重放和只读脱敏导出器已经落地；未修改生产行为。
 - 已冻结的关键旧缺陷：`visual-firewall-03-comparison` 与 `visual-firewall-04-conclusion` 的 phrase、note、evidence 和 visual role 不同，但现有 Prompt 与 model fingerprint 相同。
-- 当前阶段只能完成 OPS1；不得借最后阶段扩展平台、改变证据/记忆边界或绕过人工发布。OPS1 必须保持独立 PR，并以 latest-head CI 通过后再合入功能基线。
-- 本机受管沙箱禁止测试脚本绑定临时 loopback 端口，OPS1 浏览器复跑不能在本机冒充通过；CI 已把隔离 Chromium E2E 和 contact sheet 设为硬门禁。UI1 基线浏览器证据仍保留，但 OPS1 合并只认新 PR latest-head CI。
+- C0 至 OPS1 的自动化工程阶段已经全部完成并进入 `main`；不得在收尾记忆中扩展平台、改变证据/记忆边界或绕过人工发布。后续产品验收仍必须遵守事实、版权、异常文字和最终发布人工复核。
+- 本机受管沙箱禁止测试脚本绑定临时 loopback 端口，因此未把本机结果冒充浏览器通过；OPS1 run `33295636707` 和总 PR run `33296009356` 已在 GitHub 隔离 runner 上两次通过 Chromium E2E、contact sheet 与 artifact 门禁，合并证据完整。
 - C0 fixture 是合成防回归材料，不是视觉质量已达标的证据；真实图片、真实长文和模型盲评仍须在后续阶段按权利与成本边界完成。
 - 标题相对旧基线 ≥65% 与风格相对旧基线 ≥70% 仍需真实模型成对输出、隐藏标签和人工记录；自动排序器、合成测试或模型自评不得替代该结果。W3 只声明结构、防火墙和可回放路径通过。
 
@@ -64,7 +64,7 @@
 
 2026-08-30 UI1 浏览器回归：隔离脚本从空 SQLite 迁移 `0001→0012` 并种入合成来源和确定性公众号图组，在真实 Chromium 中走完六步创作任务、公众号轻内容 handoff、返回焦点恢复、方向键切换、视觉页/槽位、Prompt provenance/diff、候选状态和批量上传合同。860×900、1360×960、1800×1100 均无页面横向溢出，减少动态效果生效，console/page error 为零。视觉截图人工检查后修复了系列总览标签和值分属两行的问题，并重跑 Playwright 与 UI1 定向测试。未调用模型、未上传用户素材或写用户数据库。
 
-### 2. PR #19 最终合并前仍需重查；C0 #20 至 OPS1 #29 已全部合并
+### 2. PR #19 与 C0 #20 至 OPS1 #29 已全部合并
 
 2026-08-09 重新查询后，PR #19 仍为 open、draft、mergeable，head 已为 `9073a4bc8a71a76dbf6762d7fc64a425eb3c99fe`，该 head 的 PR CI run `811` 成功，尚未进入 `main`。C0 从这一 head 建立独立分支，不继续堆入 PR #19。
 
@@ -76,11 +76,11 @@
 
 2026-08-30，C0 PR #20、V1 PR #21、V2 PR #22、V3 PR #23、V4 PR #24、W1 PR #25、W2 PR #26、W3 PR #27、UI1 PR #28 和 OPS1 PR #29 均已按顺序通过各自 latest-head CI 后 squash merge。OPS1 合并后的功能基线为 `4f6ac5c21144bbed4905f4ebbcfdbfb9a38707d3`。因此：
 
-- `git pull main` 不会获得本轮功能；
+- `git pull --ff-only origin main` 已可获得本轮全部功能；
 - C0 / V1 / V2 / V3 / V4 / W1 / W2 / W3 历史评审查看已合并 PR #20 / #21 / #22 / #23 / #24 / #25 / #26 / #27，不继续扩大 PR #19；
 - UI1 / OPS1 历史评审查看已合并 PR #28 / #29；
-- PR #19 的状态文档提交会产生新 head，必须等待该 head 的完整 CI，不得沿用 OPS1 子 PR 的成功结果直接合并；
-- 准备合入 `main` 前仍要重新确认 PR #19 的 base/head、mergeability 和 CI 是否对应最新 head。
+- 总 PR #19 已以 CI 成功的 `167e6cf52c3c4ae5830b057fdee0135e2c64ce5e` 锁定合并，main commit 为 `02201a281b5bd304bf4e68a57deae1b9c72f685e`；
+- main CI run `33296268204` 的 Python 3.12 / 3.13 矩阵均成功；自动化工程合并没有剩余项。
 
 ## P1：高价值后续工作
 

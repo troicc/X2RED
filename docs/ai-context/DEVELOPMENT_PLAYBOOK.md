@@ -4,14 +4,15 @@
 
 2026-08-30 当前总交付任务：
 
-- 基线分支：`agent/replace-crawlers-with-api-adapters`
-- 基线 SHA：`4f6ac5c21144bbed4905f4ebbcfdbfb9a38707d3`（OPS1 PR #29 squash merge）
-- 当前本地分支：`agent/replace-crawlers-with-api-adapters`
-- PR #19 是最终功能 PR；C0 至 OPS1 均使用独立分支和独立 PR 完成
+- 生产基线分支：`main`
+- 产品合并 SHA：`02201a281b5bd304bf4e68a57deae1b9c72f685e`（总 PR #19 squash merge）
+- 当前本地收尾分支：`codex/x2red-final-delivery-memory`
+- PR #19 的 latest head `167e6cf52c3c4ae5830b057fdee0135e2c64ce5e` 已通过 CI run `33296009356` 后 squash merge 到 `main`
+- 产品合并 commit `02201a281b5bd304bf4e68a57deae1b9c72f685e` 的 main CI run `33296268204` 已在 Python 3.12 / 3.13 矩阵全部成功
 - OPS1 PR #29 的 latest head `b3ed174a97ac292fc7db90e5d087d0b055ca9b81` 已通过 CI run `33295636707`，其中 Playwright、视觉 contact sheet、迁移、依赖审计、覆盖率和静态门禁全部成功；随后 squash merge 为 `4f6ac5c21144bbed4905f4ebbcfdbfb9a38707d3`
 - C0、V1、V2、V3、V4、W1、W2、W3、UI1 和 OPS1 已依次经独立 PR 合并到基线分支
 - OPS1 已完成真实模型用量与成本、可靠重试、Alembic revision gate、任务租约、CI 门禁和本地安全闭环；本地完整套件为 `220 passed`，分支覆盖率 `72.05%`，静态检查、迁移、依赖审计、Prompt eval 和 wheel 构建已通过
-- 当前状态文档提交会成为 PR #19 的新 latest head；剩余仅为该 head 的完整 CI、转 Ready 和合入 `main`
+- 任务书 C0 至 OPS1 的自动化工程交付已全部进入 `main`；剩余的 W3 标题 ≥65% / 风格 ≥70% 是必须由真实模型样本和人工 panel 完成的产品级盲评，不能由代码或 CI 代做
 
 任务书后续阶段必须从最新已合并的前一阶段创建独立分支；C0 后依次为 V1、V2、V3、V4、W1、W2、W3、UI1、OPS1。
 
