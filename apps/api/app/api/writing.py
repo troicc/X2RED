@@ -9,11 +9,17 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_job_engine, get_pool_memory_service, get_writing_service
 from app.db.session import get_db
 from app.domain.jobs import Job
-from app.domain.pool_memory_schemas import PoolMemoryTargetCandidateRequest
-from app.domain.schemas import JobOut
 from app.domain.models import DraftRevision
 from app.domain.platforms import PlatformVariant
-from app.domain.studio import StyleProfile, WritingArtifact, WritingFeedback, WritingProject
+from app.domain.pool_memory_schemas import PoolMemoryTargetCandidateRequest
+from app.domain.schemas import JobOut
+from app.domain.studio import (
+    AgentRun,
+    StyleProfile,
+    WritingArtifact,
+    WritingFeedback,
+    WritingProject,
+)
 from app.domain.studio_schemas import (
     ArtifactApprovalRequest,
     StyleProfileCreate,
@@ -84,6 +90,8 @@ def project_payload(
     )
     summaries = service.source_summaries(db, project)
     output_draft, wechat_variant = _project_outputs(db, project)
+    runs = service.runs(db, project.id)
+    usage_summary = _project_usage_summary(runs)
     return {
         "id": project.id,
         "source_id": project.source_id,
@@ -99,6 +107,9 @@ def project_payload(
         "style_profile_id": project.style_profile_id,
         "budget_limit_cents": project.budget_limit_cents,
         "spent_estimate_cents": project.spent_estimate_cents,
+        "spent_cost_usd": project.spent_cost_usd,
+        "cost_status": usage_summary["cost_status"],
+        "usage_summary": usage_summary,
         "error": project.error,
         "output_draft_id": output_draft.id if output_draft else "",
         "output_draft_version": output_draft.version if output_draft else None,
@@ -109,8 +120,55 @@ def project_payload(
         "created_at": project.created_at,
         "updated_at": project.updated_at,
         "artifacts": service.artifacts(db, project.id),
-        "runs": service.runs(db, project.id),
+        "runs": runs,
         "memory_snapshot": memory_service.snapshot_summary(memory_snapshot),
+    }
+
+
+def _project_usage_summary(runs: list[AgentRun]) -> dict:
+    modeled = []
+    for run in runs:
+        try:
+            usage = json.loads(run.usage_json or "{}")
+        except (TypeError, json.JSONDecodeError):
+            usage = {}
+        if not isinstance(usage, dict) or not usage.get("provider"):
+            continue
+        modeled.append(usage)
+    if not modeled:
+        return {
+            "cost_status": "not_used",
+            "cost_usd": 0.0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "image_count": 0,
+            "latency_ms": 0,
+            "retries": 0,
+            "attempts": 0,
+        }
+    known_costs = [float(item["cost_usd"]) for item in modeled if item.get("cost_usd") is not None]
+    if len(known_costs) == len(modeled):
+        kinds = {str(item.get("cost_kind") or "unavailable") for item in modeled}
+        cost_status = (
+            "partial"
+            if "partial" in kinds
+            else kinds.pop()
+            if len(kinds) == 1
+            else "mixed_estimate"
+        )
+    elif known_costs:
+        cost_status = "partial"
+    else:
+        cost_status = "unavailable"
+    return {
+        "cost_status": cost_status,
+        "cost_usd": round(sum(known_costs), 8),
+        "input_tokens": sum(int(item.get("input_tokens") or 0) for item in modeled),
+        "output_tokens": sum(int(item.get("output_tokens") or 0) for item in modeled),
+        "image_count": sum(int(item.get("image_count") or 0) for item in modeled),
+        "latency_ms": sum(int(item.get("latency_ms") or 0) for item in modeled),
+        "retries": sum(int(item.get("retries") or 0) for item in modeled),
+        "attempts": sum(int(item.get("attempts") or 0) for item in modeled),
     }
 
 

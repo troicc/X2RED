@@ -255,6 +255,7 @@ function dispatchHandoff(task) {
   }
 }
 
+/** Initialize the unified writing workflow without replacing legacy workbenches. */
 export async function initWritingView({ store, api }) {
   injectNavigation();
   const view = injectView() || document.getElementById("creative-task-view");

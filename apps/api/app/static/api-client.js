@@ -1,3 +1,4 @@
+/** Structured browser API failure with status and response payload. */
 export class ApiError extends Error {
   constructor(message, { status = 0, payload = null, url = "" } = {}) {
     super(message);
@@ -19,6 +20,7 @@ async function responsePayload(response) {
   }
 }
 
+/** Execute one JSON-aware API request with timeout and cancellation support. */
 export async function request(url, options = {}) {
   const {
     timeoutMs = 45_000,

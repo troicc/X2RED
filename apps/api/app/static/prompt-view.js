@@ -18,6 +18,7 @@ function shortFingerprint(value) {
   return text ? `${text.slice(0, 12)}${text.length > 12 ? "…" : ""}` : "—";
 }
 
+/** Return prompt duplication warnings relative to the active record. */
 export function promptDuplicateWarnings(records, activeIndex) {
   const active = records[activeIndex] || {};
   const prompt = String(valueAt(active, "prompt", "final_prompt") || "").trim();
@@ -35,6 +36,7 @@ export function promptDuplicateWarnings(records, activeIndex) {
   return [...new Set(warnings)];
 }
 
+/** Render prompt provenance, fingerprints, warnings, and the session diff. */
 export function renderPromptView(container, {
   record = {},
   records = [],

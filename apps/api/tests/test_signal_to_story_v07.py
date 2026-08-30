@@ -35,7 +35,7 @@ def wait_for_job(client: TestClient, job_id: str, timeout: float = 10.0) -> dict
         response = client.get(f"/api/jobs/{job_id}")
         assert response.status_code == 200, response.text
         latest = response.json()
-        if latest["state"] in {"succeeded", "failed"}:
+        if latest["state"] in {"succeeded", "failed", "dead_letter"}:
             return latest
         time.sleep(0.05)
     return latest
@@ -64,6 +64,9 @@ def test_signal_monitor_and_multi_agent_writing_studio(
     import app.main as main_module
 
     importlib.reload(db_session)
+    from app.db.schema import upgrade_database
+
+    upgrade_database(db_session.settings.database_url)
     importlib.reload(main_module)
 
     class DummyProvider:

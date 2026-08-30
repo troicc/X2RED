@@ -63,7 +63,31 @@ x2red check
 x2red serve
 ```
 
-`x2red serve` applies Alembic migrations before starting unless `--skip-migrate` is explicitly supplied.
+`x2red serve` applies Alembic migrations before starting unless `--skip-migrate` is explicitly supplied. Alembic is the only schema authority: even with `--skip-migrate`, application startup fails if the database is not at the repository head.
+
+## Reliability, cost and local access
+
+Model calls record provider/model, tokens or image count, latency, attempts, retries and cost. Provider-reported cost, provider estimates and local catalog estimates remain distinct; when neither the provider nor explicit pricing can supply a cost, the UI says it is unavailable instead of inventing a per-call amount.
+
+```env
+X2RED_MODEL_MAX_RETRIES=2
+X2RED_MODEL_RETRY_BASE_SECONDS=0.5
+X2RED_MODEL_RETRY_MAX_SECONDS=8
+X2RED_MODEL_RETRY_JITTER_SECONDS=0.25
+X2RED_MODEL_INPUT_COST_PER_MILLION_USD=0
+X2RED_MODEL_OUTPUT_COST_PER_MILLION_USD=0
+X2RED_IMAGE_COST_PER_IMAGE_USD=0
+```
+
+The default service bind is loopback. Before binding to a non-loopback host, configure a strong local token; `x2red serve` otherwise refuses the bind. Additional browser origins must be explicitly listed.
+
+```env
+X2RED_LOCAL_API_TOKEN=
+X2RED_ALLOWED_ORIGINS=
+X2RED_ALLOW_INSECURE_NON_LOOPBACK=false
+```
+
+The Web UI stores an entered token only in the current tab session. The WeChat publisher extension has a matching optional session-only token field. X2RED is still a local workstation rather than an internet-facing multi-user service. Migration, job lease/dead-letter, CI, nightly cost-cap and security details are in [OPS1_OBSERVABILITY_CI_SECURITY.md](docs/ai-context/OPS1_OBSERVABILITY_CI_SECURITY.md).
 
 ## Text-model configuration
 

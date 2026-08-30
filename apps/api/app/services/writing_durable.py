@@ -16,7 +16,7 @@ from app.domain.writing_agent_schemas import (
     schema_for_artifact,
     validate_agent_payload,
 )
-from app.services.model_client import StructuredOutputError
+from app.services.model_client import ModelClientError, StructuredOutputError
 from app.services.retrieval import bounded_json
 from app.services.skills import binding_for
 from app.services.writing_core import ROLE_SKILLS
@@ -54,6 +54,105 @@ class DurableAgentRunnerMixin:
     def _payload_hash(payload: dict[str, Any]) -> str:
         serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True)
         return hashlib.sha256(serialized.encode()).hexdigest()
+
+    @staticmethod
+    def _merge_response_meta(
+        current: dict[str, Any] | None,
+        incoming: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        if not incoming:
+            return current
+        if not current:
+            output = dict(incoming)
+            output["call_count"] = 1
+            request_id = str(output.get("request_id", "") or "")
+            output["request_ids"] = [request_id] if request_id else []
+            return output
+        output = dict(current)
+        for field in ("input_tokens", "output_tokens", "latency_ms", "retries", "attempts"):
+            left = output.get(field)
+            right = incoming.get(field)
+            output[field] = (
+                int(left or 0) + int(right or 0)
+                if left is not None and right is not None
+                else None
+            )
+        left_cost = output.get("cost_usd")
+        right_cost = incoming.get("cost_usd")
+        if left_cost is None and right_cost is None:
+            output["cost_usd"] = None
+            output["cost_kind"] = "unavailable"
+        elif left_cost is None or right_cost is None:
+            known_cost = right_cost if left_cost is None else left_cost
+            if known_cost is None:  # Defensive narrowing for non-standard mapping values.
+                output["cost_usd"] = None
+                output["cost_kind"] = "unavailable"
+            else:
+                output["cost_usd"] = round(float(known_cost), 8)
+                output["cost_kind"] = "partial"
+        else:
+            output["cost_usd"] = round(float(left_cost) + float(right_cost), 8)
+            kinds = {str(output.get("cost_kind") or ""), str(incoming.get("cost_kind") or "")}
+            output["cost_kind"] = (
+                "partial"
+                if "partial" in kinds
+                else kinds.pop()
+                if len(kinds) == 1
+                else "mixed_estimate"
+            )
+        output["finish_reason"] = str(incoming.get("finish_reason") or "")
+        output["call_count"] = int(output.get("call_count") or 1) + 1
+        request_ids = [str(item) for item in output.get("request_ids") or [] if item]
+        incoming_id = str(incoming.get("request_id") or "")
+        if incoming_id:
+            request_ids.append(incoming_id)
+        output["request_ids"] = request_ids
+        return output
+
+    @staticmethod
+    def _recorded_usage(
+        response_meta: dict[str, Any] | None,
+        *,
+        structured_output: dict[str, Any],
+        error: Exception | None = None,
+    ) -> dict[str, Any]:
+        usage = dict(response_meta or {})
+        usage.setdefault("provider", "")
+        usage.setdefault("model", "")
+        usage.setdefault("input_tokens", None)
+        usage.setdefault("output_tokens", None)
+        usage.setdefault("image_count", 0)
+        usage.setdefault("cost_usd", None)
+        usage.setdefault("cost_kind", "unavailable")
+        usage.setdefault("latency_ms", None)
+        usage.setdefault("retries", 0)
+        usage.setdefault("attempts", 0)
+        usage["structured_output"] = structured_output
+        if isinstance(error, ModelClientError):
+            usage["error"] = error.as_dict()
+            usage["provider"] = str(usage.get("provider") or error.provider)
+            usage["model"] = str(usage.get("model") or error.model)
+            usage["attempts"] = max(int(usage.get("attempts") or 0), error.attempts)
+            if error.retryable:
+                usage["retries"] = max(
+                    int(usage.get("retries") or 0),
+                    max(error.attempts - 1, 0),
+                )
+        return usage
+
+    @staticmethod
+    def _apply_recorded_cost(
+        project: WritingProject,
+        response_meta: dict[str, Any] | None,
+    ) -> None:
+        if not response_meta or response_meta.get("cost_usd") is None:
+            return
+        try:
+            cost = max(0.0, float(response_meta["cost_usd"]))
+        except (TypeError, ValueError):
+            return
+        project.spent_cost_usd = round(float(project.spent_cost_usd or 0.0) + cost, 8)
+        project.spent_estimate_cents = round(project.spent_cost_usd * 100)
 
     async def _run_agent(
         self,
@@ -155,7 +254,7 @@ class DurableAgentRunnerMixin:
             if cached is not None:
                 return cached
 
-        if project.spent_estimate_cents >= project.budget_limit_cents:
+        if project.spent_cost_usd * 100 >= project.budget_limit_cents:
             raise ValueError("写作项目已达到模型预算上限")
 
         run = AgentRun(
@@ -189,9 +288,11 @@ class DurableAgentRunnerMixin:
                         model_name=binding.model_name,
                         max_tokens=max_tokens,
                         capture_response_meta=capture_response_meta,
+                        capture_usage_meta=True,
                         request_timeout_seconds=request_timeout_seconds,
                     )
                 except StructuredOutputError as exc:
+                    response_meta = self._merge_response_meta(response_meta, exc.usage)
                     if schema is None:
                         raise
                     initial_structured_error = exc
@@ -199,7 +300,10 @@ class DurableAgentRunnerMixin:
                 else:
                     result = dict(raw_result)
                     raw_meta = result.pop("_x2red_response_meta", None)
-                    response_meta = raw_meta if isinstance(raw_meta, dict) else None
+                    response_meta = self._merge_response_meta(
+                        response_meta,
+                        raw_meta if isinstance(raw_meta, dict) else None,
+                    )
             else:
                 result = self._fallback_agent(role, project)
                 required_title = str((schema_context or {}).get("required_title") or "")
@@ -239,20 +343,28 @@ class DurableAgentRunnerMixin:
                         f"目标 Schema：{bounded_json(schema.model_json_schema(), 24000)}\n"
                         "只返回一个符合 Schema 的 JSON 对象。"
                     )
-                    repaired_raw = await self.editorial._chat_json(
-                        system_prompt="你是结构化输出修复器，只修复格式与字段，不创造内容。",
-                        user_prompt=repair_prompt,
-                        temperature=0,
-                        reasoning_effort=binding.reasoning_effort,
-                        model_name=binding.model_name,
-                        max_tokens=max_tokens,
-                        capture_response_meta=capture_response_meta,
-                        request_timeout_seconds=request_timeout_seconds,
-                    )
+                    try:
+                        repaired_raw = await self.editorial._chat_json(
+                            system_prompt="你是结构化输出修复器，只修复格式与字段，不创造内容。",
+                            user_prompt=repair_prompt,
+                            temperature=0,
+                            reasoning_effort=binding.reasoning_effort,
+                            model_name=binding.model_name,
+                            max_tokens=max_tokens,
+                            capture_response_meta=capture_response_meta,
+                            capture_usage_meta=True,
+                            request_timeout_seconds=request_timeout_seconds,
+                        )
+                    except StructuredOutputError as repair_exc:
+                        response_meta = self._merge_response_meta(
+                            response_meta,
+                            repair_exc.usage,
+                        )
+                        raise
                     repaired = dict(repaired_raw)
                     repaired_meta = repaired.pop("_x2red_response_meta", None)
                     if isinstance(repaired_meta, dict):
-                        response_meta = repaired_meta
+                        response_meta = self._merge_response_meta(response_meta, repaired_meta)
                     validated = validate_agent_payload(
                         artifact_type,
                         repaired,
@@ -271,7 +383,8 @@ class DurableAgentRunnerMixin:
             if capture_response_meta and response_meta is not None:
                 result["_completion"] = {
                     "finish_reason": str(response_meta.get("finish_reason") or ""),
-                    "completion_tokens": response_meta.get("completion_tokens"),
+                    "completion_tokens": response_meta.get("completion_tokens")
+                    or response_meta.get("output_tokens"),
                 }
             trace = StructuredOutputTrace(
                 mode=mode,
@@ -299,15 +412,14 @@ class DurableAgentRunnerMixin:
             )
             run.output_artifact_id = artifact.id
             run.finished_at = utcnow()
-            estimated_cost = run.attempts if model_configured else 0
             run.usage_json = json.dumps(
-                {
-                    "estimated_cost_cents": estimated_cost,
-                    "structured_output": trace.model_dump(mode="json"),
-                },
+                self._recorded_usage(
+                    response_meta,
+                    structured_output=trace.model_dump(mode="json"),
+                ),
                 ensure_ascii=False,
             )
-            project.spent_estimate_cents += estimated_cost
+            self._apply_recorded_cost(project, response_meta)
             if model_configured and schema is not None and memory.get("memory_ids"):
                 self._mark_memory_applied(
                     db,
@@ -328,19 +440,19 @@ class DurableAgentRunnerMixin:
             run.error = str(exc)[:2000]
             run.finished_at = utcnow()
             run.usage_json = json.dumps(
-                {
-                    "estimated_cost_cents": run.attempts if model_configured else 0,
-                    "structured_output": {
+                self._recorded_usage(
+                    response_meta,
+                    structured_output={
                         "mode": mode,
                         "status": "failed",
                         "repair_attempted": repair_attempted,
                         "validation_errors": validation_errors,
                     },
-                },
+                    error=exc,
+                ),
                 ensure_ascii=False,
             )
-            if model_configured:
-                project.spent_estimate_cents += run.attempts
+            self._apply_recorded_cost(project, response_meta)
             project.error = run.error
             db.commit()
             raise

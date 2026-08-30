@@ -111,6 +111,7 @@ function selectedCandidateScore(metadata) {
   return values.reduce((sum, item) => sum + Number(item.review?.overall_score || 0), 0) / values.length;
 }
 
+/** Initialize visual brief, prompt provenance, and candidate review controls. */
 export async function initVisualView({ api, store }) {
   injectNavigation();
   const view = injectView() || document.getElementById("visual-workflow-view");

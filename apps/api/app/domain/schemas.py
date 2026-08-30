@@ -45,6 +45,11 @@ class JobOut(BaseModel):
     dedupe_key: str
     available_at: datetime
     locked_by: str
+    lease_expires_at: datetime | None
+    heartbeat_at: datetime | None
+    last_worker_id: str
+    last_error_code: str
+    dead_lettered_at: datetime | None
     created_at: datetime
     updated_at: datetime
     started_at: datetime | None
@@ -267,6 +272,19 @@ class PublishTaskOut(BaseModel):
     package_path: str
     result_url: str
     error: str
+
+
+class PublishAuditEventOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    task_id: str | None
+    draft_id: str | None
+    action: str
+    outcome: str
+    actor: str
+    detail_json: str
+    created_at: datetime
 
 
 class CorpusPoolCreateRequest(BaseModel):

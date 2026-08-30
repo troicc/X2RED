@@ -347,6 +347,35 @@ class PublishTask(Base):
     )
 
 
+class PublishAuditEvent(Base):
+    __tablename__ = "publish_audit_events"
+
+    id: Mapped[str] = mapped_column(
+        String(64),
+        primary_key=True,
+        default=lambda: new_id("publish_audit"),
+    )
+    task_id: Mapped[str | None] = mapped_column(
+        ForeignKey("publish_tasks.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    draft_id: Mapped[str | None] = mapped_column(
+        ForeignKey("draft_revisions.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    action: Mapped[str] = mapped_column(String(60), index=True)
+    outcome: Mapped[str] = mapped_column(String(30), index=True)
+    actor: Mapped[str] = mapped_column(String(80), default="local-user")
+    detail_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        index=True,
+    )
+
+
 class SkillBinding(Base):
     __tablename__ = "skill_bindings"
 

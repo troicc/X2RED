@@ -81,6 +81,9 @@ def test_light_content_lab_candidates_corpus_iteration_and_distinct_visuals(
     import app.main as main_module
 
     importlib.reload(db_session)
+    from app.db.schema import upgrade_database
+
+    upgrade_database(db_session.settings.database_url)
     importlib.reload(main_module)
 
     from app.domain.models import SourceItem

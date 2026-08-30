@@ -67,6 +67,8 @@ The documented server binds to `127.0.0.1`. Model gateways and image generation 
 - `PlatformVariant`: immutable Xiaohongshu or WeChat-specific revision; storyboard edits create child variants rather than overwriting parents.
 - `ReviewDecision`: explicit human approval or rejection event.
 - `PublishTask`: approved frozen payload, package hash, state and result.
+- `PublishAuditEvent`: append-only prepare, preview, failure/rejection and human-confirmation event without credentials or full result URLs.
+- `Job`: durable background command with an active dedupe key, worker lease, heartbeat, bounded retry and dead-letter state.
 
 ## Replaceable boundaries
 
@@ -96,6 +98,16 @@ Before that compiler boundary, V2 freezes one article-level `VisualBible` and on
 After compilation, V3 introduces a separate image-candidate boundary. API providers request three raw candidates by default; manual web handoff accepts 1–4. Both paths persist the same Prompt-run and candidate schema, including provider/model, hash, dimensions, cost, latency, review and audit state. Contact Sheets contain only original thumbnails and candidate numbers. A candidate must pass the ten-dimension visual gate or receive explicit human approval before selection, and each page permits at most one directed repair with frozen invariants repeated. Selecting or rejecting a candidate never deletes its competitors. Only a complete set of approved selected candidates can rebuild the release package; candidates, Contact Sheets and raw anchors remain outside the ZIP. `X2RED_IMAGE_CANDIDATE_MODE=legacy` rolls back this boundary without deleting audit history.
 
 V4 adds a local typography boundary after candidate selection. A strict `TypographyRecipe` freezes normalized text regions, font role, weight, scale, line height, tracking, rotation, alignment, opacity, blend and collision policy. The selector combines the explicit mode, page role and visual layout, then mirrors regions to avoid the protected subject; `safe_zone_caption` is used only after other modes fail. Rendering records region boxes, exact lines, font sizes, clipping and collision diagnostics and fails closed on overflow or subject obstruction. Minimal Zine uses cmap-verified CJK fonts; WeChat 21:9 and 1:1 covers use the same local recipe engine after their visual background is rendered. `X2RED_TYPOGRAPHY_RECIPE_MODE=legacy` restores the pre-V4 feathered safe-zone compositor without moving or deleting artifacts.
+
+## Runtime reliability and security boundary
+
+Alembic is the sole database schema authority. The standard CLI migrates before serving, while application lifespan and `/ready` independently compare the connected revision with the repository head. A stale or unversioned database cannot start workers. Revision `0013` adds cost truth, job leases/dead-letter fields, active job dedupe and publish audit events.
+
+Text and image provider calls carry a logical request ID and payload-scoped idempotency key. Retryable transport/HTTP failures use bounded exponential backoff and jitter. Usage distinguishes provider-reported cost, provider estimate, local catalog estimate, partial/mixed values and unavailable cost; deterministic fallback does not create model usage. Deep-writing Agent runs persist this trace, and image candidates retain their model-call trace alongside immutable artifacts.
+
+Job claim is an atomic conditional update, so multiple workers do not concurrently execute the same pending record. Heartbeats extend a worker-owned lease; only an expired lease can be recovered. This is an at-least-once crash-recovery contract, not a distributed exactly-once claim, so external-side-effect handlers remain responsible for business idempotency.
+
+The HTTP service defaults to loopback. Non-loopback CLI binds require a local token unless an explicit insecure override is set. Protected API routes enforce the configured token, same/allowed Origin for unsafe browser requests, cross-site request rejection, security headers and approved-root file resolution. Uploads are size/pixel bounded and image-decoded before normalized storage. Provider/job/publish diagnostics redact credentials, and publishing remains a human-confirmed handoff.
 
 ## Isolation and review invariants
 

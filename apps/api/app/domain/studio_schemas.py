@@ -273,6 +273,9 @@ class WritingProjectOut(BaseModel):
     style_profile_id: str | None
     budget_limit_cents: int
     spent_estimate_cents: int
+    spent_cost_usd: float
+    cost_status: str
+    usage_summary: dict[str, Any] = Field(default_factory=dict)
     error: str
     output_draft_id: str = ""
     output_draft_version: int | None = None

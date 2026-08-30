@@ -31,16 +31,19 @@ from app.api import (
     pool_memory,
     publish,
     reviews,
-    settings as settings_api,
     signals,
     sources,
     writing,
 )
+from app.api import (
+    settings as settings_api,
+)
 from app.core.config import get_settings
-from app.db.base import Base
+from app.core.http_security import LocalSecurityMiddleware
+from app.db.schema import SchemaRevisionError, assert_schema_current
 from app.db.session import engine
-from app.domain import review_artifacts as review_artifact_models  # noqa: F401
 from app.domain import pool_memory as pool_memory_models  # noqa: F401
+from app.domain import review_artifacts as review_artifact_models  # noqa: F401
 from app.domain.studio import ContentAnalysis, WritingProject
 from app.providers.fxtwitter import FxTwitterProvider
 from app.services.discovery import DiscoveryService
@@ -110,7 +113,7 @@ def static_asset_digest(name: str) -> str:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    Base.metadata.create_all(engine)
+    assert_schema_current(engine)
     provider = FxTwitterProvider(
         settings.fxtwitter_base_url,
         timeout_seconds=settings.request_timeout_seconds,
@@ -133,7 +136,7 @@ async def lifespan(app: FastAPI):
         card_service,
         platform_service,
     )
-    job_engine = JobEngine(intake_service)
+    job_engine = JobEngine(intake_service, settings=settings)
 
     async def scan_target_handler(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
         result = await signal_service.scan_target(db, str(payload["target_id"]))
@@ -262,12 +265,23 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="X2RED", version="0.12.0", lifespan=lifespan)
+app.add_middleware(LocalSecurityMiddleware, settings=settings)
 app.add_middleware(
     CORSMiddleware,
+    allow_origins=sorted(
+        origin.strip().rstrip("/")
+        for origin in settings.allowed_origins.split(",")
+        if origin.strip()
+    ),
     allow_origin_regex=r"^(chrome-extension://[a-z]{32}|http://(?:127\.0\.0\.1|localhost)(?::\d+)?)$",
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "X-Request-ID",
+        "X-X2RED-Token",
+    ],
 )
 app.include_router(jobs.router)
 app.include_router(discovery.router)
@@ -359,7 +373,8 @@ def ready() -> dict:
     try:
         with engine.connect() as connection:
             connection.execute(text("SELECT 1"))
-    except SQLAlchemyError as exc:
+        revision = assert_schema_current(engine)
+    except (SQLAlchemyError, SchemaRevisionError) as exc:
         raise HTTPException(status_code=503, detail="database is not ready") from exc
 
     required_dirs = {
@@ -378,6 +393,7 @@ def ready() -> dict:
     return {
         "ok": True,
         "database": "ready",
+        "schema_revision": list(revision.current),
         "directories": sorted(required_dirs),
         "scheduler": "enabled" if settings.scheduler_enabled else "disabled",
     }
